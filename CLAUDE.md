@@ -1,9 +1,9 @@
 # CLAUDE.md — sprite-forge-mcp
 
-rpgdev 専用のローカルGPU画像生成スタジオ。**1つの Python バックエンド＝2つの顔**（人間 WebUI [FastAPI] ＋ エージェント MCP [FastMCP]）。生成計算は別マシンの ComfyUI。詳細設計は `docs/00`〜`07`。**導入（他人向け）は `INSTALL.md`＋`docs/models.md`**。
+rpgdev 専用のローカルGPU画像生成スタジオ。**1つの Python バックエンド＝2つの顔**（人間 WebUI [FastAPI] ＋ エージェント MCP [FastMCP]）。生成計算は別マシンの ComfyUI。詳細設計は `docs/00_overview.md`〜`docs/08_open_questions_validate_on_box.md`。**導入（他人向け）は `INSTALL.md`＋`docs/models.md`**。
 
 ## アーキテクチャ（実装の現実）
-- **バックエンドは Mac で動かす**（rpgdev も Claude/Codex も Mac。採用＝rpgdev へ書き出しがローカル完結）。`docs/02` の図は box と書くが実装は Mac。
+- **バックエンドは Mac で動かす**（rpgdev も Claude/Codex も Mac。採用＝rpgdev へ書き出しがローカル完結）。`docs/03_architecture.md` の図は box と書くが実装は Mac。
 - **ComfyUI は GPU機** で headless 稼働（`http://<GPU_HOST>:8188`、NSSMサービス名 `ComfyUI`、RTX5090/torch2.12+cu130）。Mac のバックエンドが LAN 越しに HTTP+WS で駆動。
 - SSH = `<user>@<GPU_HOST>`（鍵認証・PowerShell着地・管理者）。
 - 1 uvicorn プロセスに FastAPI（`/api/*`）と FastMCP（`/mcp`）を同居。両者は**同じ `backend/services.py`** を呼ぶ（ロジック二重化なし・ゲート回避不可）。
@@ -19,6 +19,14 @@ uvicorn backend.app:app --host 127.0.0.1 --port 8765
 - 到達確認: `curl http://<GPU_HOST>:8188/system_stats`（GPU機）/ `curl localhost:8765/api/gpu`（backend）。
 - MCP は `.mcp.json`（URL型 `http://127.0.0.1:8765/mcp/`）で登録済み。**uvicorn 起動中**でのみ使える。
 - SAM2 自動マスク（任意の隔離コンポーネント）: `python3.12 -m venv .venv-sam2 && .venv-sam2/bin/pip install ultralytics`（torch CPU・初回 `sam2_t.pt` 自動DL）。未導入でも手描きマスクは使える。box には何も入れない。
+
+## 検証
+```bash
+python3.12 -m compileall backend
+```
+
+## Claude 設定
+`.claude/settings.json` は端末固有なのでリポに置かない。必要時は `fewer-permission-prompts` で読み取り系 allowlist を生成し、ローカル `.claude/` 配下に置く。
 
 ## 必守の瘢痕ルール（過去の痛点をツールに焼いたもの。緩めない）
 - **透過（痛点#1）**: 出力は RGBA・四隅 alpha=0。**背景は黒禁止**。編集モデル(Qwen-Edit)経路は「キャラ色から最遠の識別色を自動選択(既定マゼンタ)→単色背景を維持させて生成→その色を色抜き→監査」。near-black はキャラの暗色アウトライン（正当）であり黒漏れではない＝**black-leak==0 ゲートは廃止**、四隅透過＋識別色コンプライアンスで判定。

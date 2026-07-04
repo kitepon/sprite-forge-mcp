@@ -1,4 +1,4 @@
-# 07 — Open Questions / Validate on Box（実機で実証する項目）
+# 08 — Open Questions / Validate on Box（実機で実証する項目）
 
 > **状態（2026-06-18）**: 主要な実証項目は解決済み＝Qwen-Edit-2511 の~32GB常駐／識別色方式の透過／ダメージ版 pose-lock（denoise0.7＋マスク保証）／LayerDiffuse は Illustrious 非互換と判定し廃止／LoRA学習（画風v2・キャラ）／ControlNet-Union。本書は実証履歴。残課題は `CLAUDE.md`「現状」を参照。
 

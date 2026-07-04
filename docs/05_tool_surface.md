@@ -1,8 +1,8 @@
-# 04 — Tool Surface（共有サービス層＝MCP ツール＝HTTP エンドポイント）
+# 05 — Tool Surface（共有サービス層＝MCP ツール＝HTTP エンドポイント）
 
 > **状態（2026-06-18）**: 実装済み＝services=MCP=HTTP の三位一体。**MCP は全15ツール**（gpu_status / list_sprites / list_loras / craft_prompt / generate_sprite / generate_variant / make_transparent / pixelize / fit_to_base / adopt / generate_character_bible / bible_status / train_style_lora / train_character_lora / train_status）で、初期化時に全体マニュアル（`MCP_INSTRUCTIONS`）を返す自己文書化済み。最新の一覧は `CLAUDE.md`。generate_sprite に背景選択 `bg`（auto/grey/green/magenta）を追加。
 
-> 各機能は **1つのサービス関数**として実装し、それを **MCP ツール**と **HTTP エンドポイント**の両方へ投影する（→ [02](02-architecture.md)）。瘢痕ルール（→ [00](00-context-and-pain.md)）はサービス層に内蔵し、UI/エージェントのどちらから来ても必ず通る。
+> 各機能は **1つのサービス関数**として実装し、それを **MCP ツール**と **HTTP エンドポイント**の両方へ投影する（→ [03](03_architecture.md)）。瘢痕ルール（→ [01](01_context_and_pain.md)）はサービス層に内蔵し、UI/エージェントのどちらから来ても必ず通る。
 
 ## 共通の戻り規約
 - すべて構造化 JSON を返す。生成物は `id`（キャッシュキー）＋ `GET /api/image/{id}` で取得可能。
@@ -27,7 +27,7 @@
 - 返り：`{candidates:[...]}` ＋ 各候補に対し `fit_to_base` の事前監査結果を付す。
 
 ### `annotate`
-- 目的：Konva 注釈 UI を開く URL を返し、送信を待って成果物を返す（→ [06](06-webui-ux.md)）。
+- 目的：Konva 注釈 UI を開く URL を返し、送信を待って成果物を返す（→ [07](07_webui_ux.md)）。
 - 返り：`{mask_id?, points?:[[x,y]...], split_line?:[[x,y]...], placement?:{dx,dy}}`。
 - 補助：`points` を **SAM2** に渡して精密マスク化するモードあり（`mode:"sam2"`）。
 

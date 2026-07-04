@@ -59,4 +59,4 @@ uvicorn backend.app:app --host 127.0.0.1 --port 8765
 - モデルは各自で取得（→ docs/models.md）。リポにモデル重みは含めない。
 - `adopt` は書き出し先へ**不可逆に上書き**する。設定先を確認してから使うこと。
 
-詳しい設計は [docs/00–07](docs/)、実装の正典は [CLAUDE.md](CLAUDE.md)。
+詳しい設計は [docs/00_overview.md](docs/00_overview.md) から辿る。実装の正典は [CLAUDE.md](CLAUDE.md)。

@@ -1,4 +1,4 @@
-# 03 — Models and Runtime（実機事実・VRAM・ランタイム判定）
+# 04 — Models and Runtime（実機事実・VRAM・ランタイム判定）
 
 > **状態（2026-06-18）**: 実機確定。素体＝Illustrious-XL-v2.0 txt2img＋**BiRefNet** matte、編集/バイブル＝Qwen-Image-Edit-2511 fp8mixed（~32GB常駐）、構造誘導＝ControlNet-Union-SDXL(promax)、LoRA＝Lightning(4steps)/画風`sprite-style-v2`/キャラLoRA群。torch2.12+cu130 / RTX5090 sm_120。最新は `CLAUDE.md`。モデルの入手先・配置は `models.md`。
 
@@ -54,4 +54,4 @@
 ## RTX 5090（Blackwell sm_120）対応メモ
 
 - PyTorch は CUDA 12.8+/cu130 系（Blackwell 対応ビルド）を使う。
-- attention は PyTorch SDPA / SageAttention（Blackwell 対応版）。導入可否は実機で確認（→ [07](07-open-questions-validate-on-box.md)）。
+- attention は PyTorch SDPA / SageAttention（Blackwell 対応版）。導入可否は実機で確認（→ [08](08_open_questions_validate_on_box.md)）。

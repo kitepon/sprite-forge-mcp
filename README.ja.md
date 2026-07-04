@@ -103,7 +103,15 @@ uvicorn backend.app:app --host 127.0.0.1 --port 8765
 ```
 
 - **WebUI** → <http://127.0.0.1:8765/>  ·  **疎通** → `curl localhost:8765/api/gpu`
-- **MCP** → `http://127.0.0.1:8765/mcp/` を Claude/Codex に URL 型サーバ登録。接続時に使い方マニュアルを返す。
+- **MCP endpoint** → `http://127.0.0.1:8765/mcp/`（URL/HTTP 型。`uvicorn` 起動中のみ有効）
+
+Claude Code には user scope を明示して登録する:
+
+```bash
+claude mcp add --scope user --transport http sprite-forge http://127.0.0.1:8765/mcp/
+```
+
+クライアント側登録の汎用方針はこの README で二重定義せず、dotagents README ランブックを参照する。
 
 ## MCP ツール（エージェントの顔）
 
@@ -130,6 +138,7 @@ uvicorn backend.app:app --host 127.0.0.1 --port 8765
 ## ドキュメント
 
 - **[INSTALL.md](INSTALL.md)** — セットアップ・任意機能・正直な制約
+- **[docs/00_overview.md](docs/00_overview.md)** — 正典ドキュメントの全体地図
 - **[docs/models.md](docs/models.md)** — モデルの入手先・配置・必須ノード
 - **[CLAUDE.md](CLAUDE.md)** — 実装の正典
 - **[docs/](docs/)** — 設計ドキュメント（背景・調査・アーキ・出力契約 …）

@@ -103,7 +103,15 @@ uvicorn backend.app:app --host 127.0.0.1 --port 8765
 ```
 
 - **WebUI** → <http://127.0.0.1:8765/>  ·  **health** → `curl localhost:8765/api/gpu`
-- **MCP** → register `http://127.0.0.1:8765/mcp/` as a URL-type server in Claude/Codex; it returns a full usage manual on connect.
+- **MCP endpoint** → `http://127.0.0.1:8765/mcp/` (URL/HTTP server; `uvicorn` must be running)
+
+Register it in Claude Code with explicit user scope:
+
+```bash
+claude mcp add --scope user --transport http sprite-forge http://127.0.0.1:8765/mcp/
+```
+
+For client-side registration patterns beyond this project-specific URL, use the dotagents README runbook instead of duplicating global MCP client policy here.
 
 ## MCP tools (the agent face)
 
@@ -130,6 +138,7 @@ All 15 tools share the same gated services as the WebUI. The server is self-docu
 ## Documentation
 
 - **[INSTALL.md](INSTALL.md)** — setup, optional features, honest limitations
+- **[docs/00_overview.md](docs/00_overview.md)** — canonical documentation map
 - **[docs/models.md](docs/models.md)** — model sources, placement, required ComfyUI nodes
 - **[CLAUDE.md](CLAUDE.md)** — implementation reference (the source of truth)
 - **[docs/](docs/)** — design docs (context, research, architecture, output contract, …)

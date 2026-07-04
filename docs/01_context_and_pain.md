@@ -1,4 +1,4 @@
-# 00 — Context and Pain（なぜ sprite-forge を作るのか）
+# 01 — Context and Pain（なぜ sprite-forge を作るのか）
 
 > **状態（2026-06-18）**: ここで定義した全痛点は、ツールの瘢痕ルールとして実装済み（`CLAUDE.md`「必守の瘢痕ルール」）。本書は設計判断の根拠＝歴史的に有効。
 

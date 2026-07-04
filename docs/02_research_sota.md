@@ -1,8 +1,8 @@
-# 01 — Research / SOTA（2026 現行ソース調査の結論）
+# 02 — Research / SOTA（2026 現行ソース調査の結論）
 
-> **状態（2026-06-18）**: 調査に基づく採用は実装で確定＝Illustrious-XL-v2.0（素体）/ Qwen-Image-Edit-2511 fp8mixed（編集・バイブル）/ BiRefNet（matte）/ ControlNet-Union-SDXL / kohya sd-scripts（LoRA学習）。**LayerDiffuse は Illustrious-XL 非互換で廃止**。本書は調査記録、最新の実機事実は `docs/03`・`CLAUDE.md`。
+> **状態（2026-06-18）**: 調査に基づく採用は実装で確定＝Illustrious-XL-v2.0（素体）/ Qwen-Image-Edit-2511 fp8mixed（編集・バイブル）/ BiRefNet（matte）/ ControlNet-Union-SDXL / kohya sd-scripts（LoRA学習）。**LayerDiffuse は Illustrious-XL 非互換で廃止**。本書は調査記録、最新の実機事実は `docs/04_models_and_runtime.md`・`CLAUDE.md`。
 
-> 「既存知識で断定しない・最新の根拠を確認する」原則に従い、2026-06 時点の現行ソースで調査した結論。各観点に出典 URL。判断は rpgdev の痛点（→ [00](00-context-and-pain.md)）に紐づく。
+> 「既存知識で断定しない・最新の根拠を確認する」原則に従い、2026-06 時点の現行ソースで調査した結論。各観点に出典 URL。判断は rpgdev の痛点（→ [01](01_context_and_pain.md)）に紐づく。
 
 ## A. 生成パイプライン（7観点）
 
@@ -27,7 +27,7 @@
 ### A5. ピクセル/レトロ → **決定的 NEAREST 縮小 ＋ パレット posterize/quantize**（既存 rpgdev 手順）＋ pixel LoRA（nerijs Pixel Art XL 等）
 - 既存キャラ群のドット粒度に再現的に寄せる。seed 固定で主観の版爆発 #6 を抑制。Retro Diffusion/PixelLab は API/local 制約で従位。
 
-### A6. ランタイム → **Windows ネイティブ ComfyUI（headless）**（→ 詳細は [03](03-models-and-runtime.md)）
+### A6. ランタイム → **Windows ネイティブ ComfyUI（headless）**（→ 詳細は [04](04_models_and_runtime.md)）
 - 研究＝native 強推奨（NTFS I/O・SageAttention 既製 wheel）。実測知見の実績＝この box の Windows portable ComfyUI で nunchaku Qwen-Edit 稼働済み。WSL2 は ext4 越し I/O 税で「可だが非推奨」。
 
 ### A7. 代替（クラウド特化）→ **却下、ローカル ComfyUI が最強**

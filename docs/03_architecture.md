@@ -1,4 +1,4 @@
-# 02 — Architecture（1バックエンド＝2フェイス）
+# 03 — Architecture（1バックエンド＝2フェイス）
 
 > **状態（2026-06-18）**: 実装と1点相違＝**backend / MCP / matting は box でなく Mac で稼働**（GPU機 は ComfyUI のみ）。理由＝採用先 rpgdev も Claude/Codex も Mac でローカル完結。下図の box 配置はこの点だけ読み替えること。1バックエンド2フェイス・共有 `services.py`・FastAPI＋FastMCP 同居は実装通り。最新は `CLAUDE.md`「アーキテクチャ」。
 
@@ -49,7 +49,7 @@ Mac (Claude/Codex 開発・ブラウザ)            box Windows (RTX5090 32GB)
 | 進捗 | `GET /api/progress`（SSE） | （ツール戻り値＋ログ） |
 | 比較 | `GET /api/compare/{id}` | `compare_grid` / `inspect` |
 
-詳細仕様は [04-tool-surface.md](04-tool-surface.md)。
+詳細仕様は [05_tool_surface.md](05_tool_surface.md)。
 
 ## ネットワーク / 配置
 
@@ -60,4 +60,4 @@ Mac (Claude/Codex 開発・ブラウザ)            box Windows (RTX5090 32GB)
 ## フロント（vanilla ESM ＋ Konva・ビルド工程ゼロ）
 
 - rpgdev の overlay/control ページ流儀を踏襲（素の ESM、`EventSource` で SSE 購読、`fetch`）。
-- 注釈は Konva.js（ESM/CDN）。ギャラリーは素の JS グリッド。詳細は [06-webui-ux.md](06-webui-ux.md)。
+- 注釈は Konva.js（ESM/CDN）。ギャラリーは素の JS グリッド。詳細は [07_webui_ux.md](07_webui_ux.md)。

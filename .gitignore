@@ -7,6 +7,8 @@ venv/
 
 # Node (web is vanilla ESM / no build, but ignore just in case)
 node_modules/
+dist/
+build/
 
 # Models & weights (large; never commit)
 models/**/*.safetensors
@@ -14,6 +16,14 @@ models/**/*.ckpt
 models/**/*.gguf
 models/**/*.pt
 models/**/*.pth
+
+# Secrets / local credentials
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
 
 # Runtime cache / generated candidates / logs
 .cache/
@@ -40,3 +50,4 @@ HANDOFF.md
 .vscode/
 .playwright-mcp/
 .claude/
+.obsidian/
