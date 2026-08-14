@@ -4,7 +4,7 @@
 
 # sprite-forge-mcp
 
-[![license: MIT](https://img.shields.io/github/license/kitepon-rgb/sprite-forge-mcp?color=blue)](LICENSE)
+[![license: MIT](https://img.shields.io/github/license/kitepon/sprite-forge-mcp?color=blue)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.11%2B-3776ab?logo=python&logoColor=white)](requirements.txt)
 [![MCP](https://img.shields.io/badge/MCP-FastMCP-4c8dff?logo=anthropic&logoColor=white)](https://modelcontextprotocol.io)
 [![backend: ComfyUI](https://img.shields.io/badge/backend-ComfyUI-7ee08a)](https://github.com/comfyanonymous/ComfyUI)
@@ -94,7 +94,7 @@ flowchart LR
 > 完全なセットアップ（GPU box・モデル・任意機能・正直な制約）は **[INSTALL.md](INSTALL.md)**。
 
 ```bash
-git clone https://github.com/kitepon-rgb/sprite-forge-mcp.git
+git clone https://github.com/kitepon/sprite-forge-mcp.git
 cd sprite-forge-mcp
 python3.12 -m venv .venv && . .venv/bin/activate     # 3.11+
 pip install -r requirements.txt
