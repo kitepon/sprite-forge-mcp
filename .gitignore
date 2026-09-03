@@ -51,3 +51,6 @@ HANDOFF.md
 .playwright-mcp/
 .claude/
 .obsidian/
+
+# Lattice detached-worktree execution state
+.lattice/runs/
