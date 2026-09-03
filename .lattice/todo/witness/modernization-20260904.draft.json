@@ -1,0 +1,15 @@
+{
+  "schema": "lattice.todo_witness_draft.v2",
+  "project_id": "sprite-forge-mcp",
+  "plan_key": "modernization-20260904",
+  "capacity": { "executors": 1 },
+  "tasks": {
+    "p0-box": {
+      "owns": [
+        ".gitignore",
+        { "path": "evidence/modernization-20260904/p0-box.md", "creates": true }
+      ],
+      "reads": ["docs/plan_modernization-20260904.md"]
+    }
+  }
+}
