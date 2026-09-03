@@ -1,0 +1,14 @@
+[general]
+caption_extension = ".txt"
+shuffle_caption = true
+keep_tokens = 1
+
+[[datasets]]
+resolution = 1024
+batch_size = 1
+enable_bucket = true
+bucket_no_upscale = true
+
+  [[datasets.subsets]]
+  image_dir = "C:/sf/smoke"
+  num_repeats = 1
