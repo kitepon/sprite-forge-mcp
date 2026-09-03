@@ -27,6 +27,15 @@ from .comfy_client import ComfyClient
 WEB = Path(__file__).resolve().parent.parent / "web"
 
 
+class NoCacheStaticFiles(StaticFiles):
+    """Serve the local studio UI without retaining stale CSS/JS in browsers."""
+
+    async def get_response(self, path: str, scope: dict):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+
 # ---------------- MCP (agent face) — built first so its lifespan can be nested ----------------
 MCP_INSTRUCTIONS = """\
 sprite-forge — a local studio for generating game CHARACTER SPRITES for the sibling rpgdev
@@ -414,4 +423,4 @@ async def api_base(name: str):
 app.mount("/mcp", mcp_app)
 
 if WEB.exists():
-    app.mount("/", StaticFiles(directory=str(WEB), html=True), name="web")
+    app.mount("/", NoCacheStaticFiles(directory=str(WEB), html=True), name="web")

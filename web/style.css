@@ -57,11 +57,12 @@ a:hover{text-decoration:underline}
 .stepper .sep{flex:1;min-width:8px}
 .stepper .step.alt{background:transparent;border-style:dashed}
 
-#stage{padding:var(--sp-6) var(--sp-5);max-width:1320px;width:100%;margin:0 auto}
+#stage{padding:var(--sp-6) var(--sp-5);max-width:1480px;width:100%;margin:0 auto}
 .step-head{margin-bottom:var(--sp-5)}
 .step-head h1{font-size:var(--fz-h1)}
 .step-head p{color:var(--ink-mut);margin-top:var(--sp-1)}
-.layout-2{display:grid;grid-template-columns:380px 1fr;gap:var(--sp-5);align-items:start}
+.layout-2{display:grid;grid-template-columns:minmax(540px,600px) minmax(0,1fr);
+  gap:var(--sp-5);align-items:start}
 
 /* (d) COMPONENTS ------------------------------------------------------------ */
 /* buttons */
@@ -88,7 +89,7 @@ a:hover{text-decoration:underline}
 .field>label,.field-label{font-size:var(--fz-sm);color:var(--ink-mut)}
 .field .hint{font-size:var(--fz-xs);color:var(--ink-dim)}
 .row{display:flex;gap:var(--sp-3);flex-wrap:wrap;align-items:flex-end}
-.row .field{flex:1;margin-bottom:0}
+.row .field{flex:1 1 88px;min-width:0;margin-bottom:0}
 input,textarea,select{background:var(--surface);border:1px solid var(--line-2);color:var(--ink);
   border-radius:var(--r-sm);padding:9px 11px;font:var(--fz-md) var(--font);width:100%}
 input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent);
@@ -208,7 +209,9 @@ textarea{resize:vertical;min-height:76px;line-height:1.5}
 .err-text{color:var(--bad);white-space:pre-wrap;font-size:var(--fz-sm);margin-top:var(--sp-2)}
 
 /* (f) RESPONSIVE ------------------------------------------------------------ */
-@media (max-width:880px){
+@media (max-width:1000px){
   .layout-2{grid-template-columns:1fr}
+}
+@media (max-width:880px){
   #jobs-dock{left:var(--sp-3);right:var(--sp-3);width:auto}
 }
