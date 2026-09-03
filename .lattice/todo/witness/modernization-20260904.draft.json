@@ -2,12 +2,39 @@
   "schema": "lattice.todo_witness_draft.v2",
   "project_id": "sprite-forge-mcp",
   "plan_key": "modernization-20260904",
-  "capacity": { "executors": 1 },
+  "capacity": { "executors": 2 },
   "tasks": {
-    "p0-box": {
+    "p0-models": {
       "owns": [
-        ".gitignore",
-        { "path": "evidence/modernization-20260904/p0-box.md", "creates": true }
+        "docs/models.md",
+        { "path": "evidence/modernization-20260904/p0-models.md", "creates": true }
+      ],
+      "reads": ["docs/plan_modernization-20260904.md"]
+    },
+    "p0-trainer": {
+      "owns": [
+        { "path": "evidence/modernization-20260904/p0-trainer.md", "creates": true }
+      ],
+      "reads": ["docs/plan_modernization-20260904.md"]
+    },
+    "p1-base": {
+      "owns": [
+        { "path": "docs/09_modernization_bench.md", "creates": true },
+        { "path": "evidence/modernization-20260904/p1-base.md", "creates": true }
+      ],
+      "reads": ["docs/plan_modernization-20260904.md"]
+    },
+    "p1-edit": {
+      "owns": [
+        "docs/09_modernization_bench.md",
+        { "path": "evidence/modernization-20260904/p1-edit.md", "creates": true }
+      ],
+      "reads": ["docs/plan_modernization-20260904.md"]
+    },
+    "p1-matte": {
+      "owns": [
+        "docs/09_modernization_bench.md",
+        { "path": "evidence/modernization-20260904/p1-matte.md", "creates": true }
       ],
       "reads": ["docs/plan_modernization-20260904.md"]
     }
