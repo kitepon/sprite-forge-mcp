@@ -1,0 +1,10 @@
+{
+  "schema": "lattice.project_identity.v1",
+  "project_id": "sprite-forge-mcp",
+  "display_name": "sprite-forge-mcp",
+  "external_pane": {
+    "title": "円卓",
+    "url": "https://peertable.kitepon.dev/sprite-forge-mcp",
+    "probe_url": "https://peertable.kitepon.dev/api/sprite-forge-mcp/members"
+  }
+}
