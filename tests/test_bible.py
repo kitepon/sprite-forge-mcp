@@ -5,8 +5,8 @@ from io import BytesIO
 
 from PIL import Image
 
-from backend import bible
-from backend.bible import PANELS, instruction, possessive_pronoun
+from backend import bible, box
+from backend.bible import PANELS, panel_prompt, subject_tag
 from backend.events import EventStore
 from backend.services import Services
 
@@ -21,6 +21,10 @@ def png(color: str = "#44aaff") -> bytes:
 class ComfyFixture:
     def __init__(self):
         self.submitted: list[dict] = []
+        self.base_url = "http://fox:8188"
+        class _Client:
+            async def post(self, url, json): assert url.endswith("/free")
+        self.client = _Client()
 
     async def upload(self, content, name):
         assert content.startswith(b"\x89PNG")
@@ -39,73 +43,61 @@ async def view_image(_image):
     return png()
 
 
-def test_bible_generates_all_panels_model_sheet_and_embedded_html(tmp_path):
-    source = tmp_path / "source.png"
-    source.write_bytes(png("#ff8844"))
+def make(tmp_path, monkeypatch):
+    async def copied(local, remote, **kwargs): return 0, ""
+    async def lines(*args, **kwargs):
+        yield "steps: 100%|##########| 3/3 [00:03<00:00,  1.24it/s]"
+    monkeypatch.setattr(box, "copy_tree_to_box", copied)
+    monkeypatch.setattr(box, "copy_to_box", copied)
+    monkeypatch.setattr(box, "stream_training", lines)
     comfy = ComfyFixture()
     service = Services(comfy=comfy, events=EventStore(tmp_path / "events.ndjson", tmp_path / "jobs"),
-                       generated_root=tmp_path / "generated")
+                       generated_root=tmp_path / "generated", uploads_root=tmp_path / "uploads")
     service._view = view_image
+    return service, comfy
 
-    stale = tmp_path / "generated" / "bible_ember_mage_panels" / "expression_happy.png"
+
+def test_bible_trains_a_lora_from_the_pictures_then_draws_every_panel_with_it(tmp_path, monkeypatch):
+    service, comfy = make(tmp_path, monkeypatch)
+    a, b = tmp_path / "a.png", tmp_path / "b.png"
+    a.write_bytes(png("#ff8844")); b.write_bytes(png("#8844ff"))
+    stale = tmp_path / "generated" / "bible_Bell_panels" / "old.png"
     stale.parent.mkdir(parents=True); stale.write_bytes(png())
-    style_a, style_b = tmp_path / "style_a.png", tmp_path / "style_b.png"
-    style_a.write_bytes(png("#112233")); style_b.write_bytes(png("#445566"))
-    job = asyncio.run(service.generate_character_bible(str(source), "ember mage", "they/them fire mage", "red coat",
-                                                       style_refs=f"{style_a}, {style_b}"))
+
+    job = asyncio.run(service.generate_character_bible(f"{a},{b}", "Bell", "she/her idol", "idol", steps=3,
+                                                       captions="white crop top|long coat"))
+
+    assert job["status"] == "completed" and job["trigger"] == "bell" and job["lora_name"].startswith("Bell_")
     assert not stale.exists()
-    assert job["style_refs"] == [str(style_a), str(style_b)]
-
-    assert job["status"] == "completed"
-    assert len(job["panels"]) == len(PANELS) == 23
-    assert all((tmp_path / "generated" / "bible_ember_mage_panels" / f"{panel.key}.png").is_file() for panel in PANELS)
-    assert (tmp_path / "generated" / "bible_ember_mage_master.png").is_file()
-    assert Image.open(job["sheet_path"]).width == 2040
-    html = open(job["html_path"], encoding="utf-8").read()
-    assert "MASTER REFERENCE" in html and "ALTERNATE COSTUMES" in html and "data:image/jpeg;base64," in html
+    dataset = tmp_path / "generated" / "lora_Bell_dataset"
+    assert (dataset / "0.txt").read_text() == "bell, white crop top" and (dataset / "1.txt").read_text() == "bell, long coat"
+    assert len(job["panels"]) == len(PANELS) == 23 and len(comfy.submitted) == 23
+    first = comfy.submitted[0]
+    assert first["4"]["inputs"]["lora_name"] == job["lora_name"] and first["1"]["inputs"]["unet_name"] == "anima-base-v1.0.safetensors"
+    assert first["20"]["inputs"]["text"] == "bell, 1girl, full body, standing, front view, looking at viewer, arms at sides, simple background, white background"
+    assert first["21"]["inputs"]["text"] == bible.NEGATIVE and first["22"]["inputs"]["width"] == 832
+    face = comfy.submitted[6]
+    assert face["22"]["inputs"] == {"width": 1024, "height": 1024, "batch_size": 1} and "portrait" in face["20"]["inputs"]["text"]
+    assert Image.open(job["sheet_path"]).width == 2040 and "TRAINING PICTURES" in open(job["html_path"], encoding="utf-8").read()
     assert asyncio.run(service.bible_status(job["job_id"]))["status"] == "completed"
-    assert len(comfy.submitted) == 25  # matte + master + 23 panels
-    assert comfy.submitted[0]["2"]["class_type"] == "BiRefNetRMBG"
-    assert (tmp_path / "generated" / "bible_ember_mage_source.png").is_file()
-    master, first_panel = comfy.submitted[1], comfy.submitted[2]
-    assert master["20"]["inputs"]["prompt"] == bible.master_prompt(2)
-    assert "design only from image 1" in master["20"]["inputs"]["prompt"] and "images 2-3" in master["20"]["inputs"]["prompt"]
-    assert master["20"]["inputs"]["images.image1"] == ["11", 0] and master["20"]["inputs"]["images.image2"] == ["12", 0]
-    assert first_panel["10"]["inputs"]["image"] == "sf_bible_master_ember_mage.png"
-    assert first_panel["11"]["inputs"]["image"] == "sf_bible_src_ember_mage.png"
-    assert first_panel["12"]["inputs"]["image"] == "sf_bible_style_ember_mage_0.png"
-    assert "drawing style of images 3-4" in first_panel["20"]["inputs"]["prompt"]
-    assert master["22"]["inputs"] == {"width": 1280, "height": 1024, "batch_size": 1}
-    assert first_panel["10"]["inputs"]["image"] == "sf_bible_master_ember_mage.png"
-    assert first_panel["21"]["inputs"]["prompt"] == bible.NEG
-    item_index = next(i for i, panel in enumerate(PANELS) if panel.kind == "item")
-    assert comfy.submitted[2 + item_index]["10"]["inputs"]["image"] == "sf_bible_front_ember_mage.png"
+    picture = asyncio.run(service.generate_from_bible("Bell", "waving, stage", seed=5))
+    assert picture["lora_name"] == job["lora_name"] and comfy.submitted[-1]["20"]["inputs"]["text"] == "bell, waving, stage"
 
 
-def test_bible_prompt_uses_description_pronouns_not_fixed_her():
-    back = next(panel for panel in PANELS if panel.key == "turn_back")
-    prompt = instruction(back, possessive_pronoun("he/him cloud knight"))
-    assert "with his back fully toward the viewer" in prompt and "her" not in prompt.split()
-    assert bible.negative(back) == bible.NEG_BACK
-    assert "close-up headshot" in instruction(next(p for p in PANELS if p.kind == "face"), "their")
+def test_bible_reuses_an_existing_lora_and_skips_training(tmp_path, monkeypatch):
+    service, comfy = make(tmp_path, monkeypatch)
+    a = tmp_path / "a.png"; a.write_bytes(png())
+    job = asyncio.run(service.generate_character_bible(str(a), "Bell", "she/her", lora_name="BellGrok.safetensors", trigger="bell_idol"))
+    assert job["lora_name"] == "BellGrok.safetensors" and "train_job" not in job
+    assert not (tmp_path / "generated" / "lora_Bell_dataset").exists()
+    assert comfy.submitted[0]["20"]["inputs"]["text"].startswith("bell_idol, 1girl, ")
+
+
+def test_panel_prompts_carry_content_only_and_the_subject_comes_from_the_description():
+    assert subject_tag("he/him cloud knight") == "1boy" and subject_tag("a robot") == "1other"
     item = next(p for p in PANELS if p.kind == "item")
-    assert "no person, no body" in instruction(item, "their") and bible.negative(item) == bible.NEG_ITEM
-    chibi = next(p for p in PANELS if p.key == "chibi_big")
-    assert "two heads tall" in instruction(chibi, "their") and bible.negative(chibi) == bible.NEG_CHIBI
-    for key in ("cos_casual", "cos_armor", "cos_dress"):
-        panel = next(p for p in PANELS if p.key == key)
-        assert "{p}" not in instruction(panel, "their") and bible.negative(panel) == bible.NEG_COSTUME
-
-
-def test_style_comes_only_from_references_never_from_the_product():
-    face = next(p for p in PANELS if p.kind == "face")
-    bare = instruction(face, "their")
-    for word in ("cel", "anime style", "high detail", "painterly", "glossy"):
-        assert word not in bare
-    assert "drawing style of images 1-2:" in bare  # master + the owner's source picture
-    assert "do NOT copy their backgrounds" in bare and bare.endswith("regardless of the reference pictures' backgrounds.")
-    assert "drawing style of image 1:" in bible.master_prompt(0)  # the source alone is the style
-    assert "drawing style of images 3-6" in instruction(face, "their", 4)
-    assert "drawing style of images 1-2" in bible.from_bible_prompt("waving", 0)
-    assert "drawing style of images 3-5" in bible.from_bible_prompt("waving", 3)
-    assert bible.image_prompt("a fox", 2).startswith("Draw a completely new picture: a fox.") and "images 1-2" in bible.image_prompt("a fox", 2)
+    assert panel_prompt(item, "bell", "she/her").startswith("bell, no humans, ")
+    for panel in PANELS:
+        text = panel_prompt(panel, "bell", "she/her")
+        for word in ("cel", "painterly", "glossy", "masterpiece", "best quality", "high detail"):
+            assert word not in text

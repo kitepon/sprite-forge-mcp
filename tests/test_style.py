@@ -93,21 +93,6 @@ def test_generate_image_uses_only_style_pictures(tmp_path):
         raise AssertionError("generate_image without style pictures must fail")
 
 
-def test_generate_from_bible_references_master_then_source_then_style(tmp_path):
-    service, comfy = make(tmp_path)
-    source = tmp_path / "src.png"; source.write_bytes(png("#ff8844"))
-    asyncio.run(service.generate_character_bible(str(source), "Bell", "she/her idol"))
-    comfy.submitted.clear()
-    style = tmp_path / "style.png"; style.write_bytes(png("#0000ff"))
-    job = asyncio.run(service.generate_from_bible("Bell", "waving on a stage", style_refs=str(style)))
-    assert job["status"] == "completed" and job["path"].endswith("-from-bible.png")
-    graph = comfy.submitted[0]
-    assert graph["10"]["inputs"]["image"] == "sf_bible_master_Bell.png"
-    assert graph["11"]["inputs"]["image"] == "sf_bible_src_Bell.png"
-    assert graph["12"]["inputs"]["image"].startswith("sf_style_")
-    assert "images 1-2" in graph["20"]["inputs"]["prompt"] and "drawing style of image 3" in graph["20"]["inputs"]["prompt"]
-
-
 def test_waiting_follows_the_queue_and_fails_only_when_comfy_drops_the_prompt(tmp_path):
     service, comfy = make(tmp_path)
     comfy.drop_after = 0

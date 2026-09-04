@@ -70,11 +70,9 @@ function workbench(root) {
 function fromBibleCard() {
   const name = element("input", { placeholder: "設定画の名前（例: Bell）" });
   const prompt = element("textarea", { rows: "2", placeholder: "描いてほしい絵（例: waving on a stage, spotlight）" });
-  const preset = presetSelect();
-  const refs = picker("質感のネタ画像（任意）");
   const out = element("div", { class: "stack" });
-  const go = element("button", { onclick: async () => { try { out.replaceChildren(element("p", { class: "muted" }, "生成中…")); const job = await API.fromBible(name.value, prompt.value, preset.value, refs.value); record("シートから", prompt.value, job.path, job.job_id); out.replaceChildren(preview(job.path), element("p", { class: "muted" }, `${job.path} · ${job.elapsed_s}s`)); } catch (error) { notice(error.message, true); } } }, "シートから描く");
-  return card("シートから描く", element("div", { class: "stack" }, element("label", {}, "設定画", name), element("label", {}, "指示", prompt), element("label", {}, "質感プリセット", preset), element("label", {}, "質感のネタ", refs.node), go, out));
+  const go = element("button", { onclick: async () => { try { out.replaceChildren(element("p", { class: "muted" }, "生成中…")); const job = await API.fromBible(name.value, prompt.value); record("シートから", prompt.value, job.path, job.job_id); out.replaceChildren(preview(job.path), element("p", { class: "muted" }, `${job.path} · ${job.elapsed_s}s`)); } catch (error) { notice(error.message, true); } } }, "シートから描く");
+  return card("シートから描く", element("div", { class: "stack" }, element("label", {}, "設定画", name), element("label", {}, "指示（内容だけ。絵柄は LoRA）", prompt), go, out));
 }
 
 function imageCard() {
@@ -87,16 +85,17 @@ function imageCard() {
 }
 
 function settings(root) {
-  const source = picker("素体（持ってきたキャラ画像のパス。下から取り込みも可）", false);
-  const name = element("input", { placeholder: "キャラクター名" });
-  const desc = element("input", { placeholder: "説明（代名詞を含める。例: she/her, silver twin-tail idol）" });
+  const images = picker("キャラクターの画像（複数可。この絵柄と本人を LoRA が覚える）");
+  const name = element("input", { placeholder: "キャラクター名（trigger 語にもなる）" });
+  const desc = element("input", { placeholder: "説明（代名詞を含める。例: she/her, silver twin-tail idol, white and gold outfit）" });
+  const captions = element("input", { placeholder: "画像ごとの説明を | 区切りで（任意。衣装が違う画像を分けて覚えさせる）" });
   const costume = element("input", { placeholder: "属性メモ（シートの見出しに載る）" });
-  const preset = presetSelect();
-  const styleRefs = picker("質感のネタ画像（任意・最大 4 枚）。無ければ素体自身の質感を写す");
+  const lora = element("input", { placeholder: "学習済み LoRA 名（任意。あれば学習を飛ばす）" });
+  API.loras().then((items) => { lora.setAttribute("list", "lora-list"); root.append(element("datalist", { id: "lora-list" }, ...items.map((item) => element("option", { value: item })))); }).catch(() => {});
   const result = element("div", { class: "stack" });
-  const save = element("button", { onclick: async () => { try { result.replaceChildren(element("p", { class: "muted" }, "生成中…（24 枚の編集。数分かかる）")); const job = await API.bible(source.value, name.value, desc.value, costume.value, styleRefs.value, preset.value); state.activeJob = job.job_id; record("設定画", name.value || "設定画を生成", job.sheet_path || job.job_id, job.job_id); result.replaceChildren(preview(job.sheet_path), element("p", { class: "muted" }, `${job.sheet_path} / ${job.html_path}`)); notice("設定画を生成しました"); } catch (error) { notice(error.message, true); } } }, "設定画を生成");
-  root.replaceChildren(element("header", { class: "page-head" }, element("h1", {}, "設定画"), element("p", {}, "持ってきた画像と同じ質感・デザインで設定画を作ります。別の画像を質感のネタにすると、デザインは素体、質感はネタから写します。")),
-    card("設定画を作る", element("div", { class: "stack" }, element("label", {}, "素体", source.node), element("label", {}, "名前", name), element("label", {}, "説明", desc), element("label", {}, "属性", costume), element("label", {}, "質感プリセット", preset), element("label", {}, "質感のネタ", styleRefs.node), save, result)),
+  const save = element("button", { onclick: async () => { try { result.replaceChildren(element("p", { class: "muted" }, "LoRA 学習（約 15 分）→ 23 パネル生成。過程画面で進捗が見られる")); const job = await API.bible(images.value, name.value, desc.value, costume.value, lora.value, captions.value); state.activeJob = job.job_id; record("設定画", name.value || "設定画を生成", job.sheet_path || job.job_id, job.job_id); result.replaceChildren(preview(job.sheet_path), element("p", { class: "muted" }, `${job.sheet_path} / ${job.html_path} · LoRA ${job.lora_name}`)); notice("設定画を生成しました"); } catch (error) { notice(error.message, true); } } }, "設定画を生成");
+  root.replaceChildren(element("header", { class: "page-head" }, element("h1", {}, "設定画"), element("p", {}, "持ってきた画像で LoRA を学習し、その LoRA で方向・表情・衣装・ちび・装備の 23 パネルを描きます。絵柄は画像から学ぶので、言葉では指定しません。")),
+    card("設定画を作る", element("div", { class: "stack" }, element("label", {}, "画像", images.node), element("label", {}, "名前", name), element("label", {}, "説明", desc), element("label", {}, "画像ごとの説明", captions), element("label", {}, "属性", costume), element("label", {}, "LoRA", lora), save, result)),
     presetCard());
 }
 

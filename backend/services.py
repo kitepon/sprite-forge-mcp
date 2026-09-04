@@ -83,80 +83,59 @@ class Services:
         required = response.json().get("LoraLoader", {}).get("input", {}).get("required", {})
         return list(required.get("lora_name", [[]])[0])
 
-    async def generate_character_bible(self, source: str, name: str, char_desc: str,
-                                       attr: str = "", seed: int = 1, style_refs: str = "",
-                                       style_preset: str = "") -> dict[str, Any]:
-        """Master-sheet-anchored bible: one packed master edit, then one panel per spec, each
-        referencing the master sheet and the source picture (see backend/bible.py).
+    async def generate_character_bible(self, images: str, name: str, char_desc: str, attr: str = "",
+                                       seed: int = 1, lora_name: str = "", trigger: str = "",
+                                       captions: str = "", steps: int = 1200, turbo: bool = False) -> dict[str, Any]:
+        """Bring pictures of a character → a model sheet in their look.
 
-        The look is copied from pictures, never described in words: the source itself when
-        nothing else is given; otherwise the ``style_preset`` pictures plus ``style_refs``
-        (comma-separated paths / http(s) URLs / data: URLs). JoyAI takes six references, so
-        master + source + up to four style pictures."""
-        source_path = await self._resolve_image(source)
-        style_paths = await self._style_paths(style_preset, style_refs)
+        ``images``: comma-separated pictures (paths / URLs / data URLs). A LoRA is trained on them
+        first (``captions``: '|'-separated, one per picture, optional) unless ``lora_name`` names an
+        existing one. Then Anima + that LoRA draws all 23 panels from content tags (see
+        backend/bible.py). The product never describes a style: the LoRA is the look."""
+        picture_paths = [await self._resolve_image(ref.strip()) for ref in images.split(",") if ref.strip()]
+        if not picture_paths and not lora_name:
+            raise ValueError("give images (pictures of the character) or lora_name")
         job_id = str(uuid.uuid4())
         key = bible.safe_name(name)
+        trigger = trigger or key.lower()
         panel_root = self.generated_root / f"bible_{key}_panels"
-        job = {"job_id": job_id, "kind": "character_bible", "status": "queued", "name": name,
-               "source": str(source_path), "style_refs": [str(path) for path in style_paths],
-               "style_preset": style_preset, "panels_dir": str(panel_root)}
+        job = {"job_id": job_id, "kind": "character_bible", "status": "queued", "name": name, "trigger": trigger,
+               "images": [str(p) for p in picture_paths], "lora_name": lora_name, "panels_dir": str(panel_root)}
         self.events.save_job(job)
-        self._record_call("generate_character_bible", job_id, {"name": name, "seed": seed})
-        self.events.append(job_id, "queued", {"name": name, "source": str(source_path)})
+        self._record_call("generate_character_bible", job_id, {"name": name, "seed": seed, "lora_name": lora_name})
+        self.events.append(job_id, "queued", {"name": name, "images": job["images"]})
         try:
-            possessive = bible.possessive_pronoun(char_desc)
             if panel_root.exists():
                 shutil.rmtree(panel_root)  # the panel set is also LoRA material: no stale panels from an earlier run
-            # The source is a picture the owner liked, usually with a scene behind the character.
-            # Matte it (ToonOut) and put the figure on white so the panels copy the character and
-            # the look, not the scene.
-            raw_upload = await self.comfy.upload(bible.on_white(source_path.read_bytes()), f"sf_bible_raw_{key}.png")
-            job.update(status="matting source")
-            self.events.save_job(job)
-            matted, elapsed = await self._run_edit(job_id, workflows.toonout(raw_upload))
-            source_on_white = bible.on_white(matted)
-            self._write_generated(f"bible_{key}_source.png", source_on_white)
-            self.events.append(job_id, "source_matted", {"elapsed_s": elapsed})
-            source_upload = await self.comfy.upload(source_on_white, f"sf_bible_src_{key}.png")
-            style_uploads = [await self.comfy.upload(bible.on_white(path.read_bytes()), f"sf_bible_style_{key}_{i}.png")
-                             for i, path in enumerate(style_paths)]
-            job.update(status="generating master sheet")
-            self.events.save_job(job)
-            styled = len(style_uploads)
-            content, elapsed = await self._run_edit(job_id, workflows.joy_edit(
-                [source_upload, *style_uploads], bible.master_prompt(styled), seed,
-                negative=bible.NEG_MASTER, size=bible.MASTER_SIZE))
-            master = bible.on_white(content)
-            master_path = self._write_generated(f"bible_{key}_master.png", master)
-            master_upload = await self.comfy.upload(master, f"sf_bible_master_{key}.png")
-            job["master_path"] = str(master_path)
-            self.events.append(job_id, "master_completed", {"path": str(master_path), "elapsed_s": elapsed})
+            if not lora_name:
+                job.update(status="training lora"); self.events.save_job(job)
+                training = await self.train_character_lora(bible_name=name, trigger=trigger, steps=steps,
+                                                           images=images, captions=captions or char_desc)
+                lora_name = training["lora_name"]
+                job.update(lora_name=lora_name, train_job=training["job_id"])
+                self.events.append(job_id, "lora_ready", {"lora_name": lora_name, "train_job": training["job_id"]})
             panels: list[tuple[str, Path]] = []
-            front_upload = master_upload  # item panels reference the single front figure once it exists
             for index, panel in enumerate(bible.PANELS):
                 job.update(status="generating panels", panel=panel.key, completed_panels=index)
                 self.events.save_job(job)
-                # image 1 = what to redraw (master sheet, or the front figure for items);
-                # image 2 = the owner's source picture, whose look every panel copies; then extra style refs
-                refs = [front_upload if panel.kind == "item" else master_upload, source_upload, *style_uploads]
-                content, elapsed = await self._run_edit(job_id, workflows.joy_edit(
-                    refs, bible.instruction(panel, possessive, styled), seed + 100 + index,
-                    negative=bible.negative(panel), size=bible.size(panel)))
+                width, height = bible.size(panel)
+                content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
+                    bible.panel_prompt(panel, trigger, char_desc), seed + index, turbo=turbo, lora_name=lora_name,
+                    negative=bible.NEGATIVE, width=width, height=height))
                 panel_path = panel_root / f"{panel.key}.png"
                 panel_path.parent.mkdir(parents=True, exist_ok=True)
-                cropped = bible.crop_nonwhite(content)
-                panel_path.write_bytes(cropped)
-                if panel.key == "turn_front":
-                    front_upload = await self.comfy.upload(cropped, f"sf_bible_front_{key}.png")
+                panel_path.write_bytes(bible.crop_nonwhite(content))
                 panels.append((panel.key, panel_path))
                 self.events.append(job_id, "panel_completed", {"panel": panel.key, "path": str(panel_path), "elapsed_s": elapsed})
-            sheet = bible.compose_model_sheet(name, attr, panels, master_path, self.generated_root / f"bible_{key}.png")
-            html = bible.write_html(name, attr, panels, master_path, self.generated_root / f"bible_{key}.html")
-            job.update(status="completed", completed_panels=len(panels),
+            anchor_paths = picture_paths or [panel_root / "turn_front.png"]
+            anchor = self.generated_root / f"bible_{key}_source.png"
+            bible.contact_strip(anchor_paths).save(anchor, "PNG")
+            sheet = bible.compose_model_sheet(name, attr, panels, anchor, self.generated_root / f"bible_{key}.png")
+            html = bible.write_html(name, attr, panels, anchor, self.generated_root / f"bible_{key}.html")
+            job.update(status="completed", completed_panels=len(panels), source=str(anchor),
                        panels=[str(path) for _, path in panels], sheet_path=str(sheet), html_path=str(html))
             self.events.save_job(job)
-            self.events.append(job_id, "completed", {"sheet_path": str(sheet), "html_path": str(html)})
+            self.events.append(job_id, "completed", {"sheet_path": str(sheet), "html_path": str(html), "lora_name": lora_name})
             return job
         except Exception as error:
             job.update(status="failed", error=str(error))
@@ -171,26 +150,18 @@ class Services:
         return content, round(time.monotonic() - started, 1)
 
     async def generate_from_bible(self, name: str, prompt: str, width: int = 1024, height: int = 1024,
-                                  seed: int = 1, style_refs: str = "", style_preset: str = "") -> dict[str, Any]:
-        """Usage 3: a new picture of a character, drawn from that character's bible (master sheet
-        + the original source picture) with the look copied from those or from style pictures."""
-        key = bible.safe_name(name)
-        master_path = self.generated_root / f"bible_{key}_master.png"
-        if not master_path.is_file():
-            raise FileNotFoundError(f"no character bible named {name!r}: run generate_character_bible first")
-        matted = self.generated_root / f"bible_{key}_source.png"
-        source_path = matted if matted.is_file() else self._bible_source(name)
-        style_paths = await self._style_paths(style_preset, style_refs)
+                                  seed: int = 1, turbo: bool = False) -> dict[str, Any]:
+        """Usage 3: a new picture of a character, drawn by Anima + that character's LoRA.
+        ``prompt`` is content (pose, place, outfit) in Danbooru-style tags or plain words."""
+        info = self._bible_info(name)
         job_id = str(uuid.uuid4())
         job = {"job_id": job_id, "kind": "from_bible", "status": "queued", "name": name, "prompt": prompt,
-               "style_refs": [str(p) for p in style_paths], "style_preset": style_preset, "seed": seed}
+               "lora_name": info["lora_name"], "seed": seed}
         self.events.save_job(job); self._record_call("generate_from_bible", job_id, {"name": name, "seed": seed})
         self.events.append(job_id, "queued", {"name": name, "prompt": prompt})
-        refs = [await self.comfy.upload(master_path.read_bytes(), f"sf_bible_master_{key}.png"),
-                await self.comfy.upload(bible.on_white(source_path.read_bytes()), f"sf_bible_src_{key}.png"),
-                *[await self.comfy.upload(bible.on_white(p.read_bytes()), f"sf_style_{job_id}_{i}.png") for i, p in enumerate(style_paths)]]
-        content, elapsed = await self._run_edit(job_id, workflows.joy_edit(
-            refs, bible.from_bible_prompt(prompt, len(style_paths)), seed, negative=bible.NEG_IMAGE, size=(width, height)))
+        full_prompt = ", ".join(part for part in (info["trigger"], prompt) if part)
+        content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
+            full_prompt, seed, turbo=turbo, lora_name=info["lora_name"], negative=bible.NEGATIVE, width=width, height=height))
         path = self._write_generated(f"{job_id}-from-bible.png", content)
         job.update(status="completed", path=str(path), elapsed_s=elapsed)
         self.events.save_job(job); self.events.append(job_id, "image_completed", {"path": str(path), "elapsed_s": elapsed})
@@ -269,14 +240,12 @@ class Services:
                 paths.append(await self._resolve_image(ref.strip()))
         return paths
 
-    def _bible_source(self, name: str) -> Path:
-        """The source picture of the newest completed bible of that name (from the job records)."""
+    def _bible_info(self, name: str) -> dict[str, Any]:
+        """LoRA and trigger of the newest completed bible of that name (from the job records)."""
         for job in self.events.list_jobs():
             if job.get("kind") == "character_bible" and job.get("name") == name and job.get("status") == "completed":
-                path = Path(job["source"])
-                if path.is_file():
-                    return path
-        return self.generated_root / f"bible_{bible.safe_name(name)}_panels" / "turn_front.png"
+                return {"lora_name": job["lora_name"], "trigger": job.get("trigger", "")}
+        raise FileNotFoundError(f"no completed character bible named {name!r}")
 
     async def _resolve_image(self, ref: str) -> Path:
         """One entry point for every picture an owner or Bot brings in: a path or id inside the
@@ -306,7 +275,7 @@ class Services:
         return await self._status(job_id, "bible_status")
 
     async def train_character_lora(self, bible_name: str = "", trigger: str = "sprite_subject", steps: int = 1200,
-                                   images: str = "") -> dict[str, Any]:
+                                   images: str = "", captions: str = "") -> dict[str, Any]:
         """Train an Anima LoRA on fox. Material is either a bible's panels (``bible_name``) or any
         pictures you bring (``images``: comma-separated paths / URLs / data URLs) — e.g. the
         pictures the owner generated elsewhere, which then carry both the character and the look."""
@@ -319,8 +288,11 @@ class Services:
             if panels.exists():
                 shutil.rmtree(panels)
             panels.mkdir(parents=True)
+            texts = [c.strip() for c in captions.split("|")] if captions else []
             for index, path in enumerate(picture_paths):
                 (panels / f"{index}.png").write_bytes(bible.on_white(path.read_bytes()))
+                extra = texts[index] if index < len(texts) and texts[index] else (texts[0] if len(texts) == 1 else "")
+                (panels / f"{index}.txt").write_text(", ".join(t for t in (trigger, extra) if t), encoding="utf-8")
         else:
             if not bible_name:
                 raise ValueError("give bible_name (a bible's panels) or images (pictures to learn from)")
@@ -335,7 +307,8 @@ class Services:
         self.events.save_job(job); self._record_call("train_character_lora", job_id, {"bible_name": bible_name, "steps": steps})
         self.events.append(job_id, "queued", {"bible_name": bible_name, "steps": steps})
         for image in panels.glob("*.png"):
-            image.with_suffix(".txt").write_text(trigger, encoding="utf-8")
+            if not image.with_suffix(".txt").exists():
+                image.with_suffix(".txt").write_text(trigger, encoding="utf-8")
         code, output = await box.copy_tree_to_box(panels, remote_root, ssh=BOX_SSH)
         if code: raise RuntimeError(output)
         toml = self.generated_root / f"{job_id}-dataset.toml"

@@ -8,8 +8,8 @@ export async function api(path, options = {}) {
 export const API = {
   gpu: () => api("/api/gpu"),
   sprite: (prompt, seed) => api(`/api/generate?${new URLSearchParams({ prompt, seed, count: 1 })}`, { method: "POST" }),
-  bible: (source, name, char_desc, attr, style_refs = "", style_preset = "") => api(`/api/bible?${new URLSearchParams({ source, name, char_desc, attr, style_refs, style_preset })}`, { method: "POST" }),
-  fromBible: (name, prompt, style_preset = "", style_refs = "", seed = 1) => api(`/api/from-bible?${new URLSearchParams({ name, prompt, style_preset, style_refs, seed })}`, { method: "POST" }),
+  bible: (images, name, char_desc, attr, lora_name = "", captions = "") => api(`/api/bible?${new URLSearchParams({ images, name, char_desc, attr, lora_name, captions })}`, { method: "POST" }),
+  fromBible: (name, prompt, seed = 1) => api(`/api/from-bible?${new URLSearchParams({ name, prompt, seed })}`, { method: "POST" }),
   image: (prompt, style_preset = "", style_refs = "", seed = 1) => api(`/api/image?${new URLSearchParams({ prompt, style_preset, style_refs, seed })}`, { method: "POST" }),
   presets: () => api("/api/presets"),
   savePreset: (name, images, note = "") => api(`/api/presets?${new URLSearchParams({ name, images, note })}`, { method: "POST" }),

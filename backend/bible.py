@@ -1,14 +1,8 @@
-"""Character bible (model sheet): master-sheet-anchored design, JoyAI edition.
+"""Character bible (model sheet), LoRA edition.
 
-Design (validated 2026-06-18 with Qwen-Image-Edit, carried over to JoyAI-Image-Edit-Plus):
-  1. Draw ONE packed master sheet from the source in a single edit. All views are drawn together,
-     so the sheet itself is the consistency anchor (the back view comes out right because a
-     coordinated turnaround orients it).
-  2. Feed that whole master sheet as the reference for every panel and ask for a SINGLE high-res
-     figure of "the character in this reference sheet" with a kind-specific instruction
-     (full body / back / leotard body / face close-up / item only / free).
-  3. Compose the labelled bible from the panels (master included) plus a self-contained HTML.
-     The panels double as LoRA training material.
+The owner brings pictures of a character (usually made elsewhere). A LoRA is trained on them,
+and every panel is drawn by Anima + that LoRA from content tags only (view, expression, outfit,
+chibi, item). The LoRA carries the character and the look; the product never describes a style.
 """
 from __future__ import annotations
 
@@ -21,62 +15,42 @@ from typing import NamedTuple
 from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 
-MASTER_PROMPT = (
-    "Create a comprehensive character reference model sheet of the exact character in image 1 on one white "
-    "sheet: full-body front view, three-quarter view, side view and back view in a row; a row of "
-    "facial expressions (neutral, smile, angry, sad, surprised); two action poses; same character "
-    "throughout, consistent design, plain white background, model sheet layout")
-
-
-def master_prompt(image_count: int = 1) -> str:
-    return MASTER_PROMPT + style_clause(image_count) + "."
-MASTER_SIZE = (1280, 1024)
-NEG_MASTER = "extra different characters, text, watermark, lowres, background scenery, scene, sky, space, landscape, selfie"
-
-
 class Panel(NamedTuple):
     key: str
     section: str
     label: str
-    kind: str      # full | back | body | face | item | free | chibi
-    suffix: str    # may contain {p} for the possessive pronoun
+    kind: str      # full | face | item | chibi  (drives the canvas size)
+    tags: str      # Danbooru-style content tags for Anima; no style words
 
 
 PANELS: tuple[Panel, ...] = (
-    Panel("turn_front", "TURNAROUND", "FRONT", "full", "standing straight facing forward, front view"),
-    Panel("turn_34", "TURNAROUND", "3/4", "full", "three-quarter front view, standing"),
-    Panel("turn_side", "TURNAROUND", "SIDE", "full", "exact side profile view, standing"),
-    Panel("turn_back", "TURNAROUND", "BACK", "back", "turned with {p} back fully toward the viewer, rear view, only the back of {p} body and head visible, face hidden"),
-    Panel("body_front", "BODY REFERENCE", "FRONT (leotard)", "body", "wearing only a plain sport leotard bodysuit, front view, neutral A-pose, exact body proportions"),
-    Panel("body_back", "BODY REFERENCE", "BACK (leotard)", "body", "wearing only a plain sport leotard bodysuit, rear view from behind, face hidden, exact body proportions"),
-    Panel("ex_neutral", "EXPRESSIONS", "NEUTRAL", "face", "a calm neutral anime expression, soft gentle eyes, relaxed closed mouth"),
-    Panel("ex_smile", "EXPRESSIONS", "SMILE", "face", "a bright cheerful anime smile, happy sparkling eyes, soft blush, warm open smile"),
-    Panel("ex_angry", "EXPRESSIONS", "ANGRY", "face", "a comedic anime angry expression, puffed-up cheeks, pouting, an anime anger-vein mark on the forehead, furrowed brows"),
-    Panel("ex_sad", "EXPRESSIONS", "SAD", "face", "a teary anime sad expression, big watery welling eyes, glistening tears, downturned trembling mouth"),
-    Panel("ex_surp", "EXPRESSIONS", "SURPRISE", "face", "a surprised anime expression, huge round sparkling wide eyes, small open mouth, shocked"),
-    Panel("ex_shy", "EXPRESSIONS", "SHY", "face", "a shy embarrassed anime expression, heavy blush across the cheeks, eyes glancing away, bashful nervous look"),
-    Panel("act_cast", "ACTION POSES", "CAST", "full", "dynamic action pose casting a powerful spell, dramatic angle"),
-    Panel("act_run", "ACTION POSES", "RUN", "full", "running fast, dynamic"),
-    Panel("act_jump", "ACTION POSES", "JUMP", "full", "jumping in the air, dynamic pose"),
-    Panel("cos_casual", "ALTERNATE COSTUMES", "CASUAL", "full", "wearing a completely different outfit: an oversized casual hoodie with denim shorts and sneakers, everyday street clothes instead of {p} usual costume, standing"),
-    Panel("cos_armor", "ALTERNATE COSTUMES", "ARMOR", "full", "wearing a completely different outfit: full ornate knight plate armor with metal breastplate, pauldrons, gauntlets and greaves instead of {p} usual costume, standing"),
-    Panel("cos_dress", "ALTERNATE COSTUMES", "FORMAL", "full", "wearing a completely different outfit: a floor-length elegant evening ball gown with long skirt and gloves, a formal party dress instead of {p} usual costume, standing"),
-    Panel("chibi_big", "CHIBI / SD", "CHIBI", "chibi", "exactly ONE chibi super-deformed version of that character: two heads tall, huge oversized head, tiny stubby body and limbs, big sparkling eyes, cute mascot proportions, a single figure alone"),
-    Panel("chibi_multi", "CHIBI / SD", "POSES", "chibi", "a row of three chibi super-deformed versions of that character in different cute poses (waving, jumping, sitting), each two heads tall with a huge head and tiny body"),
-    Panel("item_head", "WARDROBE / ITEMS", "HEADWEAR", "item", "the hair accessories and headwear (hair clips, ribbons, tiara or hat) worn by the character, drawn close-up as small isolated objects floating on white, no head, no hair"),
-    Panel("item_outfit", "WARDROBE / ITEMS", "OUTFIT", "item", "the outfit garments worn by the character, laid out flat like a clothing catalog (empty top, skirt, sleeves, gloves), flat lay of empty clothes"),
-    Panel("item_shoes", "WARDROBE / ITEMS", "FOOTWEAR", "item", "the footwear worn by the character, drawn as an isolated pair of shoes"),
+    Panel("turn_front", "TURNAROUND", "FRONT", "full", "full body, standing, front view, looking at viewer, arms at sides"),
+    Panel("turn_34", "TURNAROUND", "3/4", "full", "full body, standing, three-quarter view, looking at viewer"),
+    Panel("turn_side", "TURNAROUND", "SIDE", "full", "full body, standing, from side, profile, facing to the side"),
+    Panel("turn_back", "TURNAROUND", "BACK", "full", "full body, standing, from behind, back view, facing away, back of head"),
+    Panel("body_front", "BODY REFERENCE", "FRONT (leotard)", "full", "full body, standing, front view, plain white leotard, bodysuit, arms slightly out, bare legs, barefoot"),
+    Panel("body_back", "BODY REFERENCE", "BACK (leotard)", "full", "full body, standing, from behind, plain white leotard, bodysuit, facing away, bare legs, barefoot"),
+    Panel("ex_neutral", "EXPRESSIONS", "NEUTRAL", "face", "portrait, close-up, face, looking at viewer, expressionless, closed mouth"),
+    Panel("ex_smile", "EXPRESSIONS", "SMILE", "face", "portrait, close-up, face, looking at viewer, smile, open mouth, happy, blush"),
+    Panel("ex_angry", "EXPRESSIONS", "ANGRY", "face", "portrait, close-up, face, looking at viewer, angry, pout, anger vein, furrowed brow, puffed cheeks"),
+    Panel("ex_sad", "EXPRESSIONS", "SAD", "face", "portrait, close-up, face, looking at viewer, sad, tears, crying, wavy mouth"),
+    Panel("ex_surp", "EXPRESSIONS", "SURPRISE", "face", "portrait, close-up, face, looking at viewer, surprised, wide eyes, open mouth"),
+    Panel("ex_shy", "EXPRESSIONS", "SHY", "face", "portrait, close-up, face, embarrassed, blush, looking away, nervous"),
+    Panel("act_cast", "ACTION POSES", "CAST", "full", "full body, dynamic pose, casting spell, magic, outstretched arm, action"),
+    Panel("act_run", "ACTION POSES", "RUN", "full", "full body, running, dynamic pose, motion"),
+    Panel("act_jump", "ACTION POSES", "JUMP", "full", "full body, jumping, midair, dynamic pose"),
+    Panel("cos_casual", "ALTERNATE COSTUMES", "CASUAL", "full", "full body, standing, front view, hoodie, denim shorts, sneakers, casual clothes"),
+    Panel("cos_armor", "ALTERNATE COSTUMES", "ARMOR", "full", "full body, standing, front view, plate armor, knight, breastplate, pauldrons, gauntlets"),
+    Panel("cos_dress", "ALTERNATE COSTUMES", "FORMAL", "full", "full body, standing, front view, ball gown, evening dress, long dress, elbow gloves"),
+    Panel("chibi_big", "CHIBI / SD", "CHIBI", "chibi", "chibi, super deformed, full body, standing, looking at viewer, big head"),
+    Panel("chibi_multi", "CHIBI / SD", "POSES", "chibi", "chibi, super deformed, full body, jumping, waving, happy"),
+    Panel("item_head", "WARDROBE / ITEMS", "HEADWEAR", "item", "no humans, hair ornament, headwear, still life, object focus, close-up"),
+    Panel("item_outfit", "WARDROBE / ITEMS", "OUTFIT", "item", "no humans, clothes, outfit, flat lay, still life, object focus"),
+    Panel("item_shoes", "WARDROBE / ITEMS", "FOOTWEAR", "item", "no humans, shoes, boots, footwear, still life, object focus"),
 )
-
-# Panels reference the master SHEET, so always forbid reproducing the sheet layout.
-NEG = ("reference sheet, multiple views, grid, collage, multiple characters, extra people, text, watermark, lowres, "
-       "background scenery, scene, sky, space, landscape, selfie, photo composition")
-NEG_BACK = NEG + ", face, facing viewer, front view, eyes, looking at viewer, frontal"
-NEG_ITEM = NEG + ", girl, person, character, body, face, head, hair, legs, arms, wearing, mannequin"
-NEG_CHIBI = "reference sheet, grid, collage, extra people, realistic proportions, tall, full-size body, text, watermark, lowres"
-NEG_COSTUME = NEG + ", idol costume, stage costume, original outfit, same outfit, frills, crop top"
-SIZES = {"full": (832, 1216), "back": (832, 1216), "body": (832, 1216),
-         "face": (1024, 1024), "item": (1024, 1024), "free": (1024, 1024), "chibi": (1024, 1024)}
+COMMON = "simple background, white background"
+NEGATIVE = "lowres, bad anatomy, bad hands, text, watermark, multiple views, reference sheet, collage"
+SIZES = {"full": (832, 1216), "face": (1024, 1024), "item": (1024, 1024), "chibi": (1024, 1024)}
 
 SECTIONS = (
     ("TURNAROUND", ("turn_front", "turn_34", "turn_side", "turn_back"), 440, True, (40, 2000)),
@@ -98,96 +72,40 @@ def safe_name(value: str) -> str:
     return result[:80]
 
 
-def possessive_pronoun(char_desc: str) -> str:
-    """Use the description when it supplies pronouns; never hard-code ``her``."""
+def subject_tag(char_desc: str) -> str:
+    """The count/subject tag Anima expects; taken from the owner's description, never assumed."""
     description = f" {re.sub(r'[^a-z]+', ' ', char_desc.lower())} "
     if any(token in description for token in (" she ", " her ", "female", "woman", "girl")):
-        return "her"
+        return "1girl"
     if any(token in description for token in (" he ", " him ", "male", "man", "boy")):
-        return "his"
-    return "their"
+        return "1boy"
+    return "1other"
 
 
-def _span(first: int, last: int) -> str:
-    return f"image {first}" if first == last else f"images {first}-{last}"
+def panel_prompt(panel: Panel, trigger: str, char_desc: str) -> str:
+    """trigger + subject + the panel's content tags. Item panels carry no subject."""
+    subject = "" if panel.kind == "item" else subject_tag(char_desc)
+    return ", ".join(part for part in (trigger, subject, panel.tags, COMMON) if part)
+
+
+def size(panel: Panel) -> tuple[int, int]:
+    return SIZES[panel.kind]
 
 
 def copy_style(first: int, last: int) -> str:
-    """The rendering style is never written into the product: it is copied from reference
-    pictures. This names which JoyAI reference images carry the look."""
-    if first < 1 or last < first:
-        raise ValueError("a style clause needs at least one reference image")
-    return (f" Render it in exactly the drawing style of {_span(first, last)}: copy only their shading, "
-            "line work, lighting, eye rendering and level of detail; do NOT copy their backgrounds, "
-            "poses, camera angle or composition")
-
-
-def master_prompt(style_count: int = 0) -> str:
-    """References: image 1 = the owner's source picture, images 2.. = extra style pictures.
-    Without extras the source's own look is the style (usage 1); with extras the design comes
-    from image 1 and the look from the extras (usage 2)."""
-    tail = ". Plain white background regardless of the reference pictures' backgrounds."
-    if style_count:
-        return MASTER_PROMPT + " Take the character design only from image 1." + copy_style(2, 1 + style_count) + tail
-    return MASTER_PROMPT + copy_style(1, 1) + tail
+    """For JoyAI edits that borrow a look from reference pictures (generate_variant / generate_image)."""
+    span = f"image {first}" if first == last else f"images {first}-{last}"
+    return (f" Render it in exactly the drawing style of {span}: copy only their shading, line work, "
+            "lighting, eye rendering and level of detail; do NOT copy their backgrounds, poses, camera angle or composition")
 
 
 NEG_IMAGE = "text, watermark, lowres, collage, grid, reference sheet, multiple views"
 
 
-def from_bible_prompt(prompt: str, style_count: int = 0) -> str:
-    """References: image 1 = master sheet, image 2 = source picture, images 3.. = extra style."""
-    body = (f"Draw the exact character shown in images 1-2 (the character reference sheet and the "
-            f"original picture): {prompt}. Keep that character's face, hair, outfit and colors")
-    style = copy_style(3, 2 + style_count) if style_count else copy_style(1, 2)
-    return body + style + "."
-
-
 def image_prompt(prompt: str, style_count: int) -> str:
-    """References: only style pictures. A brand-new picture that borrows nothing but the look."""
     body = (f"Draw a completely new picture: {prompt}. Do not copy the subjects, characters, poses "
             "or composition of the reference images")
     return body + copy_style(1, style_count) + "."
-
-
-def instruction(panel: Panel, possessive: str, style_count: int = 0) -> str:
-    """References: image 1 = master sheet (or the front figure for items), image 2 = the owner's
-    source picture, images 3.. = extra style pictures. The character comes from images 1-2; the
-    look from the extras when present, otherwise from images 1-2 themselves."""
-    head = "Using the exact character shown in the character reference sheet in image 1 (the same person as image 2),"
-    suffix = panel.suffix.format(p=possessive)
-    style = copy_style(3, 2 + style_count) if style_count else copy_style(1, 2)
-    if panel.kind == "face":
-        body = (f"{head} draw a close-up headshot of ONLY that character's face with {suffix}, "
-                "single face, head and shoulders, plain white background")
-    elif panel.kind == "item":
-        body = (f"Product illustration of ONLY {suffix} in image 1: no person, no body, no face, "
-                "no character, objects only, centered on plain white background")
-    elif panel.kind == "chibi":
-        body = f"{head} draw {suffix}, keep {possessive} exact colors and outfit, plain white background"
-    elif panel.kind == "free":
-        body = f"{head} draw {suffix} of that character, keep {possessive} exact colors, plain white background"
-    else:
-        body = (f"{head} redraw ONLY that character as a SINGLE full-body figure {suffix}, "
-                f"one character only, isolated, centered, keep {possessive} exact face hair outfit and colors, "
-                "plain white background")
-    return body + style + ". Plain white background regardless of the reference pictures' backgrounds."
-
-
-def negative(panel: Panel) -> str:
-    if panel.kind == "back" or "rear" in panel.suffix:
-        return NEG_BACK
-    if panel.kind == "item":
-        return NEG_ITEM
-    if panel.kind == "chibi":
-        return NEG_CHIBI
-    if panel.section == "ALTERNATE COSTUMES":
-        return NEG_COSTUME
-    return NEG
-
-
-def size(panel: Panel) -> tuple[int, int]:
-    return SIZES[panel.kind]
 
 
 def _load(content: bytes) -> Image.Image:
@@ -239,9 +157,23 @@ def _font(size_px: int) -> ImageFont.FreeTypeFont:
     return ImageFont.load_default(size=size_px)
 
 
+def contact_strip(paths: list[Path], height: int = 520, gap: int = 24) -> Image.Image:
+    """The pictures the LoRA was trained on, side by side (the sheet's anchor row)."""
+    tiles = []
+    for path in paths:
+        im = Image.open(path).convert("RGB")
+        sc = height / im.height
+        tiles.append(im.resize((max(1, int(im.width * sc)), height), Image.LANCZOS))
+    strip = Image.new("RGB", (sum(t.width for t in tiles) + gap * (len(tiles) - 1), height), (255, 255, 255))
+    x = 0
+    for tile in tiles:
+        strip.paste(tile, (x, 0)); x += tile.width + gap
+    return strip
+
+
 def compose_model_sheet(name: str, attr: str, panels: list[tuple[str, Path]], master: Path,
                         destination: Path) -> Path:
-    """Compose the sectioned bible PNG: master reference, then every section, then the palette."""
+    """Compose the sectioned bible PNG: the training pictures, then every section, then the palette."""
     imgs = {key: Image.open(path).convert("RGB") for key, path in panels}
     W, BG, INK, MUT, LINE = 2040, (250, 250, 248), (38, 40, 46), (96, 100, 110), (210, 210, 212)
     sheet = Image.new("RGB", (W, 4400), BG)
@@ -273,7 +205,7 @@ def compose_model_sheet(name: str, attr: str, panels: list[tuple[str, Path]], ma
     d.rectangle([0, 0, W, 96], fill=(28, 31, 38))
     d.text((40, 22), "CHARACTER BIBLE", font=fT, fill=(242, 242, 245))
     d.text((44, 72), f"{name}  ·  {attr}  ·  sprite-forge model sheet", font=fSub, fill=(165, 176, 192))
-    y = sec("MASTER REFERENCE (one-shot anchor)", 120)
+    y = sec("TRAINING PICTURES (LoRA material)", 120)
     m = Image.open(master).convert("RGB")
     sc = min((W - 80) / m.width, 520 / m.height)
     m = m.resize((int(m.width * sc), int(m.height * sc)), Image.LANCZOS)
@@ -316,7 +248,7 @@ def write_html(name: str, attr: str, panels: list[tuple[str, Path]], master: Pat
            ".sw code{font-size:11px;color:#9aa3b2}")
     parts = [f"<!doctype html><meta charset=utf-8><title>{name} — character bible</title><style>{css}</style>",
              f"<header><h1>{name}</h1><div style='color:#9aa3b2'>{attr or 'character bible'} · sprite-forge</div></header><div class=wrap>",
-             f"<h2>MASTER REFERENCE</h2><div class='row master'><div class=cell><img src='{_b64(Image.open(master), 1400)}'></div></div>"]
+             f"<h2>TRAINING PICTURES</h2><div class='row master'><div class=cell><img src='{_b64(Image.open(master), 1400)}'></div></div>"]
     for title, keys, *_ in SECTIONS:
         parts.append(f"<h2>{title}</h2><div class=row>")
         for key in keys:
