@@ -7,8 +7,10 @@ export async function api(path, options = {}) {
 
 export const API = {
   gpu: () => api("/api/gpu"),
-  startBase: (prompt, seed) => api(`/api/base?${new URLSearchParams({ prompt, seed })}`, { method: "POST" }),
+  sprite: (prompt, seed) => api(`/api/generate?${new URLSearchParams({ prompt, seed, count: 1 })}`, { method: "POST" }),
+  bible: (source, name, char_desc, attr) => api(`/api/bible?${new URLSearchParams({ source, name, char_desc, attr })}`, { method: "POST" }),
+  loras: () => api("/api/loras"),
+  train: (bible_name) => api(`/api/lora?${new URLSearchParams({ bible_name })}`, { method: "POST" }),
   job: (jobId) => api(`/api/jobs/${encodeURIComponent(jobId)}`),
-  // This UI deliberately never opens a global feed: each stream is one job only.
-  events: (jobId) => new EventSource(`/api/jobs/${encodeURIComponent(jobId)}/events`),
+  events: (since = "") => new EventSource(`/api/events?${new URLSearchParams({ since })}`),
 };

@@ -26,9 +26,9 @@ function workbench(root) {
   const form = element("form", { onsubmit: async (event) => {
     event.preventDefault(); start.disabled = true;
     try {
-      const job = await API.startBase(prompt.value, seed.value);
+      const job = await API.sprite(prompt.value, seed.value);
       state.activeJob = job.job_id;
-      record("素体", prompt.value || "素体生成", "ComfyUI に送信", job.job_id);
+      record("素体", prompt.value || "素体生成", `${job.candidates?.length || 0}候補を生成`, job.job_id);
       location.hash = "#/process";
     } catch (error) { notice(`生成を開始できません: ${error.message}`, true); }
     finally { start.disabled = false; }
@@ -44,17 +44,18 @@ function settings(root) {
   const directions = ["正面", "右 45°", "右", "背面", "左", "左 45°"];
   const expressions = ["通常", "笑顔", "怒り", "驚き"];
   const costume = element("input", { placeholder: "例: 紺のローブ、teal の差し色" });
-  const save = element("button", { onclick: () => { record("設定画", "設定画の下書き", `衣装: ${costume.value || "未指定"}`); notice("設定画の下書きを記録しました"); } }, "下書きを記録");
+  const source = element("input", { placeholder: "素体候補の画像パスまたはID" });
+  const save = element("button", { onclick: async () => { try { const job = await API.bible(source.value, "Azure Mage", "silver-haired mage", costume.value); state.activeJob = job.job_id; record("設定画", "設定画を生成", job.sheet_path || job.job_id, job.job_id); notice("設定画を生成しました"); } catch (error) { notice(error.message, true); } } }, "設定画を生成");
   root.replaceChildren(element("header", { class: "page-head" }, element("h1", {}, "設定画"), element("p", {}, "多方向・表情・衣装を選び、ジョブの進捗は過程画面で確認します。")),
     card("方向", element("div", { class: "chips" }, ...directions.map((name) => element("label", {}, element("input", { type: "checkbox", checked: name === "正面" }), name))), measurement({ "選択": "最大 6 方向", "モデル": "JoyAI-Image-Edit-Plus" })),
-    card("表情と衣装", element("div", { class: "stack" }, element("div", { class: "chips" }, ...expressions.map((name) => element("label", {}, element("input", { type: "checkbox" }), name))), element("label", {}, "衣装", costume), save)));
+    card("表情と衣装", element("div", { class: "stack" }, element("div", { class: "chips" }, ...expressions.map((name) => element("label", {}, element("input", { type: "checkbox" }), name))), element("label", {}, "素体", source), element("label", {}, "衣装", costume), save)));
 }
 
 function lora(root) {
-  const dataset = element("input", { type: "file", multiple: "multiple", accept: "image/*" });
-  const start = element("button", { onclick: () => { record("LoRA", "Anima LoRA 学習", `${dataset.files.length} 枚の教材を確認`); notice("学習開始の記録を追加しました"); } }, "学習を開始");
+  const dataset = element("input", { placeholder: "設定画名 (例: Azure Mage)" });
+  const start = element("button", { onclick: async () => { try { const job = await API.train(dataset.value); state.activeJob = job.job_id; record("LoRA", "Anima LoRA 学習", job.lora_name, job.job_id); notice("学習を開始しました"); } catch (error) { notice(error.message, true); } } }, "学習を開始");
   root.replaceChildren(element("header", { class: "page-head" }, element("h1", {}, "LoRA"), element("p", {}, "Anima Base v1.0 用の教材確認、学習進捗、成果物一覧です。")),
-    card("教材確認", element("div", { class: "stack" }, element("label", {}, "教材画像", dataset), element("p", { class: "muted" }, "bf16 / rank 16 / alpha 16 / lr 1e-4"), start)),
+    card("教材確認", element("div", { class: "stack" }, element("label", {}, "設定画名", dataset), element("p", { class: "muted" }, "bf16 / rank 16 / alpha 16 / lr 1e-4"), start)),
     card("学習済み", element("p", {}, state.records.some((item) => item.kind === "LoRA") ? "ローカル記録に学習ジョブがあります。" : "まだ記録はありません。")));
 }
 
@@ -65,7 +66,7 @@ function process(root) {
   const connect = () => {
     disconnect(); log.replaceChildren(); state.events = [];
     if (!jobId.value) return notice("ジョブ ID を入力してください", true);
-    source = API.events(jobId.value);
+    source = API.events();
     source.onmessage = (event) => {
       const value = JSON.parse(event.data); state.events.push(value);
       log.append(element("li", {}, `#${value.seq} ${value.kind} — ${value.at}`));
