@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import uuid
 import asyncio
+import shutil
 import struct
 import zlib
 import re
@@ -89,6 +90,8 @@ class Services:
         self.events.append(job_id, "queued", {"name": name, "source": str(source_path)})
         try:
             possessive = bible.possessive_pronoun(char_desc)
+            if panel_root.exists():
+                shutil.rmtree(panel_root)  # the panel set is also LoRA material: no stale panels from an earlier run
             source_upload = await self.comfy.upload(bible.on_white(source_path.read_bytes()), f"sf_bible_src_{key}.png")
             job.update(status="generating master sheet")
             self.events.save_job(job)

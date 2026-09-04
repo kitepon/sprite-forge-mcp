@@ -47,7 +47,10 @@ def test_bible_generates_all_panels_model_sheet_and_embedded_html(tmp_path):
                        generated_root=tmp_path / "generated")
     service._view = view_image
 
+    stale = tmp_path / "generated" / "bible_ember_mage_panels" / "expression_happy.png"
+    stale.parent.mkdir(parents=True); stale.write_bytes(png())
     job = asyncio.run(service.generate_character_bible(str(source), "ember mage", "they/them fire mage", "red coat"))
+    assert not stale.exists()
 
     assert job["status"] == "completed"
     assert len(job["panels"]) == len(PANELS) == 23
