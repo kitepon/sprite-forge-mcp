@@ -1,26 +1,19 @@
 <!doctype html>
 <html lang="ja">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>sprite-forge</title>
-<link rel="stylesheet" href="/style.css?v=20260717-wide-layout">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>sprite-forge</title>
+  <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-<div id="app">
   <header class="topbar">
-    <span class="brand">sprite-forge<small>local sprite studio</small></span>
-    <span class="spacer"></span>
-    <span id="gpu" class="pill">GPU: …</span>
+    <a class="brand" href="#/workbench">sprite-forge <small>sprite studio</small></a>
+    <span id="gpu" class="status">GPU を確認中</span>
   </header>
-  <nav id="stepper" class="stepper"></nav>
-  <main id="stage"></main>
-</div>
-
-<aside id="jobs-dock"></aside>
-<div id="toasts"></div>
-<datalist id="sprites"></datalist>
-
-<script type="module" src="/main.js?v=20260717-wide-layout"></script>
+  <nav id="nav" aria-label="画面"></nav>
+  <main id="app" tabindex="-1"></main>
+  <div id="notice" role="status" aria-live="polite"></div>
+  <script type="module" src="./main.js"></script>
 </body>
 </html>
