@@ -91,6 +91,9 @@ def main() -> int:
         "--save_precision", args.mixed_precision,
         "--save_model_as", "safetensors",
         "--gradient_checkpointing", "--sdpa",
+        # Windows: every DataLoader worker is a fresh process that imports torch (~6 s each) and
+        # sd-scripts re-creates them every epoch. Load in-process and cache latents once instead.
+        "--max_data_loader_n_workers", "0", "--cache_latents",
     ]
     print("running:", subprocess.list2cmdline(command), flush=True)
     completed = subprocess.run(command, cwd=SDSCRIPTS, check=False)

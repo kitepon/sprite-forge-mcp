@@ -43,7 +43,18 @@ async def stream_training(dataset_toml: str, output_name: str, model: str, qwen3
                "--mixed-precision", "bf16"]
     process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
     assert process.stdout
-    async for raw in process.stdout:
-        yield raw.decode(errors="replace")
+    # tqdm progress ends lines with \r, not \n; split on both so progress arrives while training runs.
+    buffer = b""
+    while chunk := await process.stdout.read(4096):
+        buffer += chunk
+        while True:
+            cut = min((i for i in (buffer.find(b"\n"), buffer.find(b"\r")) if i >= 0), default=-1)
+            if cut < 0:
+                break
+            line, buffer = buffer[:cut], buffer[cut + 1:]
+            if line.strip():
+                yield line.decode(errors="replace")
+    if buffer.strip():
+        yield buffer.decode(errors="replace")
     if await process.wait():
         raise RuntimeError(f"fox training failed with exit {process.returncode}")

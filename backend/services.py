@@ -340,19 +340,27 @@ class Services:
         if code: raise RuntimeError(output)
         toml = self.generated_root / f"{job_id}-dataset.toml"
         toml_path = f"{remote_root.replace(chr(92), '/')}/{panels.name}"
-        toml.write_text(f'[[datasets]]\nresolution = 1024\nbatch_size = 1\nenable_bucket = true\n[[datasets.subsets]]\nimage_dir = "{toml_path}"\ncaption_extension = ".txt"\nnum_repeats = 1\n', encoding="utf-8")
+        # Long epochs: sd-scripts pays a per-epoch setup cost, so repeat a small picture set until
+        # one epoch is about 200 steps instead of one step per picture.
+        repeats = max(1, 200 // max(1, job["images"]))
+        toml.write_text(f'[[datasets]]\nresolution = 1024\nbatch_size = 1\nenable_bucket = true\n[[datasets.subsets]]\nimage_dir = "{toml_path}"\ncaption_extension = ".txt"\nnum_repeats = {repeats}\n', encoding="utf-8")
         code, output = await box.copy_to_box(toml, rf"{remote_root}\{job_id}-dataset.toml", ssh=BOX_SSH)
         if code: raise RuntimeError(output)
         await self.comfy.client.post(f"{self.comfy.base_url}/free", json={})
-        job.update(status="running"); self.events.save_job(job); self.events.append(job_id, "running", {})
+        log_path = self.generated_root / f"{job_id}-train.log"
+        job.update(status="running", log_path=str(log_path)); self.events.save_job(job); self.events.append(job_id, "running", {})
+        log = log_path.open("a", encoding="utf-8")
         async for line in box.stream_training(rf"{remote_root}\{job_id}-dataset.toml", stem,
                                               r"C:\Users\kite_\ComfyUI\ComfyUI\models\diffusion_models\anima-base-v1.0.safetensors",
                                               r"C:\Users\kite_\ComfyUI\ComfyUI\models\text_encoders\qwen_3_06b_base.safetensors",
                                               r"C:\Users\kite_\ComfyUI\ComfyUI\models\vae\qwen_image_vae.safetensors", steps, BOX_LORAS, ssh=BOX_SSH):
-            match = re.search(r"(?:step|Step)\s*(\d+)\s*/\s*(\d+)", line)
-            if match:
+            log.write(line.rstrip() + "\n"); log.flush()
+            # sd-scripts prints tqdm: "steps:  12%|█▏  | 144/1200 [02:01<14:50,  1.19it/s, ...]"
+            match = re.search(r"(?:step|Step)s?\D{0,20}?(\d+)\s*/\s*(\d+)", line)
+            if match and int(match.group(1)) != job["progress"]["step"]:
                 job["progress"] = {"step": int(match.group(1)), "total": int(match.group(2))}
                 self.events.save_job(job); self.events.append(job_id, "progress", job["progress"])
+        log.close()
         job.update(status="completed", progress={"step": steps, "total": steps})
         self.events.save_job(job); self.events.append(job_id, "completed", {"lora_name": job["lora_name"]})
         return job
