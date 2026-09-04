@@ -85,17 +85,46 @@ function imageCard() {
 }
 
 function settings(root) {
-  const images = picker("キャラクターの画像（複数可。この絵柄と本人を LoRA が覚える）");
-  const name = element("input", { placeholder: "キャラクター名（trigger 語にもなる）" });
-  const desc = element("input", { placeholder: "説明（代名詞を含める。例: she/her, silver twin-tail idol, white and gold outfit）" });
-  const captions = element("input", { placeholder: "画像ごとの説明を | 区切りで（任意。衣装が違う画像を分けて覚えさせる）" });
-  const costume = element("input", { placeholder: "属性メモ（シートの見出しに載る）" });
-  const lora = element("input", { placeholder: "学習済み LoRA 名（任意。あれば学習を飛ばす）" });
-  API.loras().then((items) => { lora.setAttribute("list", "lora-list"); root.append(element("datalist", { id: "lora-list" }, ...items.map((item) => element("option", { value: item })))); }).catch(() => {});
-  const result = element("div", { class: "stack" });
-  const save = element("button", { onclick: async () => { try { result.replaceChildren(element("p", { class: "muted" }, "LoRA 学習（約 15 分）→ 23 パネル生成。過程画面で進捗が見られる")); const job = await API.bible(images.value, name.value, desc.value, costume.value, lora.value, captions.value); state.activeJob = job.job_id; record("設定画", name.value || "設定画を生成", job.sheet_path || job.job_id, job.job_id); result.replaceChildren(preview(job.sheet_path), element("p", { class: "muted" }, `${job.sheet_path} / ${job.html_path} · LoRA ${job.lora_name}`)); notice("設定画を生成しました"); } catch (error) { notice(error.message, true); } } }, "設定画を生成");
-  root.replaceChildren(element("header", { class: "page-head" }, element("h1", {}, "設定画"), element("p", {}, "持ってきた画像で LoRA を学習し、その LoRA で方向・表情・衣装・ちび・装備の 23 パネルを描きます。絵柄は画像から学ぶので、言葉では指定しません。")),
-    card("設定画を作る", element("div", { class: "stack" }, element("label", {}, "画像", images.node), element("label", {}, "名前", name), element("label", {}, "説明", desc), element("label", {}, "画像ごとの説明", captions), element("label", {}, "属性", costume), element("label", {}, "LoRA", lora), save, result)),
+  // Three stages, each of which stops so the owner can look and correct before the next.
+  const name = element("input", { placeholder: "キャラクター名" });
+  const current = element("div", { class: "stack" });
+  const show = async () => {
+    try {
+      const c = await API.character(name.value);
+      const rows = c.samples.map((s) => {
+        const cap = element("input", { value: s.caption || "", placeholder: "この絵の説明（衣装など）" });
+        return element("div", { class: "actions" }, element("img", { src: API.file(s.path), class: "thumb" }), element("span", { class: "muted" }, `#${s.index}`), cap,
+          element("button", { class: "quiet", onclick: async () => { await API.setCaption(name.value, s.index, cap.value); notice("説明を保存"); } }, "保存"),
+          element("button", { class: "quiet", onclick: async () => { await API.removeSample(name.value, s.index); show(); } }, "外す"));
+      });
+      current.replaceChildren(element("p", { class: "muted" }, `trigger: ${c.trigger} · LoRA: ${c.lora_name || "未学習"} · 設定画: ${c.bible?.sheet_path || "未作成"}`), ...rows, c.samples_sheet ? preview(c.samples_sheet) : "");
+    } catch (error) { current.replaceChildren(element("p", { class: "muted" }, error.message)); }
+  };
+  name.addEventListener("change", show);
+  // stage 1
+  const desc = element("input", { placeholder: "説明（代名詞を含める。例: she/her, silver twin-tail idol）" });
+  const attr = element("input", { placeholder: "属性メモ（シートの見出し）" });
+  const create = element("button", { onclick: async () => { try { await API.createCharacter(name.value, desc.value, attr.value); notice("キャラクターを作成"); show(); } catch (error) { notice(error.message, true); } } }, "① キャラクターを作る");
+  const images = picker("サンプル画像（複数可）");
+  const captions = element("input", { placeholder: "画像ごとの説明を | 区切りで（任意）" });
+  const add = element("button", { onclick: async () => { try { await API.addSamples(name.value, images.value, captions.value); notice("サンプルを追加"); show(); } catch (error) { notice(error.message, true); } } }, "サンプルを追加");
+  // stage 2
+  const steps = element("input", { type: "number", value: "1200", min: "1" });
+  const trainOut = element("p", { class: "muted" });
+  const train = element("button", { onclick: async () => { try { trainOut.textContent = "学習中（約 15 分）…過程画面で進捗"; const job = await API.train(name.value, steps.value); state.activeJob = job.job_id; trainOut.textContent = `完了: ${job.lora_name}`; record("LoRA", name.value, job.lora_name, job.job_id); show(); } catch (error) { notice(error.message, true); } } }, "② LoRA を学習する");
+  const ptags = element("input", { value: "full body, standing, front view, looking at viewer", placeholder: "プレビューの内容" });
+  const pseed = element("input", { type: "number", value: "1", min: "0" });
+  const pout = element("div", { class: "stack" });
+  const prev = element("button", { onclick: async () => { try { pout.replaceChildren(element("p", { class: "muted" }, "数秒…")); const job = await API.previewCharacter(name.value, ptags.value, pseed.value, 2); pout.replaceChildren(...job.pictures.map((p) => preview(p.path))); } catch (error) { notice(error.message, true); } } }, "プレビュー 2 枚");
+  // stage 3
+  const bseed = element("input", { type: "number", value: "1", min: "0" });
+  const bout = element("div", { class: "stack" });
+  const make = element("button", { onclick: async () => { try { bout.replaceChildren(element("p", { class: "muted" }, "23 パネル生成（約 3 分）…")); const job = await API.bible(name.value, bseed.value); state.activeJob = job.job_id; record("設定画", name.value, job.sheet_path, job.job_id); bout.replaceChildren(preview(job.sheet_path), element("p", { class: "muted" }, `${job.sheet_path} / ${job.html_path}`)); show(); } catch (error) { notice(error.message, true); } } }, "③ 設定画を作る");
+  root.replaceChildren(element("header", { class: "page-head" }, element("h1", {}, "設定画"), element("p", {}, "① サンプルを集めて直す → ② LoRA を学習してプレビューで確かめる → ③ 設定画を作り、パネルを言葉で直す。各段で止まる。")),
+    card("キャラクター", element("div", { class: "stack" }, element("label", {}, "名前", name), current)),
+    card("① サンプル", element("div", { class: "stack" }, element("label", {}, "説明", desc), element("label", {}, "属性", attr), create, element("label", {}, "画像", images.node), element("label", {}, "画像ごとの説明", captions), add)),
+    card("② LoRA とプレビュー", element("div", { class: "stack" }, element("label", {}, "step 数", steps), train, trainOut, element("label", {}, "プレビューの内容", ptags), element("label", {}, "Seed", pseed), prev, pout)),
+    card("③ 設定画", element("div", { class: "stack" }, element("label", {}, "Seed", bseed), make, bout)),
     redrawCard(name),
     presetCard());
 }
@@ -126,13 +155,13 @@ function presetCard() {
 }
 
 function lora(root) {
-  const dataset = element("input", { placeholder: "設定画名 (例: Azure Mage)" });
+  const dataset = element("input", { placeholder: "キャラクター名（設定画画面で作ったもの）" });
   const progress = element("p", { id: "lora-progress", class: "muted" }, "未開始");
   const trained = element("p", { id: "lora-list" }, "読み込み中");
   API.loras().then((items) => { trained.textContent = items.join(", ") || "まだありません"; });
   const start = element("button", { onclick: async () => { try { progress.textContent = "学習中…"; const job = await API.train(dataset.value); state.activeJob = job.job_id; record("LoRA", "Anima LoRA 学習", job.lora_name, job.job_id); progress.textContent = `完了 ${job.progress?.step || job.steps}/${job.progress?.total || job.steps}: ${job.lora_name}`; trained.textContent = [...new Set([trained.textContent, job.lora_name])].join(", "); notice("学習を完了しました"); } catch (error) { notice(error.message, true); } } }, "学習を開始");
   root.replaceChildren(element("header", { class: "page-head" }, element("h1", {}, "LoRA"), element("p", {}, "Anima Base v1.0 用の教材確認、学習進捗、成果物一覧です。")),
-    card("教材確認", element("div", { class: "stack" }, element("label", {}, "設定画名", dataset), element("p", { class: "muted" }, "bf16 / rank 16 / alpha 16 / lr 1e-4"), start, progress)), card("学習済み", trained));
+    card("教材確認", element("div", { class: "stack" }, element("label", {}, "キャラクター名", dataset), element("p", { class: "muted" }, "bf16 / rank 16 / alpha 16 / lr 1e-4 / 教材はキャラクターのサンプル"), start, progress)), card("学習済み", trained));
 }
 
 function process(root) {

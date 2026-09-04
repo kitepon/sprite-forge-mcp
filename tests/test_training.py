@@ -17,19 +17,14 @@ class _Comfy:
     base_url = "http://fox:8188"
 
 
-def test_training_copies_panels_streams_progress_and_persists_job(tmp_path, monkeypatch):
-    panels = tmp_path / "generated" / "bible_ember_panels"
-    panels.mkdir(parents=True)
-    (panels / "front.png").write_bytes(b"png")
-
+def test_training_copies_samples_streams_progress_and_persists_job(tmp_path, monkeypatch):
     async def copied(local, remote, **kwargs):
-        assert local == panels
-        assert remote == r"C:\sf"
+        assert local.name == "dataset_ember" and remote == r"C:\sf"
         return 0, ""
 
     async def copied_file(local, remote, **kwargs):
-        assert local.name.endswith("dataset.toml")
-        assert 'image_dir = "C:/sf/bible_ember_panels"' in local.read_text(encoding="utf-8")
+        text = local.read_text(encoding="utf-8")
+        assert 'image_dir = "C:/sf/dataset_ember"' in text and "num_repeats = 200" in text
         return 0, ""
 
     async def lines(*args, **kwargs):
@@ -41,13 +36,16 @@ def test_training_copies_panels_streams_progress_and_persists_job(tmp_path, monk
     monkeypatch.setattr(box, "copy_to_box", copied_file)
     monkeypatch.setattr(box, "stream_training", lines)
     events = EventStore(tmp_path / "events.ndjson", tmp_path / "jobs")
-    result = asyncio.run(Services(comfy=_Comfy(), events=events, generated_root=tmp_path / "generated").train_character_lora("ember", steps=3))
+    service = Services(comfy=_Comfy(), events=events, generated_root=tmp_path / "generated", characters_root=tmp_path / "characters")
+    picture = tmp_path / "p.png"
+    from PIL import Image; Image.new("RGB", (8, 8), "red").save(picture)
+    asyncio.run(service.create_character("ember", "they/them"))
+    asyncio.run(service.add_samples("ember", str(picture), "red coat"))
+    result = asyncio.run(service.train_character_lora("ember", steps=3))
 
     assert result["status"] == "completed"
     assert result["progress"] == {"step": 3, "total": 3}
     assert result["lora_name"].endswith(".safetensors")
+    assert (tmp_path / "characters" / "ember" / "dataset_ember" / "000.txt").read_text(encoding="utf-8") == "ember, red coat"
     assert (tmp_path / "generated" / f"{result['job_id']}-train.log").read_text(encoding="utf-8").count("\n") == 3
     assert [e["payload"] for e in events.read(result["job_id"]) if e["kind"] == "progress"] == [{"step": 1, "total": 3}, {"step": 3, "total": 3}]
-    assert [event["kind"] for event in events.read(result["job_id"])] == [
-        "tool_called", "queued", "running", "progress", "progress", "completed"
-    ]

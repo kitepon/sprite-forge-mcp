@@ -12,5 +12,6 @@ BOX_TRAIN = os.environ.get("SPRITEFORGE_BOX_TRAIN", r"C:\sf\train.py")
 BOX_LORAS = os.environ.get("SPRITEFORGE_BOX_LORAS", r"C:\Users\kite_\ComfyUI\ComfyUI\models\loras")
 UPLOADS = CACHE / "uploads"      # pictures brought in by the owner / Bots (upload, URL, base64)
 PRESETS = CACHE / "presets"      # style presets: bundles of reference pictures
+CHARACTERS = CACHE / "characters"  # one folder per character: samples, captions, LoRA, bible
 EVENTS_PATH = CACHE / "events.ndjson"
 JOBS_PATH = CACHE / "jobs"

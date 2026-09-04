@@ -23,18 +23,19 @@ from . import workflows
 from . import box
 from .config import BOX_LORAS, BOX_SSH
 from .comfy import Comfy
-from .config import CACHE, PRESETS, UPLOADS
+from .config import CACHE, CHARACTERS, PRESETS, UPLOADS
 from .events import EventStore
 
 
 class Services:
     def __init__(self, comfy: Comfy | None = None, events: EventStore | None = None,
                  generated_root: Path | None = None, uploads_root: Path | None = None,
-                 presets_root: Path | None = None):
+                 presets_root: Path | None = None, characters_root: Path | None = None):
         self.comfy, self.events = comfy or Comfy(), events or EventStore()
         self.generated_root = generated_root or CACHE / "generated"
         self.uploads_root = uploads_root or UPLOADS
         self.presets_root = presets_root or PRESETS
+        self.characters_root = characters_root or CHARACTERS
 
     async def gpu_status(self) -> dict[str, Any]:
         self._record_call("gpu_status")
@@ -83,38 +84,131 @@ class Services:
         required = response.json().get("LoraLoader", {}).get("input", {}).get("required", {})
         return list(required.get("lora_name", [[]])[0])
 
-    async def generate_character_bible(self, images: str, name: str, char_desc: str, attr: str = "",
-                                       seed: int = 1, lora_name: str = "", trigger: str = "",
-                                       captions: str = "", steps: int = 1200, turbo: bool = False) -> dict[str, Any]:
-        """Bring pictures of a character → a model sheet in their look.
+    # ---------------------------------------------------------------------------------
+    # A character lives in one folder and is built in three stages, each of which stops so
+    # the owner (or a Bot) can look and correct before paying for the next:
+    #   1. samples   create_character / add_samples / remove_sample / set_caption / character_info
+    #   2. LoRA      train_character_lora (minutes, only when asked) / preview_character (seconds)
+    #   3. bible     generate_character_bible (uses the trained LoRA) / redraw_panel
+    # ---------------------------------------------------------------------------------
+    def _character_dir(self, name: str) -> Path:
+        return self.characters_root / bible.safe_name(name)
 
-        ``images``: comma-separated pictures (paths / URLs / data URLs). A LoRA is trained on them
-        first (``captions``: '|'-separated, one per picture, optional) unless ``lora_name`` names an
-        existing one. Then Anima + that LoRA draws all 23 panels from content tags (see
-        backend/bible.py). The product never describes a style: the LoRA is the look."""
-        picture_paths = [await self._resolve_image(ref.strip()) for ref in images.split(",") if ref.strip()]
-        if not picture_paths and not lora_name:
-            raise ValueError("give images (pictures of the character) or lora_name")
-        job_id = str(uuid.uuid4())
+    def _load_character(self, name: str) -> dict[str, Any]:
+        meta = self._character_dir(name) / "character.json"
+        if not meta.is_file():
+            raise FileNotFoundError(f"no character named {name!r}: create_character first")
+        return json.loads(meta.read_text(encoding="utf-8"))
+
+    def _save_character(self, record: dict[str, Any]) -> dict[str, Any]:
+        root = self._character_dir(record["name"])
+        root.mkdir(parents=True, exist_ok=True)
+        samples = [Path(sample["path"]) for sample in record["samples"] if Path(sample["path"]).is_file()]
+        if samples:
+            strip = root / "samples.png"
+            bible.contact_strip(samples).save(strip, "PNG")
+            record["samples_sheet"] = str(strip)
+        (root / "character.json").write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        return record
+
+    async def create_character(self, name: str, char_desc: str, attr: str = "", trigger: str = "",
+                               lora_name: str = "") -> dict[str, Any]:
+        """Stage 1 starts here. ``char_desc`` must name the subject (she/he/they…); ``trigger`` is
+        the LoRA word (default: the name, lower-case). ``lora_name`` adopts an already trained LoRA."""
         key = bible.safe_name(name)
-        trigger = trigger or key.lower()
-        panel_root = self.generated_root / f"bible_{key}_panels"
+        record = {"name": name, "key": key, "trigger": trigger or key.lower(), "char_desc": char_desc, "attr": attr,
+                  "samples": [], "lora_name": lora_name, "train_job": None, "bible": None,
+                  "created": datetime.now(UTC).isoformat().replace("+00:00", "Z")}
+        self._record_call("create_character", None, {"name": name})
+        return self._save_character(record)
+
+    async def add_samples(self, name: str, images: str, captions: str = "") -> dict[str, Any]:
+        """Add pictures (comma-separated paths / URLs / data URLs) with optional '|'-separated
+        captions (what is in each picture, e.g. the outfit). Returns the record with samples.png."""
+        record = self._load_character(name)
+        paths = [await self._resolve_image(ref.strip()) for ref in images.split(",") if ref.strip()]
+        texts = [c.strip() for c in captions.split("|")] if captions else []
+        root = self._character_dir(name) / "samples"
+        root.mkdir(parents=True, exist_ok=True)
+        for offset, path in enumerate(paths):
+            index = len(record["samples"])
+            target = root / f"{index:03d}.png"
+            target.write_bytes(bible.on_white(path.read_bytes()))
+            caption = texts[offset] if offset < len(texts) else ""
+            record["samples"].append({"index": index, "path": str(target), "caption": caption, "origin": str(path)})
+        self._record_call("add_samples", None, {"name": name, "added": len(paths)})
+        return self._save_character(record)
+
+    async def remove_sample(self, name: str, index: int) -> dict[str, Any]:
+        record = self._load_character(name)
+        keep = [s for s in record["samples"] if s["index"] != index]
+        if len(keep) == len(record["samples"]):
+            raise ValueError(f"no sample with index {index}")
+        for sample in record["samples"]:
+            if sample["index"] == index and Path(sample["path"]).exists():
+                Path(sample["path"]).unlink()
+        record["samples"] = keep
+        self._record_call("remove_sample", None, {"name": name, "index": index})
+        return self._save_character(record)
+
+    async def set_caption(self, name: str, index: int, caption: str) -> dict[str, Any]:
+        record = self._load_character(name)
+        for sample in record["samples"]:
+            if sample["index"] == index:
+                sample["caption"] = caption
+                return self._save_character(record)
+        raise ValueError(f"no sample with index {index}")
+
+    async def character_info(self, name: str) -> dict[str, Any]:
+        self._record_call("character_info", None, {"name": name})
+        return self._load_character(name)
+
+    async def list_characters(self) -> list[dict[str, Any]]:
+        if not self.characters_root.is_dir():
+            return []
+        return [json.loads(m.read_text(encoding="utf-8")) for m in sorted(self.characters_root.glob("*/character.json"))]
+
+    async def preview_character(self, name: str, tags: str = "full body, standing, front view, looking at viewer",
+                                seed: int = 1, count: int = 1, turbo: bool = False) -> dict[str, Any]:
+        """Stage 2 check: a few seconds per picture with the trained LoRA. Look, then decide whether
+        to retrain (fix samples / captions / steps) or go on to the bible."""
+        record = self._load_character(name)
+        if not record.get("lora_name"):
+            raise ValueError(f"{name!r} has no LoRA yet: train_character_lora first")
+        job_id = str(uuid.uuid4())
+        prompt = ", ".join(part for part in (record["trigger"], bible.subject_tag(record["char_desc"]), tags, bible.COMMON) if part)
+        job = {"job_id": job_id, "kind": "preview", "status": "queued", "name": name, "prompt": prompt, "seed": seed, "lora_name": record["lora_name"]}
+        self.events.save_job(job); self._record_call("preview_character", job_id, {"name": name, "seed": seed, "count": count})
+        pictures = []
+        for offset in range(max(1, count)):
+            content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
+                prompt, seed + offset, turbo=turbo, lora_name=record["lora_name"], negative=bible.NEGATIVE, width=832, height=1216))
+            path = self._write_generated(f"{job_id}-preview-{offset}.png", content)
+            pictures.append({"path": str(path), "seed": seed + offset, "elapsed_s": elapsed})
+        job.update(status="completed", pictures=pictures)
+        self.events.save_job(job); self.events.append(job_id, "image_completed", {"pictures": [p["path"] for p in pictures]})
+        return job
+
+    async def generate_character_bible(self, name: str, seed: int = 1, turbo: bool = False,
+                                       attr: str = "") -> dict[str, Any]:
+        """Stage 3: 23 panels with the character's LoRA (about three minutes). No training happens
+        here — train_character_lora is a separate, deliberate step."""
+        record = self._load_character(name)
+        if not record.get("lora_name"):
+            raise ValueError(f"{name!r} has no LoRA yet: train_character_lora first")
+        trigger, char_desc, lora_name = record["trigger"], record["char_desc"], record["lora_name"]
+        attr = attr or record.get("attr", "")
+        job_id = str(uuid.uuid4())
+        key = record["key"]
+        panel_root = self._character_dir(name) / "bible" / "panels"
         job = {"job_id": job_id, "kind": "character_bible", "status": "queued", "name": name, "trigger": trigger,
-               "char_desc": char_desc, "attr": attr, "images": [str(p) for p in picture_paths],
                "lora_name": lora_name, "panels_dir": str(panel_root)}
         self.events.save_job(job)
         self._record_call("generate_character_bible", job_id, {"name": name, "seed": seed, "lora_name": lora_name})
-        self.events.append(job_id, "queued", {"name": name, "images": job["images"]})
+        self.events.append(job_id, "queued", {"name": name})
         try:
             if panel_root.exists():
-                shutil.rmtree(panel_root)  # the panel set is also LoRA material: no stale panels from an earlier run
-            if not lora_name:
-                job.update(status="training lora"); self.events.save_job(job)
-                training = await self.train_character_lora(bible_name=name, trigger=trigger, steps=steps,
-                                                           images=images, captions=captions or char_desc)
-                lora_name = training["lora_name"]
-                job.update(lora_name=lora_name, train_job=training["job_id"])
-                self.events.append(job_id, "lora_ready", {"lora_name": lora_name, "train_job": training["job_id"]})
+                shutil.rmtree(panel_root)
             panels: list[tuple[str, Path]] = []
             for index, panel in enumerate(bible.PANELS):
                 job.update(status="generating panels", panel=panel.key, completed_panels=index)
@@ -128,13 +222,14 @@ class Services:
                 panel_path.write_bytes(bible.crop_nonwhite(content))
                 panels.append((panel.key, panel_path))
                 self.events.append(job_id, "panel_completed", {"panel": panel.key, "path": str(panel_path), "elapsed_s": elapsed})
-            anchor_paths = picture_paths or [panel_root / "turn_front.png"]
-            anchor = self.generated_root / f"bible_{key}_source.png"
-            bible.contact_strip(anchor_paths).save(anchor, "PNG")
+            anchor = Path(record.get("samples_sheet") or panel_root / "turn_front.png")
             sheet = bible.compose_model_sheet(name, attr, panels, anchor, self.generated_root / f"bible_{key}.png")
             html = bible.write_html(name, attr, panels, anchor, self.generated_root / f"bible_{key}.html")
-            job.update(status="completed", completed_panels=len(panels), source=str(anchor),
-                       panels=[str(path) for _, path in panels], sheet_path=str(sheet), html_path=str(html))
+            record["bible"] = {"job_id": job_id, "sheet_path": str(sheet), "html_path": str(html), "panels_dir": str(panel_root),
+                               "attr": attr, "seed": seed, "at": datetime.now(UTC).isoformat().replace("+00:00", "Z")}
+            self._save_character(record)
+            job.update(status="completed", completed_panels=len(panels), panels=[str(path) for _, path in panels],
+                       sheet_path=str(sheet), html_path=str(html))
             self.events.save_job(job)
             self.events.append(job_id, "completed", {"sheet_path": str(sheet), "html_path": str(html), "lora_name": lora_name})
             return job
@@ -152,17 +247,19 @@ class Services:
 
     async def generate_from_bible(self, name: str, prompt: str, width: int = 1024, height: int = 1024,
                                   seed: int = 1, turbo: bool = False) -> dict[str, Any]:
-        """Usage 3: a new picture of a character, drawn by Anima + that character's LoRA.
-        ``prompt`` is content (pose, place, outfit) in Danbooru-style tags or plain words."""
-        info = self._bible_info(name)
+        """A new picture of a character, drawn by Anima + that character's LoRA. ``prompt`` is
+        content (pose, place, outfit) in Danbooru-style tags or plain words."""
+        record = self._load_character(name)
+        if not record.get("lora_name"):
+            raise ValueError(f"{name!r} has no LoRA yet: train_character_lora first")
         job_id = str(uuid.uuid4())
         job = {"job_id": job_id, "kind": "from_bible", "status": "queued", "name": name, "prompt": prompt,
-               "lora_name": info["lora_name"], "seed": seed}
+               "lora_name": record["lora_name"], "seed": seed}
         self.events.save_job(job); self._record_call("generate_from_bible", job_id, {"name": name, "seed": seed})
         self.events.append(job_id, "queued", {"name": name, "prompt": prompt})
-        full_prompt = ", ".join(part for part in (info["trigger"], prompt) if part)
+        full_prompt = ", ".join(part for part in (record["trigger"], prompt) if part)
         content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
-            full_prompt, seed, turbo=turbo, lora_name=info["lora_name"], negative=bible.NEGATIVE, width=width, height=height))
+            full_prompt, seed, turbo=turbo, lora_name=record["lora_name"], negative=bible.NEGATIVE, width=width, height=height))
         path = self._write_generated(f"{job_id}-from-bible.png", content)
         job.update(status="completed", path=str(path), elapsed_s=elapsed)
         self.events.save_job(job); self.events.append(job_id, "image_completed", {"path": str(path), "elapsed_s": elapsed})
@@ -241,13 +338,6 @@ class Services:
                 paths.append(await self._resolve_image(ref.strip()))
         return paths
 
-    def _bible_info(self, name: str) -> dict[str, Any]:
-        """The newest completed bible job of that name (LoRA, trigger, description, panels dir)."""
-        for job in self.events.list_jobs():
-            if job.get("kind") == "character_bible" and job.get("name") == name and job.get("status") == "completed":
-                return job
-        raise FileNotFoundError(f"no completed character bible named {name!r}")
-
     async def list_bible_panels(self) -> list[dict[str, str]]:
         """The panel slots of a bible with their default content tags (what redraw_panel replaces)."""
         return [{"key": p.key, "section": p.section, "label": p.label, "kind": p.kind, "tags": p.tags} for p in bible.PANELS]
@@ -258,7 +348,12 @@ class Services:
         ``tags`` (content words; empty = the panel's default tags), ``avoid`` (words the picture
         must not contain — diffusion ignores "no X" in the prompt, so they go to the negative side)
         and ``seed``, then rebuild the sheet and HTML. Any panel, any words — the review-and-adjust step."""
-        info = self._bible_info(name)
+        record = self._load_character(name)
+        if not record.get("bible"):
+            raise ValueError(f"{name!r} has no bible yet: generate_character_bible first")
+        info = {"trigger": record["trigger"], "char_desc": record["char_desc"], "lora_name": record["lora_name"],
+                "panels_dir": record["bible"]["panels_dir"], "attr": record["bible"].get("attr", ""),
+                "source": record.get("samples_sheet") or str(Path(record["bible"]["panels_dir"]) / "turn_front.png")}
         spec = next((p for p in bible.PANELS if p.key == panel), None)
         if spec is None:
             raise ValueError(f"unknown panel {panel!r}; see list_bible_panels")
@@ -316,31 +411,22 @@ class Services:
     async def bible_status(self, job_id: str) -> dict[str, Any]:
         return await self._status(job_id, "bible_status")
 
-    async def train_character_lora(self, bible_name: str = "", trigger: str = "sprite_subject", steps: int = 1200,
-                                   images: str = "", captions: str = "") -> dict[str, Any]:
-        """Train an Anima LoRA on fox. Material is either a bible's panels (``bible_name``) or any
-        pictures you bring (``images``: comma-separated paths / URLs / data URLs) — e.g. the
-        pictures the owner generated elsewhere, which then carry both the character and the look."""
-        if images:
-            picture_paths = [await self._resolve_image(ref.strip()) for ref in images.split(",") if ref.strip()]
-            if not picture_paths:
-                raise ValueError("images is empty")
-            bible_name = bible_name or picture_paths[0].stem
-            panels = self.generated_root / f"lora_{bible.safe_name(bible_name)}_dataset"
-            if panels.exists():
-                shutil.rmtree(panels)
-            panels.mkdir(parents=True)
-            texts = [c.strip() for c in captions.split("|")] if captions else []
-            for index, path in enumerate(picture_paths):
-                (panels / f"{index}.png").write_bytes(bible.on_white(path.read_bytes()))
-                extra = texts[index] if index < len(texts) and texts[index] else (texts[0] if len(texts) == 1 else "")
-                (panels / f"{index}.txt").write_text(", ".join(t for t in (trigger, extra) if t), encoding="utf-8")
-        else:
-            if not bible_name:
-                raise ValueError("give bible_name (a bible's panels) or images (pictures to learn from)")
-            panels = self.generated_root / f"bible_{bible.safe_name(bible_name)}_panels"
-            if not panels.is_dir():
-                raise FileNotFoundError(f"bible panels not found: {panels}")
+    async def train_character_lora(self, name: str, steps: int = 1200) -> dict[str, Any]:
+        """Stage 2: train an Anima LoRA on fox from the character's samples and captions. Runs only
+        when called (minutes); the LoRA name is stored on the character."""
+        record = self._load_character(name)
+        if not record["samples"]:
+            raise ValueError(f"{name!r} has no samples: add_samples first")
+        trigger = record["trigger"]
+        panels = self._character_dir(name) / f"dataset_{record['key']}"
+        if panels.exists():
+            shutil.rmtree(panels)
+        panels.mkdir(parents=True)
+        for sample in record["samples"]:
+            target = panels / f"{sample['index']:03d}.png"
+            target.write_bytes(Path(sample["path"]).read_bytes())
+            target.with_suffix(".txt").write_text(", ".join(t for t in (trigger, sample.get("caption", "")) if t), encoding="utf-8")
+        bible_name = name
         job_id, stem = str(uuid.uuid4()), f"{bible.safe_name(bible_name)}_{uuid.uuid4().hex[:8]}"
         remote_root = r"C:\sf"
         job = {"job_id": job_id, "kind": "lora_train", "status": "queued", "bible_name": bible_name,
@@ -348,11 +434,9 @@ class Services:
                "dataset": str(panels), "images": len(list(panels.glob("*.png")))}
         self.events.save_job(job); self._record_call("train_character_lora", job_id, {"bible_name": bible_name, "steps": steps})
         self.events.append(job_id, "queued", {"bible_name": bible_name, "steps": steps})
-        for image in panels.glob("*.png"):
-            if not image.with_suffix(".txt").exists():
-                image.with_suffix(".txt").write_text(trigger, encoding="utf-8")
         code, output = await box.copy_tree_to_box(panels, remote_root, ssh=BOX_SSH)
         if code: raise RuntimeError(output)
+        self.generated_root.mkdir(parents=True, exist_ok=True)
         toml = self.generated_root / f"{job_id}-dataset.toml"
         toml_path = f"{remote_root.replace(chr(92), '/')}/{panels.name}"
         # Long epochs: sd-scripts pays a per-epoch setup cost, so repeat a small picture set until
@@ -378,6 +462,8 @@ class Services:
         log.close()
         job.update(status="completed", progress={"step": steps, "total": steps})
         self.events.save_job(job); self.events.append(job_id, "completed", {"lora_name": job["lora_name"]})
+        record["lora_name"], record["train_job"], record["steps"] = job["lora_name"], job_id, steps
+        self._save_character(record)
         return job
 
     async def refine_image(self, image: str, prompt: str, lora_name: str, denoise: float = 0.45,
