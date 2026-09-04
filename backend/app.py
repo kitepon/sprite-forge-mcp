@@ -23,6 +23,18 @@ async def generate_base(prompt: str, seed: int = 1) -> dict:
 
 
 @mcp.tool
+async def generate_sprite(prompt: str, count: int = 4, seed: int = 1,
+                          lora_name: str | None = None, lora_trigger: str | None = None,
+                          pose_image: str | None = None, turbo: bool = True) -> dict:
+    return await services.generate_sprite(prompt, count, seed, lora_name, lora_trigger, pose_image, turbo)
+
+
+@mcp.tool
+async def list_loras() -> list[str]:
+    return await services.list_loras()
+
+
+@mcp.tool
 async def job_status(job_id: str) -> dict:
     return await services.status(job_id)
 
@@ -46,6 +58,13 @@ async def rest_gpu() -> dict:
 @app.post("/api/base")
 async def rest_base(prompt: str, seed: int = 1) -> dict:
     return await services.start_base(prompt, seed)
+
+
+@app.post("/api/generate")
+async def rest_generate(prompt: str, count: int = 4, seed: int = 1,
+                        lora_name: str | None = None, lora_trigger: str | None = None,
+                        pose_image: str | None = None, turbo: bool = True) -> dict:
+    return await services.generate_sprite(prompt, count, seed, lora_name, lora_trigger, pose_image, turbo)
 
 
 @app.get("/api/jobs/{job_id}")
