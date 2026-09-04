@@ -44,11 +44,13 @@ def joy_edit(images: list[str] | str, prompt: str, seed: int, *, negative: str =
         "2":{"class_type":"CLIPLoader","inputs":{"clip_name":"qwen3vl_8b_joyimage_edit_plus_int8_convrot.safetensors","type":"joyimage"}},
         "3":{"class_type":"VAELoader","inputs":{"vae_name":"wan_2.1_vae.safetensors"}},
     }
+    # Autogrow inputs travel flattened in the API prompt: "images.image0", "images.image1", ... (0-based).
+    # A nested {"images": {...}} dict is silently ignored by ComfyUI and the model gets no reference at all.
     refs={}
-    for i,name in enumerate(names,10): graph[str(i)]={"class_type":"LoadImage","inputs":{"image":name}}; refs[f"image{i-9}"]=[str(i),0]
+    for i,name in enumerate(names,10): graph[str(i)]={"class_type":"LoadImage","inputs":{"image":name}}; refs[f"images.image{i-10}"]=[str(i),0]
     graph.update({
-        "20":{"class_type":"TextEncodeJoyImageEdit","inputs":{"clip":["2",0],"vae":["3",0],"prompt":prompt,"images":refs}},
-        "21":{"class_type":"TextEncodeJoyImageEdit","inputs":{"clip":["2",0],"vae":["3",0],"prompt":negative,"images":refs}},
+        "20":{"class_type":"TextEncodeJoyImageEdit","inputs":{"clip":["2",0],"vae":["3",0],"prompt":prompt,**refs}},
+        "21":{"class_type":"TextEncodeJoyImageEdit","inputs":{"clip":["2",0],"vae":["3",0],"prompt":negative,**refs}},
         "22":{"class_type":"EmptySD3LatentImage","inputs":{"width":size[0],"height":size[1],"batch_size":1}} if size else {"class_type":"VAEEncode","inputs":{"pixels":["10",0],"vae":["3",0]}},
         "23":{"class_type":"KSampler","inputs":{"model":["1",0],"seed":seed,"steps":30,"cfg":4.0,"sampler_name":"euler","scheduler":"normal","positive":["20",0],"negative":["21",0],"latent_image":["22",0],"denoise":1.0}},
         "24":{"class_type":"VAEDecode","inputs":{"samples":["23",0],"vae":["3",0]}},

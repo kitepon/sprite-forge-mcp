@@ -11,7 +11,7 @@ def test_optional_anima_and_joy_inputs():
     assert graph["1"]["inputs"]["unet_name"]=="anima-turbo-v1.1.safetensors"
     assert graph["8"]["class_type"]=="AnimaControlApply"
     assert graph["22"]["inputs"]["width"]==768
-    assert len(workflows.joy_edit(["a","b"],"p",4)["20"]["inputs"]["images"])==2
+    assert workflows.joy_edit(["a","b"],"p",4)["20"]["inputs"]["images.image1"]==["11",0] and "images" not in workflows.joy_edit(["a","b"],"p",4)["20"]["inputs"]
     with pytest.raises(ValueError): workflows.joy_edit([str(x) for x in range(7)],"p",4)
 
 def test_observed_toonout_and_sam3_names():
