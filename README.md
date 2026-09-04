@@ -71,29 +71,30 @@ The backend can run on the same machine as ComfyUI or a different one (it just n
 ## The pipeline
 
 ```
-a picture you like ─▶ ① character bible ─▶ ② character LoRA ─▶ ③ sprites in any pose
-        └─▶ style preset (a bundle of pictures) ─▶ ④ new pictures from the bible / ⑤ brand-new pictures in that look
+pictures you like ─▶ ① character LoRA ─▶ ② character bible (23 panels) ─▶ ③ review & redraw any panel by words
+                                        └▶ ④ new pictures of that character   └▶ ⑤ sprites in any pose (+ pose control)
 ```
 
-The look is never described in words inside the product. Every generation copies its rendering
-style from pictures: the source you bring, a saved **style preset**, or extra reference pictures.
+The look is never described in words inside the product. A LoRA trained on the pictures you bring
+carries both the character and the rendering style; every generation is Anima + that LoRA with
+content tags only (view, expression, outfit, chibi, item).
 
-1. **Character bible** — `generate_character_bible(source, name, char_desc, attr, style_refs?, style_preset?)`.
-   One packed JoyAI **master sheet** anchors consistency; then 23 panels (turnaround, leotard body
-   reference, six expressions, three actions, three costumes, chibi, wardrobe items), each drawn
-   from the master sheet + the source picture. Output: an aligned PNG sheet, a self-contained HTML
-   bible, and the panels (which double as LoRA material). Without style pictures the source's own
-   look is copied; with them, the design comes from the source and the look from the pictures.
-2. **Character LoRA** — `train_character_lora(bible_name)` trains an Anima LoRA from the panels on
-   the GPU box (`ssh fox python C:\sf\train.py`).
-3. **Sprites** — `generate_sprite(prompt, lora_name?, pose_image?)`: Anima txt2img (+LoRA, +Anima-Control-Pose) → ToonOut → RGBA candidates with measurements.
-4. **From the bible** — `generate_from_bible(name, prompt, style_preset?, style_refs?)`: a new picture of that character.
-5. **Only the look** — `generate_image(prompt, style_preset | style_refs)`: a brand-new picture that borrows nothing but the rendering style.
+1. **Character bible** — `generate_character_bible(images, name, char_desc, attr?, lora_name?, trigger?, captions?, steps?)`.
+   Trains an Anima LoRA on `images` (comma-separated paths / URLs / data URLs; `captions` '|'-separated
+   per picture, so different outfits are learned apart) unless `lora_name` names an existing one, then
+   draws 23 panels: turnaround, leotard body reference, six expressions, three actions, three costumes,
+   chibi, wardrobe items. Output: an aligned PNG sheet, a self-contained HTML bible, the panels.
+2. **Review and adjust** — `list_bible_panels` · `redraw_panel(name, panel, tags?, seed?, avoid?)`:
+   redraw any one panel from your words (and words to avoid), keep the old one under `history/`, rebuild the sheet.
+3. **New pictures of the character** — `generate_from_bible(name, prompt, width?, height?, seed?)`.
+4. **Sprites** — `generate_sprite(prompt, lora_name?, pose_image?)`: Anima txt2img (+LoRA, +Anima-Control-Pose) → ToonOut → RGBA candidates with measurements.
+5. **LoRA on its own** — `train_character_lora(bible_name | images, trigger?, steps?, captions?)` · `refine_image(image, prompt, lora_name, denoise?)` (img2img redraw of any picture with a LoRA).
 
-Style presets: `save_style_preset(name, images, note?)` · `list_style_presets` · `delete_style_preset`.
-Pictures come in as a cache path, an `http(s)` URL, a `data:` URL, or the WebUI upload (`POST /api/upload`).
-
-Plus the **variant editor** (`make_mask` with SAM 3.1 → `generate_variant` with JoyAI, base pixels restored outside the mask), `make_transparent` (ToonOut) and `pixelize` (Pillow).
+Edits that need a reference picture rather than a LoRA use JoyAI-Image-Edit-Plus: `make_mask` (SAM 3.1) →
+`generate_variant` (base pixels restored outside the mask), and `generate_image(prompt, style_preset | style_refs)`
+with style presets (`save_style_preset` · `list_style_presets` · `delete_style_preset` — bundles of pictures).
+`make_transparent` (ToonOut) and `pixelize` (Pillow) finish sprites. Pictures come in as a cache path, an
+`http(s)` URL, a `data:` URL, or the WebUI upload (`POST /api/upload`).
 
 ## Requirements
 
@@ -125,8 +126,9 @@ MCP and REST call the same `Services` functions; defaults live only in those sig
 |---|---|
 | Status | `gpu_status` · `list_loras` · `list_jobs` · `job_status` |
 | Sprites | `generate_base` · `generate_sprite` · `make_transparent` · `pixelize` |
-| Character | `generate_character_bible` · `bible_status` · `train_character_lora` · `train_status` |
-| Style | `save_style_preset` · `list_style_presets` · `delete_style_preset` · `generate_from_bible` · `generate_image` |
+| Character | `generate_character_bible` · `bible_status` · `list_bible_panels` · `redraw_panel` · `generate_from_bible` |
+| LoRA | `train_character_lora` · `train_status` · `refine_image` |
+| Style pictures | `save_style_preset` · `list_style_presets` · `delete_style_preset` · `generate_image` |
 | Variants | `make_mask` · `generate_variant` |
 
 ## Design principles (the "scars")
