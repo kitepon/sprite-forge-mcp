@@ -14,8 +14,12 @@ uvicorn、httpx に固定した。
 ## 最終試験と結果
 
 1. `python3 -m compileall -q backend` が成功した。
-2. FastMCP 4.0.2 / FastAPI を一時実行環境へ解決し、`backend.app` の import、app title
-   `sprite-forge`、MCP HTTP route 1本を確認した。
-3. REST と MCP の各入口が独自の GPU client や job store を作らず、module-level の
-   `services` を共有することをソース上で確認した。
+2. FastMCP 4.0.2 / FastAPI を一時実行環境へ解決し、`uvicorn backend.app:app` を
+   localhost:8766 で実際に起動した。REST `GET /api/jobs/does-not-exist` は
+   `{"job_id":"does-not-exist","status":"unknown"}` を返した。
+3. 同じ ASGI server の `/mcp/` へ Streamable HTTP の initialize → initialized →
+   `tools/call(job_status, job_id=does-not-exist)` を送った。MCP は同じ
+   `{"job_id":"does-not-exist","status":"unknown"}` を structured content として返した。
+   両方とも `Services.status` の unknown-job 分岐を通るため、REST/MCP の共通 services 呼出しを
+   実リクエストで確認した。検証後は tmux session と localhost:8766 を停止した。
 4. `git diff --check` が成功した。
