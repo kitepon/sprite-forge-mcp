@@ -125,3 +125,11 @@ def test_panel_prompts_carry_content_only_and_the_subject_comes_from_the_descrip
         for word in ("cel", "painterly", "glossy", "masterpiece", "best quality", "high detail"):
             assert word not in text
     assert [p["key"] for p in asyncio.run(Services(comfy=ComfyFixture()).list_bible_panels())][:2] == ["turn_front", "turn_34"]
+
+
+def test_japanese_names_get_an_ascii_key_and_still_work(tmp_path, monkeypatch):
+    service, comfy = make(tmp_path, monkeypatch)
+    record = asyncio.run(service.create_character("ベル", "she/her", trigger="bell"))
+    assert record["name"] == "ベル" and record["key"].startswith("n") and record["key"].isascii() and record["trigger"] == "bell"
+    assert asyncio.run(service.character_info("ベル"))["key"] == record["key"]
+    assert bible.safe_name("ベル") == bible.safe_name("ベル") != bible.safe_name("ベル2")

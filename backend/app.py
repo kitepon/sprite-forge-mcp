@@ -7,8 +7,8 @@ from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-from fastapi import FastAPI, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import FastAPI, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastmcp import FastMCP
 from fastmcp.utilities.lifespan import combine_lifespans
@@ -67,6 +67,13 @@ async def app_lifespan(_app):
 
 
 app = FastAPI(title="sprite-forge", lifespan=combine_lifespans(app_lifespan, mcp_app.lifespan))
+
+
+@app.exception_handler(Exception)
+async def report_error(_request: Request, error: Exception) -> JSONResponse:
+    """Failures are not hidden: the WebUI shows the reason instead of a bare HTTP 500."""
+    return JSONResponse(status_code=500, content={"detail": f"{type(error).__name__}: {error}"})
+
 
 
 for path, methods, function in (

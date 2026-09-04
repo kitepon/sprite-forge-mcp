@@ -7,6 +7,7 @@ chibi, item). The LoRA carries the character and the look; the product never des
 from __future__ import annotations
 
 import base64
+import hashlib
 import re
 from io import BytesIO
 from pathlib import Path
@@ -65,10 +66,13 @@ LABELS = {panel.key: panel.label for panel in PANELS}
 
 
 def safe_name(value: str) -> str:
-    """Make a deterministic path component without changing the displayed name."""
+    """A deterministic ASCII key for folders, datasets and LoRA files; the displayed name is kept
+    elsewhere. Names with no ASCII letters (e.g. Japanese) get a stable hash key."""
+    if not value.strip():
+        raise ValueError("name is empty")
     result = re.sub(r"[^a-zA-Z0-9_-]+", "_", value).strip("_")
     if not result:
-        raise ValueError("name must include a filesystem-safe character")
+        result = "n" + hashlib.sha1(value.strip().encode("utf-8")).hexdigest()[:8]
     return result[:80]
 
 

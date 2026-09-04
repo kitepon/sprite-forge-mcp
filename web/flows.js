@@ -122,8 +122,9 @@ function sheetSteps() {
         const name = element("input", { placeholder: "名前（例: Bell）" });
         const desc = element("input", { placeholder: "説明（代名詞を含める。例: she/her, silver twin-tail idol, white and gold outfit）" });
         const attr = element("input", { placeholder: "属性メモ（任意。シートの見出し）" });
-        const create = element("button", { onclick: async () => { try { await API.createCharacter(name.value, desc.value, attr.value); ctx.character = name.value; state.saveFlow(); info.textContent = `作成: ${name.value}`; notice("作成しました。次へ"); } catch (error) { notice(error.message, true); } } }, "新しく作る");
-        target.append(element("h3", {}, "新しく作る"), element("label", {}, "名前", name), element("label", {}, "説明", desc), element("label", {}, "属性", attr), create);
+        const trigger = element("input", { placeholder: "trigger 語（英数字。例: bell。空なら自動）" });
+        const create = element("button", { onclick: async () => { try { await API.createCharacter(name.value, desc.value, attr.value, trigger.value); ctx.character = name.value; state.saveFlow(); info.textContent = `作成: ${name.value}`; notice("作成しました。次へ"); } catch (error) { notice(error.message, true); } } }, "新しく作る");
+        target.append(element("h3", {}, "新しく作る"), element("label", {}, "名前（日本語可）", name), element("label", {}, "説明", desc), element("label", {}, "属性", attr), element("label", {}, "trigger 語", trigger), create);
       } },
     { title: "サンプル画像を集めて直す", ready: (ctx) => "",
       render: (target, ctx) => {
