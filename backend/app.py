@@ -55,6 +55,26 @@ async def train_status(job_id: str) -> dict:
 
 
 @mcp.tool
+async def make_mask(image_id: str, prompt: str = "character", points: str | None = None) -> dict:
+    return await services.make_mask(image_id, prompt, points)
+
+
+@mcp.tool
+async def generate_variant(base_id: str, prompt: str, mask_id: str | None = None, seed: int = 1) -> dict:
+    return await services.generate_variant(base_id, prompt, mask_id, seed)
+
+
+@mcp.tool
+async def make_transparent(image_id: str) -> dict:
+    return await services.make_transparent(image_id)
+
+
+@mcp.tool
+async def pixelize(image_id: str, block: int = 8, posterize: int = 0) -> dict:
+    return await services.pixelize(image_id, block, posterize)
+
+
+@mcp.tool
 async def job_status(job_id: str) -> dict:
     return await services.status(job_id)
 
@@ -95,6 +115,26 @@ async def rest_bible(source: str, name: str, char_desc: str, attr: str = "", see
 @app.get("/api/bible/{job_id}")
 async def rest_bible_status(job_id: str) -> dict:
     return await services.bible_status(job_id)
+
+
+@app.post("/api/mask")
+async def rest_mask(image_id: str, prompt: str = "character", points: str | None = None) -> dict:
+    return await services.make_mask(image_id, prompt, points)
+
+
+@app.post("/api/variant")
+async def rest_variant(base_id: str, prompt: str, mask_id: str | None = None, seed: int = 1) -> dict:
+    return await services.generate_variant(base_id, prompt, mask_id, seed)
+
+
+@app.post("/api/transparent")
+async def rest_transparent(image_id: str) -> dict:
+    return await services.make_transparent(image_id)
+
+
+@app.post("/api/pixelize")
+async def rest_pixelize(image_id: str, block: int = 8, posterize: int = 0) -> dict:
+    return await services.pixelize(image_id, block, posterize)
 
 
 @app.get("/api/jobs/{job_id}")

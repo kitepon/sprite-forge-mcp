@@ -6,8 +6,11 @@ import asyncio
 import struct
 import zlib
 import re
+from io import BytesIO
 from pathlib import Path
 from typing import Any
+
+from PIL import Image, ImageOps
 
 from . import bible
 from . import workflows
@@ -143,6 +146,57 @@ class Services:
     async def train_status(self, job_id: str) -> dict[str, Any]:
         return await self.status(job_id)
 
+    async def make_mask(self, image_id: str, prompt: str = "character", points: str | None = None) -> dict[str, Any]:
+        """Produce a SAM 3.1 mask artifact for a cached image."""
+        source, job_id = self._source_path(image_id), str(uuid.uuid4())
+        uploaded = await self.comfy.upload(source.read_bytes(), source.name)
+        prompt_id = await self.comfy.submit(workflows.sam3_mask(uploaded, prompt, points), job_id)
+        content = self._as_rgba_png(await self._view(self._first_image(await self._history_until_done(prompt_id))))
+        path = self._write_generated(f"{job_id}-mask.png", content)
+        job = {"job_id": job_id, "kind": "mask", "status": "completed", "source": str(source),
+               "path": str(path), "prompt_id": prompt_id, **self._measure_rgba_png(content)}
+        self.events.save_job(job); self.events.append(job_id, "completed", {"path": str(path)})
+        return job
+
+    async def generate_variant(self, base_id: str, prompt: str, mask_id: str | None = None,
+                               seed: int = 1) -> dict[str, Any]:
+        """Edit with JoyAI and restore base pixels outside an optional SAM mask."""
+        base, job_id = self._source_path(base_id), str(uuid.uuid4())
+        uploaded = await self.comfy.upload(base.read_bytes(), base.name)
+        prompt_id = await self.comfy.submit(workflows.joy_edit(uploaded, prompt, seed), job_id)
+        edited = self._as_rgba_png(await self._view(self._first_image(await self._history_until_done(prompt_id))))
+        if mask_id:
+            edited = self._restore_outside_mask(base.read_bytes(), edited, self._source_path(mask_id).read_bytes())
+        path = self._write_generated(f"{job_id}-variant.png", edited)
+        base_measure, variant_measure = self._measure_rgba_png(base.read_bytes()), self._measure_rgba_png(edited)
+        job = {"job_id": job_id, "kind": "variant", "status": "completed", "base": str(base),
+               "path": str(path), "mask": mask_id, "prompt_id": prompt_id,
+               **variant_measure, "bbox_center_delta": self._bbox_center_delta(base_measure["bbox"], variant_measure["bbox"])}
+        self.events.save_job(job); self.events.append(job_id, "completed", {"path": str(path)})
+        return job
+
+    async def make_transparent(self, image_id: str) -> dict[str, Any]:
+        source, job_id = self._source_path(image_id), str(uuid.uuid4())
+        uploaded = await self.comfy.upload(source.read_bytes(), source.name)
+        prompt_id = await self.comfy.submit(workflows.toonout(uploaded), job_id)
+        content = self._as_rgba_png(await self._view(self._first_image(await self._history_until_done(prompt_id))))
+        path = self._write_generated(f"{job_id}-transparent.png", content)
+        job = {"job_id": job_id, "kind": "transparent", "status": "completed", "source": str(source),
+               "path": str(path), "prompt_id": prompt_id, **self._measure_rgba_png(content)}
+        self.events.save_job(job); self.events.append(job_id, "completed", {"path": str(path)})
+        return job
+
+    async def pixelize(self, image_id: str, block: int = 8, posterize: int = 0) -> dict[str, Any]:
+        if not 1 <= block <= 128 or not 0 <= posterize <= 8:
+            raise ValueError("block must be 1..128 and posterize must be 0..8")
+        source, job_id = self._source_path(image_id), str(uuid.uuid4())
+        content = self._pixelize_png(source.read_bytes(), block, posterize)
+        path = self._write_generated(f"{job_id}-pixel.png", content)
+        job = {"job_id": job_id, "kind": "pixelize", "status": "completed", "source": str(source),
+               "path": str(path), "block": block, "posterize": posterize, **self._measure_rgba_png(content)}
+        self.events.save_job(job); self.events.append(job_id, "completed", {"path": str(path)})
+        return job
+
     def _source_path(self, source: str) -> Path:
         candidate = Path(source)
         if candidate.is_file():
@@ -154,6 +208,46 @@ class Services:
         if len(matches) == 1:
             return matches[0]
         raise FileNotFoundError(f"character-bible source not found: {source}")
+
+    def _write_generated(self, name: str, content: bytes) -> Path:
+        path = self.generated_root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        return path
+
+    @staticmethod
+    def _as_rgba_png(content: bytes) -> bytes:
+        image = Image.open(BytesIO(content)).convert("RGBA")
+        output = BytesIO(); image.save(output, format="PNG")
+        return output.getvalue()
+
+    @staticmethod
+    def _bbox_center_delta(before: dict[str, int] | None, after: dict[str, int] | None) -> dict[str, float] | None:
+        if not before or not after:
+            return None
+        center = lambda box: ((box["left"] + box["right"]) / 2, (box["top"] + box["bottom"]) / 2)
+        bx, by = center(before); ax, ay = center(after)
+        return {"x": ax - bx, "y": ay - by}
+
+    @staticmethod
+    def _restore_outside_mask(base: bytes, edited: bytes, mask: bytes) -> bytes:
+        base_image = Image.open(BytesIO(base)).convert("RGBA")
+        edit_image = Image.open(BytesIO(edited)).convert("RGBA").resize(base_image.size)
+        mask_image = Image.open(BytesIO(mask)).convert("L").resize(base_image.size)
+        output = BytesIO(); Image.composite(edit_image, base_image, mask_image).save(output, format="PNG")
+        return output.getvalue()
+
+    @staticmethod
+    def _pixelize_png(content: bytes, block: int, posterize: int) -> bytes:
+        image = Image.open(BytesIO(content)).convert("RGBA")
+        small = image.resize((max(1, image.width // block), max(1, image.height // block)), Image.Resampling.NEAREST)
+        output = small.resize(image.size, Image.Resampling.NEAREST)
+        if posterize:
+            alpha = output.getchannel("A")
+            output = ImageOps.posterize(output.convert("RGB"), posterize).convert("RGBA")
+            output.putalpha(alpha)
+        encoded = BytesIO(); output.save(encoded, format="PNG")
+        return encoded.getvalue()
 
     async def _history_until_done(self, prompt_id: str) -> dict[str, Any]:
         for _ in range(90):
