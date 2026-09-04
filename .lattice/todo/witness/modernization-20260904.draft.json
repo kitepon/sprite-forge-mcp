@@ -2,35 +2,93 @@
   "schema": "lattice.todo_witness_draft.v2",
   "project_id": "sprite-forge-mcp",
   "plan_key": "modernization-20260904",
-  "capacity": { "executors": 3 },
+  "capacity": { "executors": 2 },
   "tasks": {
-    "p1-base": {
-      "owns": [
-        "docs/09_modernization_bench.md",
-        { "path": "evidence/modernization-20260904/p1-base.md", "creates": true }
-      ],
-      "reads": ["docs/plan_modernization-20260904.md"]
-    },
-    "p1-damage": {
-      "owns": [
-        "docs/09_modernization_bench.md",
-        { "path": "evidence/modernization-20260904/p1-damage.md", "creates": true }
-      ],
-      "reads": ["docs/plan_modernization-20260904.md"]
-    },
     "p1-lora": {
       "owns": [
         "docs/09_modernization_bench.md",
+        "docs/models.md",
         { "path": "evidence/modernization-20260904/p1-lora.md", "creates": true }
       ],
       "reads": ["docs/plan_modernization-20260904.md"]
     },
-    "p1-pose": {
+    "p2-core": {
       "owns": [
-        "docs/09_modernization_bench.md",
-        { "path": "evidence/modernization-20260904/p1-pose.md", "creates": true }
+        "backend/app.py",
+        "backend/audit.py",
+        "backend/bible.py",
+        "backend/comfy_client.py",
+        "backend/config.py",
+        "backend/promptcraft.py",
+        "backend/sam2_bridge.py",
+        "backend/services.py",
+        "backend/training.py",
+        "backend/workflows.py",
+        { "path": "backend/comfy.py", "creates": true },
+        { "path": "backend/box.py", "creates": true },
+        { "path": "backend/events.py", "creates": true },
+        { "path": "pyproject.toml", "creates": true },
+        { "path": "uv.lock", "creates": true },
+        "requirements.txt",
+        { "path": "evidence/modernization-20260904/p2-core.md", "creates": true }
       ],
       "reads": ["docs/plan_modernization-20260904.md"]
+    },
+    "p2-mcp": {
+      "owns": [
+        "backend/app.py",
+        { "path": "compose.yaml", "creates": true },
+        { "path": "evidence/modernization-20260904/p2-mcp.md", "creates": true }
+      ],
+      "reads": ["docs/plan_modernization-20260904.md", "backend/services.py"]
+    },
+    "p2-tests": {
+      "owns": [
+        ".github/workflows/ci.yml",
+        { "path": "tests/test_audit.py", "creates": true },
+        { "path": "tests/test_workflows.py", "creates": true },
+        { "path": "tests/test_box.py", "creates": true },
+        { "path": "tests/test_events.py", "creates": true },
+        { "path": "evidence/modernization-20260904/p2-tests.md", "creates": true }
+      ],
+      "reads": ["docs/plan_modernization-20260904.md"]
+    },
+    "p2-web": {
+      "owns": [
+        "web/api.js",
+        "web/bible.js",
+        "web/gen.js",
+        "web/index.html",
+        "web/jobs.js",
+        "web/lora.js",
+        "web/main.js",
+        "web/state.js",
+        "web/style.css",
+        "web/ui.js",
+        "web/variant.js",
+        { "path": "evidence/modernization-20260904/p2-web.md", "creates": true }
+      ],
+      "reads": ["docs/plan_modernization-20260904.md"]
+    },
+    "p2-docs": {
+      "owns": [
+        "docs/03_architecture.md",
+        "docs/04_models_and_runtime.md",
+        "docs/05_tool_surface.md",
+        "docs/09_modernization_bench.md",
+        "CLAUDE.md",
+        { "path": "AGENTS.md", "creates": true },
+        "rag/INDEX.md",
+        { "path": "evidence/modernization-20260904/p2-docs.md", "creates": true }
+      ],
+      "reads": ["docs/plan_modernization-20260904.md"]
+    },
+    "p3-deploy": {
+      "owns": [
+        ".mcp.json",
+        { "path": "evidence/modernization-20260904/p3-deploy.md", "creates": true }
+      ],
+      "reads": ["docs/plan_modernization-20260904.md", "compose.yaml"]
     }
   }
 }
