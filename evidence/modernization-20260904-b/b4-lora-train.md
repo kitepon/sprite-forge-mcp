@@ -11,10 +11,14 @@ passed (`7 passed`).
 
 ## fox MCP acceptance
 
-Streamable HTTP MCP called `train_character_lora("Azure Mage", trigger="azure_mage", steps=3)`.
-Job `77830def-1312-4b08-acf8-76b76c6bfd39` completed bf16 training at `3/3` and
-returned `Azure_Mage_3f5fb2d7.safetensors`. A subsequent MCP `list_loras`
-included that exact LoRA. MCP `generate_sprite` with this LoRA and trigger then
-completed job `7a8579f9-1dd8-47db-a552-9fe5ccf5eda1`, outputting
-`.cache/generated/7a8579f9-1dd8-47db-a552-9fe5ccf5eda1-0.png` (RGBA 1024x1024,
-corner alpha `[0,0,0,0]`, prompt `d6ddcc84-0669-431d-bce5-bb1a01efb9d6`).
+The accepted corrective run called `train_character_lora("Azure Mage",
+trigger="azure_mage, silver-haired mage, teal navy robes", steps=12)`.
+Job `1e84118a-b2c5-40c7-9967-8617c419cc29` completed bf16 training at `12/12`
+and returned `Azure_Mage_80400235.safetensors`; `list_loras` included it.
+MCP `generate_sprite` with that LoRA, the same trigger, and an explicit
+silver-haired teal/navy-robed crystal-staff mage prompt completed job
+`7560bc87-b72d-441c-9b7d-8180b9fedf41`, outputting
+`.cache/generated/7560bc87-b72d-441c-9b7d-8180b9fedf41-0.png` (RGBA 1024x1024,
+corner alpha `[0,0,0,0]`, prompt `fe159de4-ab94-4a41-bbf4-b85dd387e7c6`).
+Visual inspection confirmed the Azure Mage's silver hair, teal/navy robes,
+gold trim, and crystal staff.
