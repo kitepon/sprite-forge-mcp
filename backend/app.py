@@ -45,6 +45,16 @@ async def bible_status(job_id: str) -> dict:
 
 
 @mcp.tool
+async def train_character_lora(bible_name: str, trigger: str = "sprite_subject", steps: int = 12) -> dict:
+    return await services.train_character_lora(bible_name, trigger, steps)
+
+
+@mcp.tool
+async def train_status(job_id: str) -> dict:
+    return await services.train_status(job_id)
+
+
+@mcp.tool
 async def job_status(job_id: str) -> dict:
     return await services.status(job_id)
 
