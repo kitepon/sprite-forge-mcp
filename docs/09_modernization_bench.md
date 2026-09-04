@@ -94,3 +94,40 @@ RGBA の alpha とした（SAM の MASK 極性は背景=white のため）。
 しかし ToonOut は3入力すべてで部分 alpha を保持し、髪先・指・杖の細部も SAM 3.1 の
 hard mask より自然に残した。SAM 3.1 は文字・点プロンプトによる対象マスク抽出の補助手段として
 残すが、sprite の最終 RGBA 化は ToonOut を標準とする。
+
+## ダメージ版（Phase 1 / p1-damage）
+
+Mage-Flow-Edit を p1-edit の勝者として使い、SAM 3.1 のテキストマスクで火の魔術師の
+衣装だけを編集し、元画像をマスク外へ戻す経路を fox の ComfyUI 0.34.0（RTX 5090）で確認した。
+
+### 条件
+
+- 入力: ComfyUI input の `p1_damage_firemage_base.png`（768×1024、SHA-256
+  `f6be351a437fce9aa6bd3d47e10596f7b94658159e67fa986f6bc3fdc884aaf3`）。
+- SAM 3.1 Multiplex: `character`（threshold 0.50）で主体 alpha、`red robe clothing`
+  （threshold 0.45）で衣装マスクを作った。どちらも refine iterations 2。
+- 編集: `mage_flow_edit_int8_convrot.safetensors`、Qwen3-VL 4B、Mage VAE、seed 41002、
+  30 steps、CFG 5、Euler/simple。顔・髪・王冠・手・杖・ポーズ・canvas を維持し、赤い
+  ローブと袖だけを torn / scorched / battle-damaged にする指示を与えた。
+- 復元: `ImageCompositeMasked(destination=base, source=edited, mask=clothing)` の後、
+  character alpha を `JoinImageWithAlpha` に渡した。
+
+### 結果
+
+主 workflow `a9e743c0-c13f-49f9-b706-06537d82cdb4` は成功し、10.169 秒で raw と
+合成 RGBA を出力した。最終出力は
+`ComfyUI/output/p1-damage/firemage-damaged-composited_00001_.png`
+（SHA-256 `020dbecaafc62ed67ebbf0258fd3d2a47c52502614aba78d3eba70753ccd3dc5`）、
+raw は `firemage-damaged-raw_00001_.png`、SAM マスク確認は
+`f33a5343-5321-4dbd-9b49-43850b02ff72` で成功した。
+
+| 測定 | 値 |
+| --- | --- |
+| 出力サイズ | 768×1024 |
+| 合成 RGBA の四隅 alpha | 0 / 0 / 0 / 0 |
+| 衣装マスク内の変化 | 410,546 px |
+| 衣装マスク外の変化 | 0 px（pixel-exact） |
+| bbox 中心差（白背景を除く RGB < 250 の閾値） | x -7.0 px, y +0.5 px（記録のみ・gate 外） |
+
+目視では、ローブの裾と袖に焦げ・破れが入り、顔、髪、王冠、手、杖は元画像のまま保たれた。
+マスク外復元により、編集器の出力が衣装外へ及ぼす変化は残らない。
