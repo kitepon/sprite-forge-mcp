@@ -31,7 +31,7 @@ MASTER_PROMPT = (
 def master_prompt(image_count: int = 1) -> str:
     return MASTER_PROMPT + style_clause(image_count) + "."
 MASTER_SIZE = (1280, 1024)
-NEG_MASTER = "extra different characters, text, watermark, lowres"
+NEG_MASTER = "extra different characters, text, watermark, lowres, background scenery, scene, sky, space, landscape, selfie"
 
 
 class Panel(NamedTuple):
@@ -69,7 +69,8 @@ PANELS: tuple[Panel, ...] = (
 )
 
 # Panels reference the master SHEET, so always forbid reproducing the sheet layout.
-NEG = "reference sheet, multiple views, grid, collage, multiple characters, extra people, text, watermark, lowres"
+NEG = ("reference sheet, multiple views, grid, collage, multiple characters, extra people, text, watermark, lowres, "
+       "background scenery, scene, sky, space, landscape, selfie, photo composition")
 NEG_BACK = NEG + ", face, facing viewer, front view, eyes, looking at viewer, frontal"
 NEG_ITEM = NEG + ", girl, person, character, body, face, head, hair, legs, arms, wearing, mannequin"
 NEG_CHIBI = "reference sheet, grid, collage, extra people, realistic proportions, tall, full-size body, text, watermark, lowres"
@@ -116,17 +117,19 @@ def copy_style(first: int, last: int) -> str:
     pictures. This names which JoyAI reference images carry the look."""
     if first < 1 or last < first:
         raise ValueError("a style clause needs at least one reference image")
-    return (f" Render it in exactly the drawing style of {_span(first, last)}: copy their shading, "
-            "line work, lighting, eye rendering and level of detail")
+    return (f" Render it in exactly the drawing style of {_span(first, last)}: copy only their shading, "
+            "line work, lighting, eye rendering and level of detail; do NOT copy their backgrounds, "
+            "poses, camera angle or composition")
 
 
 def master_prompt(style_count: int = 0) -> str:
     """References: image 1 = the owner's source picture, images 2.. = extra style pictures.
     Without extras the source's own look is the style (usage 1); with extras the design comes
     from image 1 and the look from the extras (usage 2)."""
+    tail = ". Plain white background regardless of the reference pictures' backgrounds."
     if style_count:
-        return MASTER_PROMPT + " Take the character design only from image 1." + copy_style(2, 1 + style_count) + "."
-    return MASTER_PROMPT + copy_style(1, 1) + "."
+        return MASTER_PROMPT + " Take the character design only from image 1." + copy_style(2, 1 + style_count) + tail
+    return MASTER_PROMPT + copy_style(1, 1) + tail
 
 
 NEG_IMAGE = "text, watermark, lowres, collage, grid, reference sheet, multiple views"
@@ -168,7 +171,7 @@ def instruction(panel: Panel, possessive: str, style_count: int = 0) -> str:
         body = (f"{head} redraw ONLY that character as a SINGLE full-body figure {suffix}, "
                 f"one character only, isolated, centered, keep {possessive} exact face hair outfit and colors, "
                 "plain white background")
-    return body + style + "."
+    return body + style + ". Plain white background regardless of the reference pictures' backgrounds."
 
 
 def negative(panel: Panel) -> str:

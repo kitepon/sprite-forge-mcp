@@ -64,8 +64,10 @@ def test_bible_generates_all_panels_model_sheet_and_embedded_html(tmp_path):
     html = open(job["html_path"], encoding="utf-8").read()
     assert "MASTER REFERENCE" in html and "ALTERNATE COSTUMES" in html and "data:image/jpeg;base64," in html
     assert asyncio.run(service.bible_status(job["job_id"]))["status"] == "completed"
-    assert len(comfy.submitted) == 24
-    master, first_panel = comfy.submitted[0], comfy.submitted[1]
+    assert len(comfy.submitted) == 25  # matte + master + 23 panels
+    assert comfy.submitted[0]["2"]["class_type"] == "BiRefNetRMBG"
+    assert (tmp_path / "generated" / "bible_ember_mage_source.png").is_file()
+    master, first_panel = comfy.submitted[1], comfy.submitted[2]
     assert master["20"]["inputs"]["prompt"] == bible.master_prompt(2)
     assert "design only from image 1" in master["20"]["inputs"]["prompt"] and "images 2-3" in master["20"]["inputs"]["prompt"]
     assert master["20"]["inputs"]["images.image1"] == ["11", 0] and master["20"]["inputs"]["images.image2"] == ["12", 0]
@@ -77,7 +79,7 @@ def test_bible_generates_all_panels_model_sheet_and_embedded_html(tmp_path):
     assert first_panel["10"]["inputs"]["image"] == "sf_bible_master_ember_mage.png"
     assert first_panel["21"]["inputs"]["prompt"] == bible.NEG
     item_index = next(i for i, panel in enumerate(PANELS) if panel.kind == "item")
-    assert comfy.submitted[1 + item_index]["10"]["inputs"]["image"] == "sf_bible_front_ember_mage.png"
+    assert comfy.submitted[2 + item_index]["10"]["inputs"]["image"] == "sf_bible_front_ember_mage.png"
 
 
 def test_bible_prompt_uses_description_pronouns_not_fixed_her():
@@ -101,6 +103,7 @@ def test_style_comes_only_from_references_never_from_the_product():
     for word in ("cel", "anime style", "high detail", "painterly", "glossy"):
         assert word not in bare
     assert "drawing style of images 1-2:" in bare  # master + the owner's source picture
+    assert "do NOT copy their backgrounds" in bare and bare.endswith("regardless of the reference pictures' backgrounds.")
     assert "drawing style of image 1:" in bible.master_prompt(0)  # the source alone is the style
     assert "drawing style of images 3-6" in instruction(face, "their", 4)
     assert "drawing style of images 1-2" in bible.from_bible_prompt("waving", 0)

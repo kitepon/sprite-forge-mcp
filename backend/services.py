@@ -108,7 +108,17 @@ class Services:
             possessive = bible.possessive_pronoun(char_desc)
             if panel_root.exists():
                 shutil.rmtree(panel_root)  # the panel set is also LoRA material: no stale panels from an earlier run
-            source_upload = await self.comfy.upload(bible.on_white(source_path.read_bytes()), f"sf_bible_src_{key}.png")
+            # The source is a picture the owner liked, usually with a scene behind the character.
+            # Matte it (ToonOut) and put the figure on white so the panels copy the character and
+            # the look, not the scene.
+            raw_upload = await self.comfy.upload(bible.on_white(source_path.read_bytes()), f"sf_bible_raw_{key}.png")
+            job.update(status="matting source")
+            self.events.save_job(job)
+            matted, elapsed = await self._run_edit(job_id, workflows.toonout(raw_upload))
+            source_on_white = bible.on_white(matted)
+            self._write_generated(f"bible_{key}_source.png", source_on_white)
+            self.events.append(job_id, "source_matted", {"elapsed_s": elapsed})
+            source_upload = await self.comfy.upload(source_on_white, f"sf_bible_src_{key}.png")
             style_uploads = [await self.comfy.upload(bible.on_white(path.read_bytes()), f"sf_bible_style_{key}_{i}.png")
                              for i, path in enumerate(style_paths)]
             job.update(status="generating master sheet")
@@ -168,7 +178,8 @@ class Services:
         master_path = self.generated_root / f"bible_{key}_master.png"
         if not master_path.is_file():
             raise FileNotFoundError(f"no character bible named {name!r}: run generate_character_bible first")
-        source_path = self._bible_source(name)
+        matted = self.generated_root / f"bible_{key}_source.png"
+        source_path = matted if matted.is_file() else self._bible_source(name)
         style_paths = await self._style_paths(style_preset, style_refs)
         job_id = str(uuid.uuid4())
         job = {"job_id": job_id, "kind": "from_bible", "status": "queued", "name": name, "prompt": prompt,
