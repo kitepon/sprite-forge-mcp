@@ -1,0 +1,241 @@
+{
+  "actor": {
+    "agent": "bell",
+    "host": "mac",
+    "session": "bell"
+  },
+  "hard_dependencies": [],
+  "joins": [],
+  "plan_key": "modernization-20260904-b",
+  "plan_version": "v1",
+  "project_id": "sprite-forge-mcp",
+  "recorded_at": "2026-09-04T03:32:23.010Z",
+  "schema": "lattice.todo_extraction.v3",
+  "tasks": [
+    {
+      "compile_binding": null,
+      "completion": null,
+      "design_memo": "計画正本 docs/plan_modernization-20260904.md Phase 2『構造』の backend/workflows.py。①Anima txt2img（Base/Turbo 選択、LoRA 任意、Anima-Control-Pose の骨格画像任意）②JoyAI-Image-Edit-Plus（参照画像 1〜6 枚＋指示文）③ToonOut（ComfyUI-RMBG、RGB→RGBA）④SAM 3.1（文字プロンプトまたは点で mask 出力）。各 builder は {node_id:{class_type,inputs}} を返し、node 名と入力名は fox の /object_info と一致させる。受入: tests/test_workflows.py で 4 本の JSON 形を固定し、fox の ComfyUI へ 4 本を実際に投げて出力画像／mask が得られた証跡（.cache/generated 配下のパスと /history の抜粋）を evidence に残す。旧世代（Qwen/SDXL）の builder は置かない。\n\n依存: なし",
+      "disposition": "register_pending",
+      "lane": "defect",
+      "migration_context": {
+        "carry_over_ref": null,
+        "condition": null,
+        "evidence_refs": [],
+        "external_canonical_ref": null,
+        "h_required": false,
+        "notes": []
+      },
+      "narrative_ref": "docs/plan_modernization-20260904-b.md",
+      "source": {
+        "checkbox_state": "absent",
+        "heading_path": [
+          "sprite-forge 近代化改修 追加計画 B（2026-09-04・Phase 2 不合格の是正）",
+          "工程",
+          "b1-workflows ComfyUI workflow builder 4 本（Anima txt2img / JoyAI edit / ToonOut / SAM 3.1）"
+        ],
+        "markdown_depth": 3,
+        "origin_line": 7,
+        "origin_plan_ref": "docs/plan_modernization-20260904-b.md",
+        "parent_task_id": null,
+        "source_commit": "71b55f96358791ad7f4f9c494ab584de6ae2fbc3"
+      },
+      "start": null,
+      "task_id": "b1-workflows",
+      "title": "ComfyUI workflow builder 4 本（Anima txt2img / JoyAI edit / ToonOut / SAM 3.1）"
+    },
+    {
+      "compile_binding": null,
+      "completion": null,
+      "design_memo": "MCP ツール generate_sprite(prompt, count, seed, lora_name?, lora_trigger?, pose_image?, turbo=true) と同じ services 関数を REST /api/generate から呼ぶ。b1 の builder ①→③ を連結し、候補ごとに RGBA PNG を .cache/generated に保存、計測（四隅 alpha・bbox・canvas）を数値で付けて返す（ゲートにしない）。list_loras は /object_info の LoraLoader から。受入: Claude Code から MCP を呼んで 4 枚の RGBA が出て、四隅 alpha=0 の候補があることを evidence の画像パスで示す。\n\n依存: b1-workflows",
+      "disposition": "register_pending",
+      "lane": "defect",
+      "migration_context": {
+        "carry_over_ref": null,
+        "condition": null,
+        "evidence_refs": [],
+        "external_canonical_ref": null,
+        "h_required": false,
+        "notes": []
+      },
+      "narrative_ref": "docs/plan_modernization-20260904-b.md",
+      "source": {
+        "checkbox_state": "absent",
+        "heading_path": [
+          "sprite-forge 近代化改修 追加計画 B（2026-09-04・Phase 2 不合格の是正）",
+          "工程",
+          "b2-sprite generate_sprite: Anima（+LoRA +Control-Pose）→ ToonOut で RGBA 候補を返す"
+        ],
+        "markdown_depth": 3,
+        "origin_line": 13,
+        "origin_plan_ref": "docs/plan_modernization-20260904-b.md",
+        "parent_task_id": null,
+        "source_commit": "71b55f96358791ad7f4f9c494ab584de6ae2fbc3"
+      },
+      "start": null,
+      "task_id": "b2-sprite",
+      "title": "generate_sprite: Anima（+LoRA +Control-Pose）→ ToonOut で RGBA 候補を返す"
+    },
+    {
+      "compile_binding": null,
+      "completion": null,
+      "design_memo": "MCP generate_character_bible(source, name, char_desc, attr) と bible_status(job_id)。source は候補 id か画像パス。JoyAI-Image-Edit-Plus（b1 の②）で 8 方向・表情 6・衣装 3・ちび等のパネルを生成し、パネルを .cache/generated/bible_<name>_panels/ に保存（LoRA 教材）、Pillow で 1 枚の設定画と自己完結 HTML を合成。代名詞は char_desc から組み、her 固定にしない。ジョブは uuid4、状態は .cache/jobs/<id>.json。受入: MCP から実行して設定画 PNG と panels が出た証跡（パス）。\n\n依存: b1-workflows",
+      "disposition": "register_pending",
+      "lane": "defect",
+      "migration_context": {
+        "carry_over_ref": null,
+        "condition": null,
+        "evidence_refs": [],
+        "external_canonical_ref": null,
+        "h_required": false,
+        "notes": []
+      },
+      "narrative_ref": "docs/plan_modernization-20260904-b.md",
+      "source": {
+        "checkbox_state": "absent",
+        "heading_path": [
+          "sprite-forge 近代化改修 追加計画 B（2026-09-04・Phase 2 不合格の是正）",
+          "工程",
+          "b3-bible generate_character_bible / bible_status: JoyAI で多方向＋表情＋衣装の設定画"
+        ],
+        "markdown_depth": 3,
+        "origin_line": 19,
+        "origin_plan_ref": "docs/plan_modernization-20260904-b.md",
+        "parent_task_id": null,
+        "source_commit": "71b55f96358791ad7f4f9c494ab584de6ae2fbc3"
+      },
+      "start": null,
+      "task_id": "b3-bible",
+      "title": "generate_character_bible / bible_status: JoyAI で多方向＋表情＋衣装の設定画"
+    },
+    {
+      "compile_binding": null,
+      "completion": null,
+      "design_memo": "MCP train_character_lora(bible_name, trigger?, steps?) と train_status(job_id)。backend/box.py は `scp` で教材を fox へ送り、`ssh fox python C:\\sf\\train.py --config <toml>` を起動して stdout を読み進捗（step/total）を job に反映、完了後に LoRA を fox の ComfyUI/models/loras へ配置（ssh の cp ではなく train.py 側に出力先を渡す）。学習前に ComfyUI /free を叩く。PowerShell 文字列を持たない。受入: p1-lora の教材で実際に短時間学習を回し、list_loras に新 LoRA が出て generate_sprite(lora_name=…) で 1 枚出た証跡。\n\n依存: b3-bible",
+      "disposition": "register_pending",
+      "lane": "defect",
+      "migration_context": {
+        "carry_over_ref": null,
+        "condition": null,
+        "evidence_refs": [],
+        "external_canonical_ref": null,
+        "h_required": false,
+        "notes": []
+      },
+      "narrative_ref": "docs/plan_modernization-20260904-b.md",
+      "source": {
+        "checkbox_state": "absent",
+        "heading_path": [
+          "sprite-forge 近代化改修 追加計画 B（2026-09-04・Phase 2 不合格の是正）",
+          "工程",
+          "b4-lora-train train_character_lora / train_status: box.py 経由で fox の sd-scripts（Anima）を回し LoRA を配置"
+        ],
+        "markdown_depth": 3,
+        "origin_line": 25,
+        "origin_plan_ref": "docs/plan_modernization-20260904-b.md",
+        "parent_task_id": null,
+        "source_commit": "71b55f96358791ad7f4f9c494ab584de6ae2fbc3"
+      },
+      "start": null,
+      "task_id": "b4-lora-train",
+      "title": "train_character_lora / train_status: box.py 経由で fox の sd-scripts（Anima）を回し LoRA を配置"
+    },
+    {
+      "compile_binding": null,
+      "completion": null,
+      "design_memo": "MCP make_mask(image_id, prompt|points) は SAM 3.1（b1 の④）で mask 候補を返す。generate_variant(base_id, prompt, mask_id?) は JoyAI 編集→mask 内だけ差し替え（mask 外はベースの画素を復元）→計測（bbox 中心差）を数値で返す。make_transparent(image_id) は ToonOut、pixelize(image_id, block, posterize) は Pillow。受入: 素体 1 枚から mask→ダメージ版→透過→ドット化を MCP で通した証跡（各段の画像パスと bbox 差）。\n\n依存: b1-workflows",
+      "disposition": "register_pending",
+      "lane": "defect",
+      "migration_context": {
+        "carry_over_ref": null,
+        "condition": null,
+        "evidence_refs": [],
+        "external_canonical_ref": null,
+        "h_required": false,
+        "notes": []
+      },
+      "narrative_ref": "docs/plan_modernization-20260904-b.md",
+      "source": {
+        "checkbox_state": "absent",
+        "heading_path": [
+          "sprite-forge 近代化改修 追加計画 B（2026-09-04・Phase 2 不合格の是正）",
+          "工程",
+          "b5-variant generate_variant / make_mask / make_transparent / pixelize: ダメージ版と派生"
+        ],
+        "markdown_depth": 3,
+        "origin_line": 31,
+        "origin_plan_ref": "docs/plan_modernization-20260904-b.md",
+        "parent_task_id": null,
+        "source_commit": "71b55f96358791ad7f4f9c494ab584de6ae2fbc3"
+      },
+      "start": null,
+      "task_id": "b5-variant",
+      "title": "generate_variant / make_mask / make_transparent / pixelize: ダメージ版と派生"
+    },
+    {
+      "compile_binding": null,
+      "completion": null,
+      "design_memo": "backend/events.py: services の全ツール呼び出し・ジョブ状態変化・生成完了で 1 行追記（event_id, job_id, seq, schema_version, at, kind, payload）。REST /api/events は SSE で events.ndjson を追従、/api/events?since= で過去分。MCP ツールと REST は同じ services 関数を呼び、引数・既定値を二重定義しない（既定値は services のシグネチャだけ）。受入: tests/test_events.py と、MCP から generate_sprite を 1 回呼ぶと events.ndjson に呼び出し・完了の 2 行が増える証跡。\n\n依存: b2-sprite, b3-bible, b4-lora-train, b5-variant",
+      "disposition": "register_pending",
+      "lane": "defect",
+      "migration_context": {
+        "carry_over_ref": null,
+        "condition": null,
+        "evidence_refs": [],
+        "external_canonical_ref": null,
+        "h_required": false,
+        "notes": []
+      },
+      "narrative_ref": "docs/plan_modernization-20260904-b.md",
+      "source": {
+        "checkbox_state": "absent",
+        "heading_path": [
+          "sprite-forge 近代化改修 追加計画 B（2026-09-04・Phase 2 不合格の是正）",
+          "工程",
+          "b6-events 記録一本 events.ndjson と SSE、MCP/REST の一本化"
+        ],
+        "markdown_depth": 3,
+        "origin_line": 37,
+        "origin_plan_ref": "docs/plan_modernization-20260904-b.md",
+        "parent_task_id": null,
+        "source_commit": "71b55f96358791ad7f4f9c494ab584de6ae2fbc3"
+      },
+      "start": null,
+      "task_id": "b6-events",
+      "title": "記録一本 events.ndjson と SSE、MCP/REST の一本化"
+    },
+    {
+      "compile_binding": null,
+      "completion": null,
+      "design_memo": "計画 Phase 2『WebUI 作り直し』の 5 画面が b2〜b6 の API で実際に動くことを確認し、足りない画面・導線を実装する。①作業台: 素体生成→候補カード（計測値表示）→透過・ドット化・ダメージ版 ②設定画: 生成開始→進捗→完成画像と HTML ③LoRA: 教材確認→学習開始→進捗→一覧 ④過程: /api/events の SSE を流す ⑤記録: 過去の生成・設定画・LoRA を辿る。受入: Playwright でコンソールエラー 0、5 画面それぞれの主要導線 1 周の証跡（スクリーンショットのパス）。\n\n依存: b6-events",
+      "disposition": "register_pending",
+      "lane": "defect",
+      "migration_context": {
+        "carry_over_ref": null,
+        "condition": null,
+        "evidence_refs": [],
+        "external_canonical_ref": null,
+        "h_required": false,
+        "notes": []
+      },
+      "narrative_ref": "docs/plan_modernization-20260904-b.md",
+      "source": {
+        "checkbox_state": "absent",
+        "heading_path": [
+          "sprite-forge 近代化改修 追加計画 B（2026-09-04・Phase 2 不合格の是正）",
+          "工程",
+          "b7-web WebUI 5 画面を新 API に接続して実走確認（作業台・設定画・LoRA・過程・記録）"
+        ],
+        "markdown_depth": 3,
+        "origin_line": 43,
+        "origin_plan_ref": "docs/plan_modernization-20260904-b.md",
+        "parent_task_id": null,
+        "source_commit": "71b55f96358791ad7f4f9c494ab584de6ae2fbc3"
+      },
+      "start": null,
+      "task_id": "b7-web",
+      "title": "WebUI 5 画面を新 API に接続して実走確認（作業台・設定画・LoRA・過程・記録）"
+    }
+  ],
+  "extraction_digest": "38cc6bc5fe9e334498b7b91495e0892699826c4b3472c13cde74b557a3d76c4c"
+}
