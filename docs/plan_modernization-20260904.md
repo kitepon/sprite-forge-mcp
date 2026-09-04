@@ -64,6 +64,7 @@ GPU 側の画像処理は全部 ComfyUI のワークフローに収める。メ�
 | ダメージ版 | SAM 3.1 マスク + 勝った編集モデル + マスク外復元 | — | bbox 差の数値 |
 
 - 素体で Anima 以外が勝った場合は、その学習器（musubi 等）に Phase 0 の学習器を差し替える。
+- **2026-09-04 裁定（Phase 1 の途中）**: 素体・編集とも Mage-Flow が比較で勝ったが、Microsoft が Mage-Flow 系を Hugging Face から取り下げた（ログイン済みでも 404、コレクションは Mage-ViT だけ）ため **Mage-Flow を捨てる**。素体は **Anima**（Base v1.0 で学習、Turbo v1.1 で量産、学習器は sd-scripts の anima_train_network.py）、編集・設定画は比較 2 位の **JoyAI-Image-Edit-Plus** に繰り上げ。理由: 公式が消した重みは更新が来ず、ミラー頼みは長寿命の道具の土台にならない。Windows ネイティブでの学習器の壁（SimpleTuner は fcntl で非対応、ai-toolkit は Python 3.12 venv なら導入できたが元重みが取得不能）もここで記録する。fox に入れた SimpleTuner・ai-toolkit・venv-aitoolkit・Mage-Flow 重みは Phase 2 の整理で撤去。
 - Anima のモデルライセンス（非商用）が問題になるなら、その時点で Mage-Flow か Krea 2 に寄せる。
 
 ## Phase 2 — コード再構築
