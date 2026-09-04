@@ -115,7 +115,11 @@ function route() {
   renderNav(active); renderers[active]($("#app")); $("#app").focus();
 }
 async function gpu() {
-  try { const value = await API.gpu(); $("#gpu").textContent = value.comfy_up ? "GPU 接続済み" : "GPU 未接続"; }
+  try {
+    const value = await API.gpu();
+    const connected = value.comfy_up ?? Boolean(value.devices?.length);
+    $("#gpu").textContent = connected ? "GPU 接続済み" : "GPU 未接続";
+  }
   catch { $("#gpu").textContent = "GPU 状態を取得できません"; }
 }
 window.addEventListener("hashchange", route);
