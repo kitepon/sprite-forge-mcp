@@ -62,8 +62,7 @@ function workbench(root) {
   root.replaceChildren(element("header", { class: "page-head" }, element("h1", {}, "作業台"), element("p", {}, "生成・編集・ダメージ版を同じ記録へ送ります。")),
     element("div", { class: "cards" },
       card("素体", form, measurement({ "モデル": "Anima Turbo + LoRA", "計測": "生成後に記録" })),
-      card("編集", element("p", {}, "JoyAI-Image-Edit-Plus で参照画像から多方向・表情・衣装を作成します。"), measurement({ "入力": "参照 1〜6 枚", "計測": "同一性・秒数" })),
-      card("ダメージ版", element("p", {}, "SAM 3.1 のマスクを使い、JoyAI 編集後に ToonOut で透過します。"), measurement({ "計測": "bbox 中心差・四隅 alpha", "出力": "透過 PNG" })),
+      card("ダメージ版・派生", element("p", {}, "素体に SAM 3.1 でマスクを切り、JoyAI で mask 内だけ差し替えて（mask 外は元の画素を復元）、ToonOut で透過します。設定画と絵柄は LoRA 側。"), measurement({ "計測": "bbox 中心差・四隅 alpha", "出力": "透過 PNG" })),
       fromBibleCard(), imageCard()), results);
 }
 
