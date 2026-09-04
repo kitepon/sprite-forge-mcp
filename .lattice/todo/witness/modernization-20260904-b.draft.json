@@ -5,31 +5,31 @@
   "capacity": { "executors": 1 },
   "tasks": {
     "b1-workflows": {
-      "owns": ["backend/workflows.py", "tests/test_workflows.py", {"path":"evidence/modernization-20260904/b1-workflows.md","creates":true}],
+      "owns": ["backend/workflows.py", "tests/test_workflows.py", {"path":"evidence/modernization-20260904-b/b1-workflows.md","creates":true}],
       "reads": ["docs/plan_modernization-20260904-b.md"]
     },
     "b2-sprite": {
-      "owns": ["backend/app.py", "backend/services.py", "tests/test_services.py", {"path":"evidence/modernization-20260904/b2-sprite.md","creates":true}],
+      "owns": ["backend/app.py", "backend/services.py", "tests/test_services.py", {"path":"evidence/modernization-20260904-b/b2-sprite.md","creates":true}],
       "reads": ["backend/workflows.py", "docs/plan_modernization-20260904-b.md"]
     },
     "b3-bible": {
-      "owns": [{"path":"backend/bible.py","creates":true}, "backend/app.py", "backend/services.py", "tests/test_bible.py", {"path":"evidence/modernization-20260904/b3-bible.md","creates":true}],
+      "owns": [{"path":"backend/bible.py","creates":true}, "backend/app.py", "backend/services.py", "tests/test_bible.py", {"path":"evidence/modernization-20260904-b/b3-bible.md","creates":true}],
       "reads": ["backend/workflows.py", "docs/plan_modernization-20260904-b.md"]
     },
     "b4-lora-train": {
-      "owns": ["backend/box.py", "backend/app.py", "backend/services.py", "tests/test_training.py", {"path":"evidence/modernization-20260904/b4-lora-train.md","creates":true}],
+      "owns": ["backend/box.py", "backend/app.py", "backend/services.py", "tests/test_training.py", {"path":"evidence/modernization-20260904-b/b4-lora-train.md","creates":true}],
       "reads": ["backend/bible.py", "docs/plan_modernization-20260904-b.md"]
     },
     "b5-variant": {
-      "owns": [{"path":"backend/audit.py","creates":true}, "backend/app.py", "backend/services.py", "tests/test_variant.py", {"path":"evidence/modernization-20260904/b5-variant.md","creates":true}],
+      "owns": [{"path":"backend/audit.py","creates":true}, "backend/app.py", "backend/services.py", "tests/test_variant.py", {"path":"evidence/modernization-20260904-b/b5-variant.md","creates":true}],
       "reads": ["backend/workflows.py", "docs/plan_modernization-20260904-b.md"]
     },
     "b6-events": {
-      "owns": ["backend/events.py", "backend/app.py", "backend/services.py", "tests/test_events.py", {"path":"evidence/modernization-20260904/b6-events.md","creates":true}],
+      "owns": ["backend/events.py", "backend/app.py", "backend/services.py", "tests/test_events.py", {"path":"evidence/modernization-20260904-b/b6-events.md","creates":true}],
       "reads": ["docs/plan_modernization-20260904-b.md"]
     },
     "b7-web": {
-      "owns": ["web/api.js", "web/index.html", "web/main.js", "web/state.js", "web/style.css", "web/ui.js", {"path":"evidence/modernization-20260904/b7-web.md","creates":true}],
+      "owns": ["web/api.js", "web/index.html", "web/main.js", "web/state.js", "web/style.css", "web/ui.js", {"path":"evidence/modernization-20260904-b/b7-web.md","creates":true}],
       "reads": ["docs/plan_modernization-20260904-b.md"]
     }
   }
