@@ -10,6 +10,7 @@ import struct
 import time
 import zlib
 import re
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
@@ -52,30 +53,30 @@ class Services:
             raise ValueError("count must be between 1 and 8")
         job_id = str(uuid.uuid4())
         final_prompt = " ".join(part for part in (lora_trigger, prompt) if part)
-        self.events.save_job({"job_id": job_id, "kind": "sprite", "status": "running"})
+        job = {"job_id": job_id, "kind": "sprite", "status": "running"}
+        self.events.save_job(job)
         self._record_call("generate_sprite", job_id, {"count": count, "seed": seed,
                                                         "lora_name": lora_name, "turbo": turbo})
-        candidates: list[dict[str, Any]] = []
-        for index in range(count):
-            source_id = await self.comfy.submit(workflows.anima_txt2img(
-                final_prompt, seed + index, turbo=turbo, lora_name=lora_name, pose_image=pose_image), job_id)
-            source = await self._history_until_done(source_id)
-            image = self._first_image(source)
-            raw = await self._view(image)
-            uploaded = await self.comfy.upload(raw, f"{job_id}-{index}-base.png")
-            matte_id = await self.comfy.submit(workflows.toonout(uploaded), job_id)
-            matte = await self._history_until_done(matte_id)
-            result = await self._view(self._first_image(matte))
-            path = self.generated_root / f"{job_id}-{index}.png"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(result)
-            measurement = self._measure_rgba_png(result)
-            candidates.append({"id": path.stem, "path": str(path), "seed": seed + index,
-                               **measurement,
-                               "prompt_id": matte_id})
-        job = {"job_id": job_id, "kind": "sprite", "status": "completed", "candidates": candidates}
-        self.events.save_job(job); self.events.append(job_id, "completed", {"count": count})
-        return job
+        with self._job_errors(job):
+            candidates: list[dict[str, Any]] = []
+            for index in range(count):
+                source_id = await self.comfy.submit(workflows.anima_txt2img(
+                    final_prompt, seed + index, turbo=turbo, lora_name=lora_name, pose_image=pose_image), job_id)
+                source = await self._history_until_done(source_id)
+                image = self._first_image(source)
+                raw = await self._view(image)
+                uploaded = await self.comfy.upload(raw, f"{job_id}-{index}-base.png")
+                matte_id = await self.comfy.submit(workflows.toonout(uploaded), job_id)
+                matte = await self._history_until_done(matte_id)
+                result = await self._view(self._first_image(matte))
+                path = self._write_generated(f"{job_id}-{index}.png", result)
+                measurement = self._measure_rgba_png(result)
+                candidates.append({"id": path.stem, "path": str(path), "seed": seed + index,
+                                   **measurement,
+                                   "prompt_id": matte_id})
+            job.update(status="completed", candidates=candidates)
+            self.events.save_job(job); self.events.append(job_id, "completed", {"count": count})
+            return job
 
     async def list_loras(self) -> list[str]:
         self._record_call("list_loras")
@@ -232,12 +233,13 @@ class Services:
                "lora_name": style_record["lora_name"], "seed": seed}
         self.events.save_job(job); self._record_call("generate_image", job_id, {"style": style, "seed": seed})
         self.events.append(job_id, "queued", {"prompt": full_prompt})
-        content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
-            full_prompt, seed, turbo=turbo, loras=[(style_record["lora_name"], strength)], negative=bible.NEGATIVE, width=width, height=height))
-        path = self._write_generated(f"{job_id}-image.png", content)
-        job.update(status="completed", path=str(path), elapsed_s=elapsed)
-        self.events.save_job(job); self.events.append(job_id, "image_completed", {"path": str(path), "elapsed_s": elapsed})
-        return job
+        with self._job_errors(job):
+            content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
+                full_prompt, seed, turbo=turbo, loras=[(style_record["lora_name"], strength)], negative=bible.NEGATIVE, width=width, height=height))
+            path = self._write_generated(f"{job_id}-image.png", content)
+            job.update(status="completed", path=str(path), elapsed_s=elapsed)
+            self.events.save_job(job); self.events.append(job_id, "image_completed", {"path": str(path), "elapsed_s": elapsed})
+            return job
 
     async def remove_sample(self, name: str, index: int) -> dict[str, Any]:
         record = self._load_character(name)
@@ -280,15 +282,16 @@ class Services:
         prompt = ", ".join(part for part in (record["trigger"], style_word, bible.subject_tag(record["char_desc"]), tags, bible.COMMON) if part)
         job = {"job_id": job_id, "kind": "preview", "status": "queued", "name": name, "prompt": prompt, "seed": seed, "loras": chain}
         self.events.save_job(job); self._record_call("preview_character", job_id, {"name": name, "seed": seed, "count": count})
-        pictures = []
-        for offset in range(max(1, count)):
-            content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
-                prompt, seed + offset, turbo=turbo, loras=chain, negative=bible.NEGATIVE, width=832, height=1216))
-            path = self._write_generated(f"{job_id}-preview-{offset}.png", content)
-            pictures.append({"path": str(path), "seed": seed + offset, "elapsed_s": elapsed})
-        job.update(status="completed", pictures=pictures)
-        self.events.save_job(job); self.events.append(job_id, "image_completed", {"pictures": [p["path"] for p in pictures]})
-        return job
+        with self._job_errors(job):
+            pictures = []
+            for offset in range(max(1, count)):
+                content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
+                    prompt, seed + offset, turbo=turbo, loras=chain, negative=bible.NEGATIVE, width=832, height=1216))
+                path = self._write_generated(f"{job_id}-preview-{offset}.png", content)
+                pictures.append({"path": str(path), "seed": seed + offset, "elapsed_s": elapsed})
+            job.update(status="completed", pictures=pictures)
+            self.events.save_job(job); self.events.append(job_id, "image_completed", {"pictures": [p["path"] for p in pictures]})
+            return job
 
     async def generate_character_bible(self, name: str, seed: int = 1, turbo: bool = False,
                                        attr: str = "", style: str = "") -> dict[str, Any]:
@@ -303,15 +306,13 @@ class Services:
         attr = attr or record.get("attr", "")
         job_id = str(uuid.uuid4())
         key = record["key"]
-        panel_root = self._character_dir(name) / "bible" / "panels"
+        panel_root = self._character_dir(name) / "bible" / job_id / "panels"
         job = {"job_id": job_id, "kind": "character_bible", "status": "queued", "name": name, "trigger": trigger,
                "lora_name": lora_name, "loras": chain, "style": style or record.get("style", ""), "panels_dir": str(panel_root)}
         self.events.save_job(job)
         self._record_call("generate_character_bible", job_id, {"name": name, "seed": seed, "lora_name": lora_name})
         self.events.append(job_id, "queued", {"name": name})
         try:
-            if panel_root.exists():
-                shutil.rmtree(panel_root)
             panels: list[tuple[str, Path]] = []
             overrides = record.get("panel_overrides", {})
             for index, panel in enumerate(bible.PANELS):
@@ -330,8 +331,8 @@ class Services:
                 panels.append((panel.key, panel_path))
                 self.events.append(job_id, "panel_completed", {"panel": panel.key, "path": str(panel_path), "elapsed_s": elapsed})
             anchor = Path(record.get("samples_sheet") or panel_root / "turn_front.png")
-            sheet = bible.compose_model_sheet(name, attr, panels, anchor, self.generated_root / f"bible_{key}.png")
-            html = bible.write_html(name, attr, panels, anchor, self.generated_root / f"bible_{key}.html")
+            sheet = bible.compose_model_sheet(name, attr, panels, anchor, self.generated_root / f"bible_{key}_{job_id}.png")
+            html = bible.write_html(name, attr, panels, anchor, self.generated_root / f"bible_{key}_{job_id}.html")
             record["bible"] = {"job_id": job_id, "sheet_path": str(sheet), "html_path": str(html), "panels_dir": str(panel_root),
                                "attr": attr, "seed": seed, "style": job["style"], "at": datetime.now(UTC).isoformat().replace("+00:00", "Z")}
             self._save_character(record)
@@ -344,6 +345,17 @@ class Services:
             job.update(status="failed", error=str(error))
             self.events.save_job(job)
             self.events.append(job_id, "failed", {"error": str(error)})
+            raise
+
+    @contextmanager
+    def _job_errors(self, job: dict[str, Any]):
+        """Persist a failed generation before propagating the original error to REST/MCP."""
+        try:
+            yield
+        except Exception as error:
+            job.update(status="failed", error=str(error))
+            self.events.save_job(job)
+            self.events.append(job["job_id"], "failed", {"error": str(error)})
             raise
 
     async def _run_edit(self, job_id: str, graph: dict[str, Any]) -> tuple[bytes, float]:
@@ -366,12 +378,13 @@ class Services:
         self.events.save_job(job); self._record_call("generate_from_bible", job_id, {"name": name, "seed": seed})
         self.events.append(job_id, "queued", {"name": name, "prompt": prompt})
         full_prompt = ", ".join(part for part in (record["trigger"], style_word, prompt) if part)
-        content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
-            full_prompt, seed, turbo=turbo, loras=chain, negative=bible.NEGATIVE, width=width, height=height))
-        path = self._write_generated(f"{job_id}-from-bible.png", content)
-        job.update(status="completed", path=str(path), elapsed_s=elapsed)
-        self.events.save_job(job); self.events.append(job_id, "image_completed", {"path": str(path), "elapsed_s": elapsed})
-        return job
+        with self._job_errors(job):
+            content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
+                full_prompt, seed, turbo=turbo, loras=chain, negative=bible.NEGATIVE, width=width, height=height))
+            path = self._write_generated(f"{job_id}-from-bible.png", content)
+            job.update(status="completed", path=str(path), elapsed_s=elapsed)
+            self.events.save_job(job); self.events.append(job_id, "image_completed", {"path": str(path), "elapsed_s": elapsed})
+            return job
 
     async def list_bible_panels(self) -> list[dict[str, str]]:
         """The panel slots of a bible with their default content tags (what redraw_panel replaces)."""
@@ -394,33 +407,33 @@ class Services:
         if spec is None:
             raise ValueError(f"unknown panel {panel!r}; see list_bible_panels")
         job_id = str(uuid.uuid4())
-        key = bible.safe_name(name)
         prompt = bible.panel_prompt(spec._replace(tags=tags) if tags else spec, info.get("trigger", ""), info.get("char_desc", ""))
         negative = ", ".join(part for part in (bible.NEGATIVE, avoid.strip()) if part)
         job = {"job_id": job_id, "kind": "redraw_panel", "status": "queued", "name": name, "panel": panel,
                "prompt": prompt, "negative": negative, "seed": seed, "lora_name": info["lora_name"]}
         self.events.save_job(job); self._record_call("redraw_panel", job_id, {"name": name, "panel": panel, "seed": seed})
         self.events.append(job_id, "queued", {"prompt": prompt})
-        width, height = bible.size(spec)
-        content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
-            prompt, seed, turbo=turbo, loras=chain, negative=negative, width=width, height=height))
-        panel_root = Path(info["panels_dir"])
-        panel_path = panel_root / f"{panel}.png"
-        previous = panel_root / "history" / f"{panel}-{job_id[:8]}.png"
-        previous.parent.mkdir(parents=True, exist_ok=True)
-        if panel_path.exists():
-            shutil.move(panel_path, previous)  # nothing is thrown away; the old panel stays in history/
-        panel_path.write_bytes(bible.crop_nonwhite(content))
-        panels = [(p.key, panel_root / f"{p.key}.png") for p in bible.PANELS if (panel_root / f"{p.key}.png").is_file()]
-        anchor = Path(info["source"])
-        sheet = bible.compose_model_sheet(name, info.get("attr", ""), panels, anchor, self.generated_root / f"bible_{key}.png")
-        html = bible.write_html(name, info.get("attr", ""), panels, anchor, self.generated_root / f"bible_{key}.html")
-        record.setdefault("panel_overrides", {})[panel] = {"tags": tags, "avoid": avoid, "seed": seed}
-        self._save_character(record)
-        job.update(status="completed", path=str(panel_path), previous=str(previous) if previous.exists() else None,
-                   sheet_path=str(sheet), html_path=str(html), elapsed_s=elapsed)
-        self.events.save_job(job); self.events.append(job_id, "panel_completed", {"panel": panel, "path": str(panel_path), "elapsed_s": elapsed})
-        return job
+        with self._job_errors(job):
+            width, height = bible.size(spec)
+            content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
+                prompt, seed, turbo=turbo, loras=chain, negative=negative, width=width, height=height))
+            panel_root = Path(info["panels_dir"])
+            panel_path = panel_root / f"{panel}.png"
+            previous = panel_root / "history" / f"{panel}-{job_id[:8]}.png"
+            previous.parent.mkdir(parents=True, exist_ok=True)
+            if panel_path.exists():
+                shutil.move(panel_path, previous)  # nothing is thrown away; the old panel stays in history/
+            panel_path.write_bytes(bible.crop_nonwhite(content))
+            panels = [(p.key, panel_root / f"{p.key}.png") for p in bible.PANELS if (panel_root / f"{p.key}.png").is_file()]
+            anchor = Path(info["source"])
+            sheet = bible.compose_model_sheet(name, info.get("attr", ""), panels, anchor, Path(record["bible"]["sheet_path"]))
+            html = bible.write_html(name, info.get("attr", ""), panels, anchor, Path(record["bible"]["html_path"]))
+            record.setdefault("panel_overrides", {})[panel] = {"tags": tags, "avoid": avoid, "seed": seed}
+            self._save_character(record)
+            job.update(status="completed", path=str(panel_path), previous=str(previous) if previous.exists() else None,
+                       sheet_path=str(sheet), html_path=str(html), elapsed_s=elapsed)
+            self.events.save_job(job); self.events.append(job_id, "panel_completed", {"panel": panel, "path": str(panel_path), "elapsed_s": elapsed})
+            return job
 
     async def _resolve_image(self, ref: str) -> Path:
         """One entry point for every picture an owner or Bot brings in: a path or id inside the
@@ -519,13 +532,14 @@ class Services:
                "lora_name": lora_name, "denoise": denoise, "lora_strength": lora_strength, "seed": seed}
         self.events.save_job(job); self._record_call("refine_image", job_id, {"lora_name": lora_name, "denoise": denoise, "seed": seed})
         self.events.append(job_id, "queued", {"source": str(source)})
-        uploaded = await self.comfy.upload(bible.on_white(source.read_bytes()), f"sf_refine_{job_id}.png")
-        content, elapsed = await self._run_edit(job_id, workflows.anima_refine(
-            uploaded, prompt, seed, lora_name=lora_name, lora_strength=lora_strength, denoise=denoise))
-        path = self._write_generated(f"{job_id}-refine.png", content)
-        job.update(status="completed", path=str(path), elapsed_s=elapsed)
-        self.events.save_job(job); self.events.append(job_id, "image_completed", {"path": str(path), "elapsed_s": elapsed})
-        return job
+        with self._job_errors(job):
+            uploaded = await self.comfy.upload(bible.on_white(source.read_bytes()), f"sf_refine_{job_id}.png")
+            content, elapsed = await self._run_edit(job_id, workflows.anima_refine(
+                uploaded, prompt, seed, lora_name=lora_name, lora_strength=lora_strength, denoise=denoise))
+            path = self._write_generated(f"{job_id}-refine.png", content)
+            job.update(status="completed", path=str(path), elapsed_s=elapsed)
+            self.events.save_job(job); self.events.append(job_id, "image_completed", {"path": str(path), "elapsed_s": elapsed})
+            return job
 
     async def train_status(self, job_id: str) -> dict[str, Any]:
         return await self._status(job_id, "train_status")

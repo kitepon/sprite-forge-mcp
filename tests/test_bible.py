@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from io import BytesIO
+from pathlib import Path
+
+import pytest
 
 from PIL import Image
 
@@ -133,3 +136,78 @@ def test_japanese_names_get_an_ascii_key_and_still_work(tmp_path, monkeypatch):
     assert record["name"] == "ベル" and record["key"].startswith("n") and record["key"].isascii() and record["trigger"] == "bell"
     assert asyncio.run(service.character_info("ベル"))["key"] == record["key"]
     assert bible.safe_name("ベル") == bible.safe_name("ベル") != bible.safe_name("ベル2")
+
+
+@pytest.mark.parametrize("failure", ["panel", "sheet", "html"])
+def test_failed_regeneration_preserves_previous_bible_and_history(tmp_path, monkeypatch, failure):
+    service, comfy = make(tmp_path, monkeypatch)
+    run = asyncio.run
+    run(service.create_character("Bell", "she/her", lora_name="bell.safetensors"))
+    first = run(service.generate_character_bible("Bell"))
+    redraw = run(service.redraw_panel("Bell", "turn_front", "waving"))
+    before = run(service.character_info("Bell"))
+    paths = [Path(p) for p in first["panels"] + [first["sheet_path"], first["html_path"], redraw["previous"]]]
+    contents = {p: p.read_bytes() for p in paths}
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("regeneration failed")
+
+    if failure == "panel":
+        original = service._run_edit
+        calls = 0
+        async def fail_second(*args):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                fail()
+            return await original(*args)
+        monkeypatch.setattr(service, "_run_edit", fail_second)
+    else:
+        monkeypatch.setattr(bible, "compose_model_sheet" if failure == "sheet" else "write_html", fail)
+    with pytest.raises(RuntimeError, match="regeneration failed"):
+        run(service.generate_character_bible("Bell", seed=7))
+    assert run(service.character_info("Bell")) == before
+    assert all(p.exists() and p.read_bytes() == data for p, data in contents.items())
+    failed = next(j for j in service.events.list_jobs() if j["status"] == "failed")
+    assert failed["error"] == "regeneration failed"
+
+
+def test_successful_regeneration_publishes_new_paths_and_redraw_uses_them(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+    run = asyncio.run
+    run(service.create_character("Bell", "she/her", lora_name="bell.safetensors"))
+    first = run(service.generate_character_bible("Bell"))
+    old_paths = [Path(p) for p in first["panels"] + [first["sheet_path"], first["html_path"]]]
+    old_contents = {p: p.read_bytes() for p in old_paths}
+    second = run(service.generate_character_bible("Bell", seed=7))
+    assert second["panels_dir"] != first["panels_dir"]
+    assert second["sheet_path"] != first["sheet_path"]
+    assert second["html_path"] != first["html_path"]
+    current = run(service.character_info("Bell"))["bible"]
+    assert current["job_id"] == second["job_id"]
+    fixed = run(service.redraw_panel("Bell", "turn_front", "waving"))
+    assert fixed["sheet_path"] == current["sheet_path"]
+    assert fixed["html_path"] == current["html_path"]
+    assert Path(fixed["path"]).parent == Path(current["panels_dir"])
+    assert all(p.read_bytes() == data for p, data in old_contents.items())
+
+
+def test_redraw_supports_bibles_saved_before_versioned_paths(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+    run = asyncio.run
+    run(service.create_character("Bell", "she/her", lora_name="bell.safetensors"))
+    run(service.generate_character_bible("Bell"))
+    record = run(service.character_info("Bell"))
+    info = record["bible"]
+    legacy_panels = tmp_path / "characters" / "Bell" / "bible" / "panels"
+    Path(info["panels_dir"]).rename(legacy_panels)
+    info["panels_dir"] = str(legacy_panels)
+    for field, extension in (("sheet_path", "png"), ("html_path", "html")):
+        destination = tmp_path / "generated" / f"bible_Bell.{extension}"
+        Path(info[field]).rename(destination)
+        info[field] = str(destination)
+    service._save_character(record)
+    fixed = run(service.redraw_panel("Bell", "turn_front", "waving"))
+    assert fixed["sheet_path"] == info["sheet_path"]
+    assert fixed["html_path"] == info["html_path"]
+    assert Path(fixed["path"]).parent == legacy_panels

@@ -6,6 +6,7 @@ import base64
 from io import BytesIO
 
 from PIL import Image
+import pytest
 
 from backend import box
 from backend.events import EventStore
@@ -136,3 +137,48 @@ def test_refine_image_redraws_with_anima_and_lora(tmp_path, monkeypatch):
     assert job["status"] == "completed" and job["path"].endswith("-refine.png")
     graph = comfy.submitted[0]
     assert graph["1"]["inputs"]["unet_name"] == "anima-base-v1.0.safetensors" and graph["23"]["inputs"]["denoise"] == 0.5
+
+
+@pytest.mark.parametrize("kind", ["from_bible", "preview", "image", "refine", "redraw_panel", "sprite"])
+@pytest.mark.parametrize("stage", ["submit", "wait", "download", "save"])
+def test_generation_failures_are_recorded_and_reraised(tmp_path, monkeypatch, kind, stage):
+    service, comfy = make(tmp_path, monkeypatch)
+    run = asyncio.run
+    run(service.create_character("Bell", "she/her", lora_name="bell.safetensors"))
+    style = run(service.create_style("glow"))
+    style["lora_name"] = "glow.safetensors"
+    service._save_style(style)
+    draft = tmp_path / "draft.png"
+    draft.write_bytes(png())
+    if kind == "redraw_panel":
+        run(service.generate_character_bible("Bell"))
+
+    def fail(*args, **kwargs):
+        raise RuntimeError(f"{stage} failed")
+    async def async_fail(*args, **kwargs):
+        fail()
+    if stage == "submit":
+        monkeypatch.setattr(comfy, "submit", async_fail)
+    elif stage == "wait":
+        monkeypatch.setattr(comfy, "history", async_fail)
+    elif stage == "download":
+        monkeypatch.setattr(service, "_view", async_fail)
+    elif kind == "redraw_panel":
+        monkeypatch.setattr("backend.bible.crop_nonwhite", fail)
+    else:
+        monkeypatch.setattr(service, "_write_generated", fail)
+    calls = {
+        "from_bible": lambda: service.generate_from_bible("Bell", "waving"),
+        "preview": lambda: service.preview_character("Bell", "waving"),
+        "image": lambda: service.generate_image("a fox", "glow"),
+        "refine": lambda: service.refine_image(str(draft), "waving", "bell.safetensors"),
+        "redraw_panel": lambda: service.redraw_panel("Bell", "turn_front", "waving"),
+        "sprite": lambda: service.generate_sprite("a fox", count=1),
+    }
+    with pytest.raises(RuntimeError, match=f"{stage} failed"):
+        run(calls[kind]())
+    job = next(j for j in service.events.list_jobs() if j["kind"] == kind)
+    assert job["status"] == "failed"
+    assert job["error"] == f"{stage} failed"
+    failures = [e for e in service.events.read(job["job_id"]) if e["kind"] == "failed"]
+    assert len(failures) == 1 and failures[0]["payload"]["error"] == job["error"]
