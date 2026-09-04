@@ -5,7 +5,8 @@ from io import BytesIO
 
 from PIL import Image
 
-from backend.bible import PANEL_SPECS, panel_prompt
+from backend import bible
+from backend.bible import PANELS, instruction, possessive_pronoun
 from backend.events import EventStore
 from backend.services import Services
 
@@ -49,16 +50,25 @@ def test_bible_generates_all_panels_model_sheet_and_embedded_html(tmp_path):
     job = asyncio.run(service.generate_character_bible(str(source), "ember mage", "they/them fire mage", "red coat"))
 
     assert job["status"] == "completed"
-    assert len(job["panels"]) == len(PANEL_SPECS) == 18
-    assert all((tmp_path / "generated" / "bible_ember_mage_panels" / f"{label}.png").is_file()
-               for label, _ in PANEL_SPECS)
-    assert Image.open(job["sheet_path"]).size == (1024, 1430)
-    assert "data:image/png;base64," in open(job["html_path"], encoding="utf-8").read()
+    assert len(job["panels"]) == len(PANELS) == 23
+    assert all((tmp_path / "generated" / "bible_ember_mage_panels" / f"{panel.key}.png").is_file() for panel in PANELS)
+    assert (tmp_path / "generated" / "bible_ember_mage_master.png").is_file()
+    assert Image.open(job["sheet_path"]).width == 2040
+    html = open(job["html_path"], encoding="utf-8").read()
+    assert "MASTER REFERENCE" in html and "ALTERNATE COSTUMES" in html and "data:image/jpeg;base64," in html
     assert asyncio.run(service.bible_status(job["job_id"]))["status"] == "completed"
-    assert len(comfy.submitted) == 18
+    assert len(comfy.submitted) == 24
+    master, first_panel = comfy.submitted[0], comfy.submitted[1]
+    assert master["20"]["inputs"]["prompt"] == bible.MASTER_PROMPT
+    assert master["22"]["inputs"] == {"width": 1280, "height": 1024, "batch_size": 1}
+    assert first_panel["10"]["inputs"]["image"] == "sf_bible_master_ember_mage.png"
+    assert first_panel["21"]["inputs"]["prompt"] == bible.NEG
 
 
 def test_bible_prompt_uses_description_pronouns_not_fixed_her():
-    prompt = panel_prompt("Rin", "he/him cloud knight", "silver armor", "front view")
-    assert "his identity" in prompt
-    assert "her identity" not in prompt
+    back = next(panel for panel in PANELS if panel.key == "turn_back")
+    prompt = instruction(back, possessive_pronoun("he/him cloud knight"))
+    assert "with his back fully toward the viewer" in prompt and "her" not in prompt.split()
+    assert bible.negative(back) == bible.NEG_BACK
+    assert "close-up headshot" in instruction(next(p for p in PANELS if p.kind == "face"), "their")
+    assert "no person, no body" in instruction(next(p for p in PANELS if p.kind == "item"), "their")

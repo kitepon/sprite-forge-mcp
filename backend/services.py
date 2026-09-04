@@ -76,31 +76,42 @@ class Services:
 
     async def generate_character_bible(self, source: str, name: str, char_desc: str,
                                        attr: str = "", seed: int = 1) -> dict[str, Any]:
-        """Create a JoyAI turnaround, expression, costume, and chibi reference set."""
+        """Master-sheet-anchored bible: one packed master edit, then one high-res panel per spec,
+        each referencing the whole master sheet (see backend/bible.py)."""
         source_path = self._source_path(source)
         job_id = str(uuid.uuid4())
-        panel_root = self.generated_root / f"bible_{bible.safe_name(name)}_panels"
+        key = bible.safe_name(name)
+        panel_root = self.generated_root / f"bible_{key}_panels"
         job = {"job_id": job_id, "kind": "character_bible", "status": "queued", "name": name,
                "source": str(source_path), "panels_dir": str(panel_root)}
         self.events.save_job(job)
         self._record_call("generate_character_bible", job_id, {"name": name, "seed": seed})
         self.events.append(job_id, "queued", {"name": name, "source": str(source_path)})
-        upload = await self.comfy.upload(source_path.read_bytes(), source_path.name)
-        panels: list[tuple[str, Path]] = []
         try:
-            for index, (label, detail) in enumerate(bible.PANEL_SPECS):
-                job.update(status="generating", panel=label, completed_panels=index)
+            possessive = bible.possessive_pronoun(char_desc)
+            source_upload = await self.comfy.upload(bible.on_white(source_path.read_bytes()), f"sf_bible_src_{key}.png")
+            job.update(status="generating master sheet")
+            self.events.save_job(job)
+            master = bible.on_white(await self._run_edit(job_id, workflows.joy_edit(
+                source_upload, bible.MASTER_PROMPT, seed, negative=bible.NEG_MASTER, size=bible.MASTER_SIZE)))
+            master_path = self._write_generated(f"bible_{key}_master.png", master)
+            master_upload = await self.comfy.upload(master, f"sf_bible_master_{key}.png")
+            job["master_path"] = str(master_path)
+            self.events.append(job_id, "master_completed", {"path": str(master_path)})
+            panels: list[tuple[str, Path]] = []
+            for index, panel in enumerate(bible.PANELS):
+                job.update(status="generating panels", panel=panel.key, completed_panels=index)
                 self.events.save_job(job)
-                prompt_id = await self.comfy.submit(workflows.joy_edit(upload, bible.panel_prompt(name, char_desc, attr, detail), seed + index), job_id)
-                output = await self._view(self._first_image(await self._history_until_done(prompt_id)))
-                panel_path = panel_root / f"{label}.png"
+                content = await self._run_edit(job_id, workflows.joy_edit(
+                    master_upload, bible.instruction(panel, possessive), seed + 100 + index,
+                    negative=bible.negative(panel), size=bible.size(panel)))
+                panel_path = panel_root / f"{panel.key}.png"
                 panel_path.parent.mkdir(parents=True, exist_ok=True)
-                panel_path.write_bytes(output)
-                panels.append((label, panel_path))
-                self.events.append(job_id, "panel_completed", {"panel": label, "prompt_id": prompt_id,
-                                                                 "path": str(panel_path)})
-            sheet = bible.compose_model_sheet(panels, self.generated_root / f"bible_{bible.safe_name(name)}.png")
-            html = bible.write_html(name, panels, self.generated_root / f"bible_{bible.safe_name(name)}.html")
+                panel_path.write_bytes(bible.crop_nonwhite(content))
+                panels.append((panel.key, panel_path))
+                self.events.append(job_id, "panel_completed", {"panel": panel.key, "path": str(panel_path)})
+            sheet = bible.compose_model_sheet(name, attr, panels, master_path, self.generated_root / f"bible_{key}.png")
+            html = bible.write_html(name, attr, panels, master_path, self.generated_root / f"bible_{key}.html")
             job.update(status="completed", completed_panels=len(panels),
                        panels=[str(path) for _, path in panels], sheet_path=str(sheet), html_path=str(html))
             self.events.save_job(job)
@@ -111,6 +122,10 @@ class Services:
             self.events.save_job(job)
             self.events.append(job_id, "failed", {"error": str(error)})
             raise
+
+    async def _run_edit(self, job_id: str, graph: dict[str, Any]) -> bytes:
+        prompt_id = await self.comfy.submit(graph, job_id)
+        return await self._view(self._first_image(await self._history_until_done(prompt_id)))
 
     async def bible_status(self, job_id: str) -> dict[str, Any]:
         return await self._status(job_id, "bible_status")
