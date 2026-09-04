@@ -153,7 +153,7 @@ MCP and REST call the same `Services` functions; defaults live only in those sig
 - **[INSTALL.md](INSTALL.md)** — setup, optional features, honest limitations
 - **[docs/00_overview.md](docs/00_overview.md)** — canonical documentation map
 - **[docs/models.md](docs/models.md)** — model sources, placement, required ComfyUI nodes
-- **[CLAUDE.md](CLAUDE.md)** — implementation reference (the source of truth)
+- **[AGENTS.md](AGENTS.md)** — canonical project instructions and current design policy
 - **[docs/](docs/)** — design docs (context, research, architecture, output contract, …)
 
 ## License

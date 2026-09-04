@@ -1,24 +1,97 @@
-# sprite-forge
+# Sprite Forge — このリポジトリで働く AI への指示
 
-## Operating model
+本書をプロジェクト固有の作業規範と設計方針の正本とする。`CLAUDE.md` は `@AGENTS.md` の1行だけとし、指示を複製しない。全プロジェクト共通の指示はここへ転載しない。
 
-- The main server owns backend code, WebUI, records, and deployment.  fox is a
-  Windows-native GPU appliance reached only through ComfyUI HTTP and SSH.
-- Prefer current technology. Compare only contemporary candidates; do not retain
-  an older stack merely because it was once stable.
-- fox was reinstalled on 2026-08-30. Treat ComfyUI, models, custom nodes, and the
-  training environment as rebuilt assets, not inherited state.
+## 何を作っているか
 
-## Current stack
+Sprite Forge は、画像からキャラクターや画風を覚えさせ、その特徴を使って新しい絵・設定画・スプライトを作る道具である。人間は WebUI、AI は MCP から、同じ機能と記録を使う。
 
-Anima Base/Turbo, Anima-Control-Pose, JoyAI-Image-Edit-Plus, ToonOut, SAM 3.1,
-FastMCP 4, FastAPI, Python 3.13, and `uv.lock` are the current stack. Mage-Flow
-is withdrawn upstream and must not be reintroduced. LoRA training uses
-sd-scripts `anima_train_network.py` with bf16.
+中心となる体験は、参考画像を集め、本人らしさや衣装を確かめながら制作を進めること。処理が完走しただけでは品質の確認にならない。利用者が画像を見て、どこを直すか選べる状態までを作る。
 
-## Boundaries
+## 維持する製品方針
 
-Keep GPU image ML in ComfyUI. The main server uses ordinary HTTP, SSH/SCP, and
-Pillow/numpy only. Record job state in `.cache/jobs/` and all observable events
-in `.cache/events.ndjson`; REST, MCP, and WebUI must use the shared services
-layer rather than duplicate workflow logic.
+- キャラクター制作は、サンプル収集と説明の修正、LoRA 学習とプレビュー、設定画の生成と修正の三段階に分ける。各段階で画像を確認して戻れるようにする。学習は明示的な操作で開始し、画像追加・説明変更・設定画生成に連動して勝手に再学習しない。
+- キャラクターと画風は別の台帳に持ち、それぞれ画像から LoRA を学習する。キャラクターに画風 LoRA を重ねる使い方と、画風だけで新しい絵を描く使い方を保つ。
+- 画風・質感は画像と LoRA から決める。特定の画風を強制する語句をプロンプトへ埋め込まない。被写体・衣装・構図などの内容指定と画風を混同しない。
+- 設定画とその描き直しは Anima と学習済み LoRA を使う。パネルの修正内容はキャラクター台帳へ残し、次の生成でも使う。
+- 手描きによる衣装・顔・輪郭の修復機能は作らない。修正箇所は言葉・マスク・点で指定し、モデルに描かせる。マスク外の元画素復元、透過、縮小、減色、シート合成は通常の画像処理として扱う。
+- 四隅の透過度・画像寸法・位置の差は計測値として返す。見た目の合否を自動判定する採用ゲート、固定画風、rpgdev 連携、採用先への自動書き出しは廃止済み。古い資料を根拠に復活させない。
+- 失敗を成功表示に変えたり、別モデルや別処理へ黙って切り替えたりしない。原因となる欠陥を直し、症状を隠す安全装置や再試行を追加しない。
+- 技術選定では、その時点の新しい候補を一次資料と同条件の実測で比較する。既存採用は無断で変更せず、比較結果と変更理由を示す。「以前動いた」という理由で旧構成へ戻さない。
+
+## 実行環境と責務
+
+メインサーバーがバックエンド・WebUI・MCP・台帳・記録・本番配備を所有する。fox は Windows ネイティブの GPU 装置で、ComfyUI による推論と sd-scripts による学習を担う。
+
+- 画像の推論は ComfyUI のワークフローへ収める。メインサーバーへ画像 ML の実行環境を追加しない。CPU での後処理は Pillow、必要に応じて numpy の範囲とする。
+- 学習は `backend/box.py` が SSH/SCP で教材を送り、fox の Python 入口を呼ぶ。学習器の起動処理の正本は `box/train.py`。GPU 機上で場当たり的にコードや PowerShell スクリプトを作らず、リポジトリで変更して配備する。WSL2 を実行環境にしない。
+- メインサーバーへの接続は `ssh main-server` を使う。接続先や GPU 上の配置は `backend/config.py` と配備設定を確認し、推測したパスへ書かない。
+- Python の最低版と依存は `pyproject.toml`、解決済み依存は `uv.lock`、本番 Python は `Dockerfile` が定める。現在の本番・CI は Python 3.13。旧 `requirements.txt` の導入手順を使わない。
+- 現行採用は Anima Base/Turbo、Anima-Control-Pose、JoyAI-Image-Edit-Plus、ToonOut、SAM 3.1、FastAPI、FastMCP 4。JoyAI は編集・派生画像の経路に使う。Mage-Flow は配布取り下げを理由に採用から除外済み。
+
+## コードの置き場所
+
+| 場所 | 責務 |
+| --- | --- |
+| `backend/services.py` | 制作工程、台帳操作、生成・学習・修正の共通処理 |
+| `backend/app.py` | 同じサービスを REST と MCP に公開。ファイル配信、アップロード、SSE、WebUI 配信 |
+| `backend/workflows.py` | ComfyUI に渡すワークフローの組み立て |
+| `backend/comfy.py` | ComfyUI との HTTP 通信 |
+| `backend/box.py` / `box/train.py` | fox との通信 / Windows ネイティブの学習起動 |
+| `backend/bible.py` | 設定画のパネル定義、内容指定、画像処理、シート・HTML 合成 |
+| `backend/events.py` | ジョブ状態と追記型イベント記録 |
+| `backend/config.py` | 実行環境の設定と保存先 |
+| `web/flows.js` | 目的別の段階的な制作画面 |
+| `web/main.js` | 画面切替、作業台、各道具、過程、記録 |
+| `web/api.js` / `web/state.js` / `web/ui.js` / `web/style.css` | API 呼び出し、ブラウザー内の状態、表示部品、見た目 |
+| `tests/` | GPU を実行せずに確かめる契約・回帰試験 |
+
+REST と MCP で工程を別実装にしない。引数と既定値はサービスの定義を基準にする。WebUI は入力・表示・操作中の状態を担い、学習や画像処理の手順を独自に組まない。フロントエンドはビルド不要の vanilla ESM を維持する。
+
+## データを扱う時
+
+保存先の起点は `SPRITEFORGE_CACHE`（既定 `.cache/`）。名前に cache とあるが、利用者の画像と制作記録を含む永続データである。調査・試験・再配備のために一括削除しない。
+
+- `characters/<key>/character.json` はキャラクターの名前、サンプルと説明、LoRA、設定画、パネル修正を持つ。`styles/<key>/style.json` は画風の台帳。表示名と保存用の `key` を区別し、日本語名を壊さない。
+- `uploads/` は取り込んだ画像、各台帳の `samples/` は教材、`generated/` は生成画像、`jobs/` はジョブ状態、`events.ndjson` はイベント履歴を置く。実際の項目・配置はサービス実装を確認する。
+- 画像、説明、操作対象の対応を保つ。追加・削除・並べ替えで残っている画像や説明を別の画像へ結び付けない。移行が必要なら、元データと対応を確かめてから変更する。
+- ブラウザーの `localStorage` は画面の進行位置と端末内の履歴を持つ。サーバーの台帳やジョブ記録の代わりにしない。
+- テストは一時領域と fixture を使う。本番のキャラクター、教材、LoRA、生成物を試験用に書き換えない。モデル重み・秘密値・個人の生成画像を commit しない。
+
+## WebUI を変更する時
+
+次の項目は実装・受入の基準であり、現行画面がすべて満たしているという宣言ではない。
+
+- 利用者が画像を見ながら選べることを優先する。通常操作でサーバーパス、内部の番号、区切り文字による入力を要求しない。
+- 複数画像では、一枚ごとにプレビューと説明・操作を対応させる。全体への指示と、一枚の内容を説明する欄を区別する。
+- ファイル選択、転送中、台帳への追加完了を混同しない。完了表示はその操作の保存結果に合わせる。
+- 保存・削除・再表示で、別の画像に入力中の説明を失わせない。画像の縦横比を保ち、スマートフォン幅でも画像・入力欄・ボタンが重ならないようにする。
+- 操作が失敗した時は、どの操作が失敗したか分かる表示を返す。未接続のボタンを成功扱いにしない。
+- GPU の待機時間だけを理由に失敗へ変えない。キュー・履歴・学習出力を基に状況を示す。通信のタイムアウトと生成全体の待ち時間を区別する。
+
+## 作業と検証
+
+着手時に依頼範囲、作業ツリー、関連する計画とコードを確認する。既存の未完了作業を今回の依頼へ自動で取り込まない。障害対応では最小再現と原因を先に確かめ、既存仕様と意図する挙動の差を明らかにする。
+
+依存導入は `uv sync --locked --group dev`。実装中は `uv run pytest tests/test_<対象>.py` で関係する試験を回し、コード変更の完了時に `uv run pytest` を一度通す。文書のみの変更は参照・内容・差分を確認し、GPU 試験や全試験を起動しない。
+
+- バックエンドの回帰試験では、画像本体、説明との対応、台帳の更新結果まで確認する。単なる正常終了を検証の代わりにしない。
+- WebUI は実際のブラウザーで変更した操作を通す。スマホに関わる変更は狭い画面幅でも確認し、複数画像・保存・再表示など問題が出た条件を含める。
+- ワークフローや学習の変更は、fixture の成功と fox での実行成功を区別する。実機検証では入力、モデル、seed、生成物、時間、目視結果を残す。未実行を完了扱いにしない。
+- LoRA 学習の既知の罠は Windows の DataLoader worker 再起動と、`\r` 区切りの進捗出力。`box/train.py` の worker 0・latent cache と `backend/box.py` の進捗読取りを変更する時は、その理由と実測を確認する。
+- 検討・手順・未完了事項は `docs/` の関連文書へ、実測の証跡は `evidence/` へ置く。単発の作業ログや完了チェックリストを本書へ蓄積しない。
+
+## 本番への反映
+
+本番はメインサーバーの `/home/kite/sprite-forge-mcp`。`compose.yaml` がバックエンドと WebUI を配備し、ホストの `.cache/` をコンテナへマウントする。現行公開ポートは 8766、コンテナ内は 8765。
+
+反映時はローカルとサーバーの変更状態を確認し、依頼に含まれる変更を同期して `docker compose up -d --build` で更新する。起動後は変更した経路と永続データの表示を確認する。文書だけの変更でサービスを再起動しない。BellTeam 本体の配備スクリプトを、この製品の反映に使わない。
+
+## 資料の読み方
+
+方針は本書、実装の現状はコードと試験、変更理由と実測は日付付きの計画・証跡で確認する。実装に欠陥があれば、欠陥を正しい仕様として追認しない。
+
+- [近代化計画](docs/plan_modernization-20260904.md) は変更経緯を持つ。先頭の初期案に、その後の裁定で撤回された項目がある。特に末尾の「事後裁定 2026-09-04 夜」が、現在の LoRA と三段階の制作方針の根拠である。
+- [追加計画 B](docs/plan_modernization-20260904-b.md) と [ベンチマーク](docs/09_modernization_bench.md) は、当時の工程・比較・受入記録として読む。過去の採用結果を現在の設定画経路と混同しない。
+- [モデル資料](docs/models.md) は配置の参照先。比較候補や旧経路の記述も含むため、使うモデルと node は `backend/workflows.py`、実機の `/object_info` と照合する。
+- README、INSTALL、番号付き設計書、旧 ADR には、旧モデル、固定画風、採用ゲート、廃止済みファイルへの記述が残っている。本書と食い違う箇所は過去の仕様として扱い、現在の要件にしない。文書を改訂する時は該当箇所を直し、過去の裁定や証跡は書き換えない。

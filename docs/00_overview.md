@@ -24,6 +24,6 @@ Generation work runs in ComfyUI on a GPU machine. The backend orchestrates Comfy
 |---|---|
 | [../INSTALL.md](../INSTALL.md) | Setup and runtime limits |
 | [models.md](models.md) | Model placement and required ComfyUI nodes |
-| [../CLAUDE.md](../CLAUDE.md) | AI entrypoint, commands, and repo-specific rules |
+| [../AGENTS.md](../AGENTS.md) | Canonical project instructions, current policy, and commands; CLAUDE.md only imports it |
 
 `models.md` is intentionally kept outside the numbered canon because it is an operational setup reference rather than a design decision document.

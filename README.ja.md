@@ -140,7 +140,7 @@ claude mcp add --scope user --transport http sprite-forge http://127.0.0.1:8765/
 - **[INSTALL.md](INSTALL.md)** — セットアップ・任意機能・正直な制約
 - **[docs/00_overview.md](docs/00_overview.md)** — 正典ドキュメントの全体地図
 - **[docs/models.md](docs/models.md)** — モデルの入手先・配置・必須ノード
-- **[CLAUDE.md](CLAUDE.md)** — 実装の正典
+- **[AGENTS.md](AGENTS.md)** — 作業規範と現在の設計方針の正本
 - **[docs/](docs/)** — 設計ドキュメント（背景・調査・アーキ・出力契約 …）
 
 ## ライセンス
