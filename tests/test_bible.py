@@ -80,4 +80,6 @@ def test_bible_prompt_uses_description_pronouns_not_fixed_her():
     assert "no person, no body" in instruction(item, "their") and bible.negative(item) == bible.NEG_ITEM
     chibi = next(p for p in PANELS if p.key == "chibi_big")
     assert "two heads tall" in instruction(chibi, "their") and bible.negative(chibi) == bible.NEG_CHIBI
-    assert "{p}" not in instruction(next(p for p in PANELS if p.key == "cos_dress"), "their")
+    for key in ("cos_casual", "cos_armor", "cos_dress"):
+        panel = next(p for p in PANELS if p.key == key)
+        assert "{p}" not in instruction(panel, "their") and bible.negative(panel) == bible.NEG_COSTUME

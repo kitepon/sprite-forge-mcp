@@ -54,8 +54,8 @@ PANELS: tuple[Panel, ...] = (
     Panel("act_cast", "ACTION POSES", "CAST", "full", "dynamic action pose casting a powerful spell, dramatic angle"),
     Panel("act_run", "ACTION POSES", "RUN", "full", "running fast, dynamic"),
     Panel("act_jump", "ACTION POSES", "JUMP", "full", "jumping in the air, dynamic pose"),
-    Panel("cos_casual", "ALTERNATE COSTUMES", "CASUAL", "full", "wearing a casual hoodie and shorts, standing"),
-    Panel("cos_armor", "ALTERNATE COSTUMES", "ARMOR", "full", "wearing ornate knight armor, standing"),
+    Panel("cos_casual", "ALTERNATE COSTUMES", "CASUAL", "full", "wearing a completely different outfit: an oversized casual hoodie with denim shorts and sneakers, everyday street clothes instead of {p} usual costume, standing"),
+    Panel("cos_armor", "ALTERNATE COSTUMES", "ARMOR", "full", "wearing a completely different outfit: full ornate knight plate armor with metal breastplate, pauldrons, gauntlets and greaves instead of {p} usual costume, standing"),
     Panel("cos_dress", "ALTERNATE COSTUMES", "FORMAL", "full", "wearing a completely different outfit: a floor-length elegant evening ball gown with long skirt and gloves, a formal party dress instead of {p} usual costume, standing"),
     Panel("chibi_big", "CHIBI / SD", "CHIBI", "chibi", "exactly ONE chibi super-deformed version of that character: two heads tall, huge oversized head, tiny stubby body and limbs, big sparkling eyes, cute mascot proportions, a single figure alone"),
     Panel("chibi_multi", "CHIBI / SD", "POSES", "chibi", "a row of three chibi super-deformed versions of that character in different cute poses (waving, jumping, sitting), each two heads tall with a huge head and tiny body"),
@@ -69,7 +69,7 @@ NEG = "reference sheet, multiple views, grid, collage, multiple characters, extr
 NEG_BACK = NEG + ", face, facing viewer, front view, eyes, looking at viewer, frontal"
 NEG_ITEM = NEG + ", girl, person, character, body, face, head, hair, legs, arms, wearing, mannequin"
 NEG_CHIBI = "reference sheet, grid, collage, extra people, realistic proportions, tall, full-size body, text, watermark, lowres"
-NEG_DRESS = NEG + ", idol costume, stage costume, short skirt, frills, crop top"
+NEG_COSTUME = NEG + ", idol costume, stage costume, original outfit, same outfit, frills, crop top"
 SIZES = {"full": (832, 1216), "back": (832, 1216), "body": (832, 1216),
          "face": (1024, 1024), "item": (1024, 1024), "free": (1024, 1024), "chibi": (1024, 1024)}
 
@@ -131,8 +131,8 @@ def negative(panel: Panel) -> str:
         return NEG_ITEM
     if panel.kind == "chibi":
         return NEG_CHIBI
-    if panel.key == "cos_dress":
-        return NEG_DRESS
+    if panel.section == "ALTERNATE COSTUMES":
+        return NEG_COSTUME
     return NEG
 
 
