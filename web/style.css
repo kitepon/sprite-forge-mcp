@@ -15,3 +15,9 @@ button { background: #27a6a0; border: 0; border-radius: .4rem; color: #061417; c
 .preview { max-width: 100%; max-height: 480px; display: block; border-radius: 6px; background: #fff; }
 select { padding: .4rem; }
 .thumb { height: 72px; border-radius: 4px; background: #fff; }
+
+.card.flow { text-decoration: none; color: inherit; display: block; } .card.flow:hover { border-color: #27a6a0; }
+.crumbs { display: flex; flex-wrap: wrap; gap: .4rem; list-style: none; padding: 0; margin: 0 0 1rem; } .crumbs li { border: 1px solid #2c3a52; border-radius: 999px; padding: .3rem .8rem; color: #8da1bc; cursor: default; } .crumbs li.active { background: #1d8b88; color: white; } .crumbs li.done { color: #aee8db; cursor: pointer; }
+.button-link { background: #2d3b51; border-radius: .4rem; color: #e9edf5; padding: .65rem .9rem; text-decoration: none; }
+.row { display: flex; flex-wrap: wrap; gap: .8rem; } .row .preview { max-height: 420px; width: auto; }
+h3 { font-size: .95rem; margin: 1rem 0 .2rem; color: #cfd8e6; }

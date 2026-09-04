@@ -22,6 +22,7 @@ export const API = {
   fromBible: (name, prompt, seed = 1, style = "") => api(`/api/from-bible?${new URLSearchParams({ name, prompt, seed, style })}`, { method: "POST" }),
   image: (prompt, style, seed = 1) => api(`/api/image?${new URLSearchParams({ prompt, style, seed })}`, { method: "POST" }),
   styles: () => api("/api/styles"),
+  style: (name) => api(`/api/styles/${encodeURIComponent(name)}`),
   createStyle: (name, note = "") => api(`/api/styles?${new URLSearchParams({ name, note })}`, { method: "POST" }),
   addStyleSamples: (name, images, captions = "") => api(`/api/styles/${encodeURIComponent(name)}/samples?${new URLSearchParams({ images, captions })}`, { method: "POST" }),
   trainStyle: (name, steps = 1200) => api(`/api/styles/${encodeURIComponent(name)}/train?${new URLSearchParams({ steps })}`, { method: "POST" }),

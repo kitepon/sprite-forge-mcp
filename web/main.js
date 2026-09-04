@@ -1,8 +1,9 @@
 import { API } from "./api.js";
 import { state } from "./state.js";
 import { $, card, element, notice } from "./ui.js";
+import { flow, home } from "./flows.js";
 
-const routes = [["workbench", "作業台"], ["settings", "設定画"], ["lora", "LoRA"], ["process", "過程"], ["records", "記録"]];
+const routes = [["", "ホーム"], ["workbench", "道具: 作業台"], ["process", "過程"], ["records", "記録"]];
 
 function record(kind, title, detail, id = crypto.randomUUID()) {
   const value = { id, kind, title, detail, at: new Date().toISOString() };
@@ -214,9 +215,11 @@ function records(root) {
 
 const renderers = { workbench, settings, lora, process, records };
 function route() {
-  const route = location.hash.slice(2) || "workbench";
-  const active = renderers[route] ? route : "workbench";
-  renderNav(active); renderers[active]($("#app")); $("#app").focus();
+  const path = location.hash.slice(2);
+  if (path.startsWith("flow/")) { renderNav(""); flow($("#app"), path.slice(5)); $("#app").focus(); return; }
+  if (!path) { renderNav(""); home($("#app")); $("#app").focus(); return; }
+  const active = renderers[path] ? path : "";
+  renderNav(active); (active ? renderers[active] : home)($("#app")); $("#app").focus();
 }
 async function gpu() {
   try {
