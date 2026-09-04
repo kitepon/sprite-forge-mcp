@@ -48,6 +48,8 @@ for name, function in (
     ("set_character_style", services.set_character_style),
     ("create_style", services.create_style),
     ("add_style_samples", services.add_style_samples),
+    ("remove_style_sample", services.remove_style_sample),
+    ("set_style_caption", services.set_style_caption),
     ("style_info", services.style_info),
     ("list_styles", services.list_styles),
     ("delete_style", services.delete_style),
@@ -107,6 +109,8 @@ for path, methods, function in (
     ("/api/styles/{name}", ["GET"], services.style_info),
     ("/api/styles/{name}", ["DELETE"], services.delete_style),
     ("/api/styles/{name}/samples", ["POST"], services.add_style_samples),
+    ("/api/styles/{name}/samples/{index}", ["DELETE"], services.remove_style_sample),
+    ("/api/styles/{name}/samples/{index}/caption", ["POST"], services.set_style_caption),
     ("/api/styles/{name}/train", ["POST"], services.train_style_lora),
     ("/api/jobs", ["GET"], services.list_jobs),
     ("/api/jobs/{job_id}", ["GET"], services.status),
@@ -148,4 +152,15 @@ async def rest_events(since: str | None = None) -> StreamingResponse:
 
 
 app.mount("/mcp", mcp_app)
-app.mount("/", StaticFiles(directory=Path(__file__).resolve().parents[1] / "web", html=True), name="web")
+
+
+class WebUIFiles(StaticFiles):
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        # ESM files ship together without a bundler. Re-read them after a deployment,
+        # rather than mixing old browser-cached modules with the new entry point.
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+
+app.mount("/", WebUIFiles(directory=Path(__file__).resolve().parents[1] / "web", html=True), name="web")

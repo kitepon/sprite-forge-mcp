@@ -57,6 +57,9 @@ class EventStore:
         return iter(records)
 
     def save_job(self, job: dict[str, Any]) -> Path:
+        now = _now()
+        job.setdefault("created_at", now)
+        job["updated_at"] = now
         self.jobs_path.mkdir(parents=True, exist_ok=True)
         path = self.jobs_path / f"{job['job_id']}.json"
         path.write_text(json.dumps(job, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

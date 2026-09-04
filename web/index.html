@@ -1,19 +1,30 @@
 <!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>sprite-forge</title>
-  <link rel="stylesheet" href="./style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f6f5ef">
+  <meta name="color-scheme" content="light">
+  <title>Sprite Forge — あなたのキャラクタースタジオ</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%232f5548'/%3E%3Cpath d='m32 10 6 16 16 6-16 6-6 16-6-16-16-6 16-6Z' fill='%23ddecaf'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="./style.css?v=studio-2">
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="#/">sprite-forge <small>sprite studio</small></a>
-    <span id="gpu" class="status">GPU を確認中</span>
-  </header>
-  <nav id="nav" aria-label="画面"></nav>
-  <main id="app" tabindex="-1"></main>
-  <div id="notice" role="status" aria-live="polite"></div>
-  <script type="module" src="./main.js"></script>
+  <a class="skip-link" href="#app">本文へ</a>
+  <aside class="sidebar">
+    <a class="brand" href="#/" aria-label="Sprite Forge スタジオ"><span class="brand-mark">✦</span><span>sprite<span class="brand-light">forge</span><small>CHARACTER STUDIO</small></span></a>
+    <p class="nav-label">WORKSPACE</p>
+    <nav id="nav" aria-label="メインメニュー"></nav>
+    <div class="sidebar-note"><span class="little-star">✳</span><p>好きな姿を、<br>何度でも。</p><span class="muted small">集める。確かめる。描く。</span></div>
+    <a class="gpu-card" href="#/activity"><span id="gpu-dot" class="status-dot"></span><span id="gpu">GPU を確認中</span></a>
+    <span class="version-label">SPRITE FORGE / YOUR CREATIVE SPACE</span>
+  </aside>
+  <div class="workspace">
+    <header class="topbar"><span id="breadcrumb">スタジオ</span><a href="#/activity" id="live-status" class="live-status">制作状況</a></header>
+    <main id="app" tabindex="-1"></main>
+    <footer class="workspace-footer"><span>Made for your imagination.</span><span>SPRITE FORGE</span></footer>
+  </div>
+  <div id="notice" aria-live="polite"></div>
+  <script type="module" src="./main.js?v=studio-2"></script>
 </body>
 </html>

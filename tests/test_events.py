@@ -17,11 +17,16 @@ def test_events_are_per_job_sequenced_and_persisted(tmp_path):
     assert list(store.read("job-a")) == [first, third]
     assert list(store.read("job-b")) == [second]
 
-    path = store.save_job({"job_id": "job-a", "status": "submitted"})
+    job = {"job_id": "job-a", "status": "submitted"}
+    path = store.save_job(job)
     assert path.name == "job-a.json"
-    assert store.load_job("job-a") == {"job_id": "job-a", "status": "submitted"}
+    assert store.load_job("job-a") == job
+    assert job["created_at"] == job["updated_at"]
+    created_at = job["created_at"]
+    store.save_job(job)
+    assert job["created_at"] == created_at and job["updated_at"] >= created_at
     assert store.load_job("missing") is None
-    assert store.list_jobs() == [{"job_id": "job-a", "status": "submitted"}]
+    assert store.list_jobs() == [job]
 
 
 def test_events_skip_malformed_ndjson_records(tmp_path):

@@ -42,7 +42,8 @@ Sprite Forge は、画像からキャラクターや画風を覚えさせ、そ�
 | `backend/events.py` | ジョブ状態と追記型イベント記録 |
 | `backend/config.py` | 実行環境の設定と保存先 |
 | `web/flows.js` | 目的別の段階的な制作画面 |
-| `web/main.js` | 画面切替、作業台、各道具、過程、記録 |
+| `web/main.js` | 画面切替、スタジオ、作品・素材、制作状況、道具箱 |
+| `web/jobs.js` / `web/drafts.js` | 制作状況の追跡、画面をまたぐ入力下書き・選択中ファイル |
 | `web/api.js` / `web/state.js` / `web/ui.js` / `web/style.css` | API 呼び出し、ブラウザー内の状態、表示部品、見た目 |
 | `tests/` | GPU を実行せずに確かめる契約・回帰試験 |
 

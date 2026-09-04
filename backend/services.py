@@ -113,6 +113,8 @@ class Services:
             strip = root / "samples.png"
             bible.contact_strip(samples).save(strip, "PNG")
             record["samples_sheet"] = str(strip)
+        else:
+            record.pop("samples_sheet", None)
         (root / f"{kind}.json").write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return record
 
@@ -130,10 +132,10 @@ class Services:
 
     async def _add_pictures(self, record: dict[str, Any], root: Path, images: str, captions: str) -> None:
         paths = [await self._resolve_image(ref.strip()) for ref in images.split(",") if ref.strip()]
-        texts = [c.strip() for c in captions.split("|")] if captions else []
+        texts = ([captions] if len(paths) == 1 else [c.strip() for c in captions.split("|")]) if captions else []
         root.mkdir(parents=True, exist_ok=True)
         for offset, path in enumerate(paths):
-            index = len(record["samples"])
+            index = max((sample["index"] for sample in record["samples"]), default=-1) + 1
             target = root / f"{index:03d}.png"
             target.write_bytes(bible.on_white(path.read_bytes()))
             record["samples"].append({"index": index, "path": str(target), "caption": texts[offset] if offset < len(texts) else "", "origin": str(path)})
@@ -199,6 +201,23 @@ class Services:
     async def style_info(self, name: str) -> dict[str, Any]:
         return self._load_style(name)
 
+    async def remove_style_sample(self, name: str, index: int) -> dict[str, Any]:
+        record = self._load_style(name)
+        sample = next((s for s in record["samples"] if s["index"] == index), None)
+        if sample is None:
+            raise ValueError(f"no sample with index {index}")
+        Path(sample["path"]).unlink(missing_ok=True)
+        record["samples"] = [s for s in record["samples"] if s["index"] != index]
+        return self._save_style(record)
+
+    async def set_style_caption(self, name: str, index: int, caption: str) -> dict[str, Any]:
+        record = self._load_style(name)
+        for sample in record["samples"]:
+            if sample["index"] == index:
+                sample["caption"] = caption
+                return self._save_style(record)
+        raise ValueError(f"no sample with index {index}")
+
     async def list_styles(self) -> list[dict[str, Any]]:
         if not self.styles_root.is_dir():
             return []
@@ -218,7 +237,8 @@ class Services:
         if not record["samples"]:
             raise ValueError(f"style {name!r} has no samples: add_style_samples first")
         job = await self._train_lora(record, self._style_dir(name), f"style_{record['key']}", "train_style_lora", steps)
-        self._save_style(record)
+        with self._job_errors(job):
+            self._save_style(record)
         return job
 
     async def generate_image(self, prompt: str, style: str, width: int = 1024, height: int = 1024, seed: int = 1,
@@ -280,7 +300,8 @@ class Services:
         chain, style_word = self._loras(record, style)
         job_id = str(uuid.uuid4())
         prompt = ", ".join(part for part in (record["trigger"], style_word, bible.subject_tag(record["char_desc"]), tags, bible.COMMON) if part)
-        job = {"job_id": job_id, "kind": "preview", "status": "queued", "name": name, "prompt": prompt, "seed": seed, "loras": chain}
+        job = {"job_id": job_id, "kind": "preview", "status": "queued", "name": name, "prompt": prompt, "seed": seed, "loras": chain,
+               "style": style, "total_images": max(1, count), "pictures": []}
         self.events.save_job(job); self._record_call("preview_character", job_id, {"name": name, "seed": seed, "count": count})
         with self._job_errors(job):
             pictures = []
@@ -289,6 +310,8 @@ class Services:
                     prompt, seed + offset, turbo=turbo, loras=chain, negative=bible.NEGATIVE, width=832, height=1216))
                 path = self._write_generated(f"{job_id}-preview-{offset}.png", content)
                 pictures.append({"path": str(path), "seed": seed + offset, "elapsed_s": elapsed})
+                job.update(status="running", pictures=list(pictures))
+                self.events.save_job(job)
             job.update(status="completed", pictures=pictures)
             self.events.save_job(job); self.events.append(job_id, "image_completed", {"pictures": [p["path"] for p in pictures]})
             return job
@@ -308,7 +331,8 @@ class Services:
         key = record["key"]
         panel_root = self._character_dir(name) / "bible" / job_id / "panels"
         job = {"job_id": job_id, "kind": "character_bible", "status": "queued", "name": name, "trigger": trigger,
-               "lora_name": lora_name, "loras": chain, "style": style or record.get("style", ""), "panels_dir": str(panel_root)}
+               "lora_name": lora_name, "loras": chain, "style": style or record.get("style", ""), "panels_dir": str(panel_root),
+               "total_panels": len(bible.PANELS), "completed_panels": 0, "panels": []}
         self.events.save_job(job)
         self._record_call("generate_character_bible", job_id, {"name": name, "seed": seed, "lora_name": lora_name})
         self.events.append(job_id, "queued", {"name": name})
@@ -329,6 +353,8 @@ class Services:
                 panel_path.parent.mkdir(parents=True, exist_ok=True)
                 panel_path.write_bytes(bible.crop_nonwhite(content))
                 panels.append((panel.key, panel_path))
+                job.update(completed_panels=len(panels), panels=[str(path) for _, path in panels])
+                self.events.save_job(job)
                 self.events.append(job_id, "panel_completed", {"panel": panel.key, "path": str(panel_path), "elapsed_s": elapsed})
             anchor = Path(record.get("samples_sheet") or panel_root / "turn_front.png")
             sheet = bible.compose_model_sheet(name, attr, panels, anchor, self.generated_root / f"bible_{key}_{job_id}.png")
@@ -361,6 +387,10 @@ class Services:
     async def _run_edit(self, job_id: str, graph: dict[str, Any]) -> tuple[bytes, float]:
         started = time.monotonic()
         prompt_id = await self.comfy.submit(graph, job_id)
+        job = self.events.load_job(job_id)
+        if job:
+            job["status"] = "running" if job["kind"] != "character_bible" else "generating panels"
+            self.events.save_job(job)
         content = await self._view(self._first_image(await self._history_until_done(prompt_id)))
         return content, round(time.monotonic() - started, 1)
 
@@ -429,6 +459,7 @@ class Services:
             sheet = bible.compose_model_sheet(name, info.get("attr", ""), panels, anchor, Path(record["bible"]["sheet_path"]))
             html = bible.write_html(name, info.get("attr", ""), panels, anchor, Path(record["bible"]["html_path"]))
             record.setdefault("panel_overrides", {})[panel] = {"tags": tags, "avoid": avoid, "seed": seed}
+            record["bible"]["at"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
             self._save_character(record)
             job.update(status="completed", path=str(panel_path), previous=str(previous) if previous.exists() else None,
                        sheet_path=str(sheet), html_path=str(html), elapsed_s=elapsed)
@@ -469,7 +500,8 @@ class Services:
         if not record["samples"]:
             raise ValueError(f"{name!r} has no samples: add_samples first")
         job = await self._train_lora(record, self._character_dir(name), f"dataset_{record['key']}", "train_character_lora", steps)
-        self._save_character(record)
+        with self._job_errors(job):
+            self._save_character(record)
         return job
 
     async def _train_lora(self, record: dict[str, Any], root: Path, dataset_name: str, tool: str, steps: int = 1200) -> dict[str, Any]:
@@ -491,6 +523,12 @@ class Services:
                "dataset": str(panels), "images": len(record["samples"])}
         self.events.save_job(job); self._record_call(tool, job_id, {"name": record["name"], "steps": steps})
         self.events.append(job_id, "queued", {"name": record["name"], "steps": steps})
+        with self._job_errors(job):
+            return await self._execute_training(record, job, panels, stem, remote_root, steps)
+
+    async def _execute_training(self, record: dict[str, Any], job: dict[str, Any], panels: Path,
+                                stem: str, remote_root: str, steps: int) -> dict[str, Any]:
+        job_id = job["job_id"]
         code, output = await box.copy_tree_to_box(panels, remote_root, ssh=BOX_SSH)
         if code: raise RuntimeError(output)
         self.generated_root.mkdir(parents=True, exist_ok=True)
@@ -505,18 +543,17 @@ class Services:
         await self.comfy.client.post(f"{self.comfy.base_url}/free", json={})
         log_path = self.generated_root / f"{job_id}-train.log"
         job.update(status="running", log_path=str(log_path)); self.events.save_job(job); self.events.append(job_id, "running", {})
-        log = log_path.open("a", encoding="utf-8")
-        async for line in box.stream_training(rf"{remote_root}\{job_id}-dataset.toml", stem,
+        with log_path.open("a", encoding="utf-8") as log:
+            async for line in box.stream_training(rf"{remote_root}\{job_id}-dataset.toml", stem,
                                               r"C:\Users\kite_\ComfyUI\ComfyUI\models\diffusion_models\anima-base-v1.0.safetensors",
                                               r"C:\Users\kite_\ComfyUI\ComfyUI\models\text_encoders\qwen_3_06b_base.safetensors",
                                               r"C:\Users\kite_\ComfyUI\ComfyUI\models\vae\qwen_image_vae.safetensors", steps, BOX_LORAS, ssh=BOX_SSH):
-            log.write(line.rstrip() + "\n"); log.flush()
-            # sd-scripts prints tqdm: "steps:  12%|█▏  | 144/1200 [02:01<14:50,  1.19it/s, ...]"
-            match = re.search(r"\b(\d+)/(\d+) \[", line) or re.search(r"(?:step|Step)\s*(\d+)\s*/\s*(\d+)", line)
-            if match and int(match.group(1)) != job["progress"]["step"]:
-                job["progress"] = {"step": int(match.group(1)), "total": int(match.group(2))}
-                self.events.save_job(job); self.events.append(job_id, "progress", job["progress"])
-        log.close()
+                log.write(line.rstrip() + "\n"); log.flush()
+                # sd-scripts prints tqdm: "steps:  12%|█▏  | 144/1200 [02:01<14:50,  1.19it/s, ...]"
+                match = re.search(r"\b(\d+)/(\d+) \[", line) or re.search(r"(?:step|Step)\s*(\d+)\s*/\s*(\d+)", line)
+                if match and int(match.group(1)) != job["progress"]["step"]:
+                    job["progress"] = {"step": int(match.group(1)), "total": int(match.group(2))}
+                    self.events.save_job(job); self.events.append(job_id, "progress", job["progress"])
         job.update(status="completed", progress={"step": steps, "total": steps})
         self.events.save_job(job); self.events.append(job_id, "completed", {"lora_name": job["lora_name"]})
         record["lora_name"], record["train_job"], record["steps"] = job["lora_name"], job_id, steps

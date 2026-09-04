@@ -25,6 +25,8 @@ export const API = {
   style: (name) => api(`/api/styles/${encodeURIComponent(name)}`),
   createStyle: (name, note = "") => api(`/api/styles?${new URLSearchParams({ name, note })}`, { method: "POST" }),
   addStyleSamples: (name, images, captions = "") => api(`/api/styles/${encodeURIComponent(name)}/samples?${new URLSearchParams({ images, captions })}`, { method: "POST" }),
+  removeStyleSample: (name, index) => api(`/api/styles/${encodeURIComponent(name)}/samples/${index}`, { method: "DELETE" }),
+  setStyleCaption: (name, index, caption) => api(`/api/styles/${encodeURIComponent(name)}/samples/${index}/caption?${new URLSearchParams({ caption })}`, { method: "POST" }),
   trainStyle: (name, steps = 1200) => api(`/api/styles/${encodeURIComponent(name)}/train?${new URLSearchParams({ steps })}`, { method: "POST" }),
   deleteStyle: (name) => api(`/api/styles/${encodeURIComponent(name)}`, { method: "DELETE" }),
   setCharacterStyle: (name, style, strength = 0.7) => api(`/api/characters/${encodeURIComponent(name)}/style?${new URLSearchParams({ style, strength })}`, { method: "POST" }),
