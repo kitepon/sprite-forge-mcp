@@ -1,8 +1,13 @@
 """Two thin HTTP faces over exactly one ``Services`` instance."""
 from __future__ import annotations
 
+import asyncio
+import json
 from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
+
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from fastmcp import FastMCP
 from fastmcp.utilities.lifespan import combine_lifespans
 
@@ -12,71 +17,22 @@ services = Services()
 mcp = FastMCP("sprite-forge")
 
 
-@mcp.tool
-async def gpu_status() -> dict:
-    return await services.gpu_status()
-
-
-@mcp.tool
-async def generate_base(prompt: str, seed: int = 1) -> dict:
-    return await services.start_base(prompt, seed)
-
-
-@mcp.tool
-async def generate_sprite(prompt: str, count: int = 4, seed: int = 1,
-                          lora_name: str | None = None, lora_trigger: str | None = None,
-                          pose_image: str | None = None, turbo: bool = True) -> dict:
-    return await services.generate_sprite(prompt, count, seed, lora_name, lora_trigger, pose_image, turbo)
-
-
-@mcp.tool
-async def list_loras() -> list[str]:
-    return await services.list_loras()
-
-
-@mcp.tool
-async def generate_character_bible(source: str, name: str, char_desc: str, attr: str = "", seed: int = 1) -> dict:
-    return await services.generate_character_bible(source, name, char_desc, attr, seed)
-
-
-@mcp.tool
-async def bible_status(job_id: str) -> dict:
-    return await services.bible_status(job_id)
-
-
-@mcp.tool
-async def train_character_lora(bible_name: str, trigger: str = "sprite_subject", steps: int = 12) -> dict:
-    return await services.train_character_lora(bible_name, trigger, steps)
-
-
-@mcp.tool
-async def train_status(job_id: str) -> dict:
-    return await services.train_status(job_id)
-
-
-@mcp.tool
-async def make_mask(image_id: str, prompt: str = "character", points: str | None = None) -> dict:
-    return await services.make_mask(image_id, prompt, points)
-
-
-@mcp.tool
-async def generate_variant(base_id: str, prompt: str, mask_id: str | None = None, seed: int = 1) -> dict:
-    return await services.generate_variant(base_id, prompt, mask_id, seed)
-
-
-@mcp.tool
-async def make_transparent(image_id: str) -> dict:
-    return await services.make_transparent(image_id)
-
-
-@mcp.tool
-async def pixelize(image_id: str, block: int = 8, posterize: int = 0) -> dict:
-    return await services.pixelize(image_id, block, posterize)
-
-
-@mcp.tool
-async def job_status(job_id: str) -> dict:
-    return await services.status(job_id)
+for name, function in (
+    ("gpu_status", services.gpu_status),
+    ("generate_base", services.start_base),
+    ("generate_sprite", services.generate_sprite),
+    ("list_loras", services.list_loras),
+    ("generate_character_bible", services.generate_character_bible),
+    ("bible_status", services.bible_status),
+    ("train_character_lora", services.train_character_lora),
+    ("train_status", services.train_status),
+    ("make_mask", services.make_mask),
+    ("generate_variant", services.generate_variant),
+    ("make_transparent", services.make_transparent),
+    ("pixelize", services.pixelize),
+    ("job_status", services.status),
+):
+    mcp.tool(function, name=name)
 
 
 mcp_app = mcp.http_app(path="/")
@@ -90,56 +46,40 @@ async def app_lifespan(_app):
 app = FastAPI(title="sprite-forge", lifespan=combine_lifespans(app_lifespan, mcp_app.lifespan))
 
 
-@app.get("/api/gpu")
-async def rest_gpu() -> dict:
-    return await services.gpu_status()
+for path, methods, function in (
+    ("/api/gpu", ["GET"], services.gpu_status),
+    ("/api/base", ["POST"], services.start_base),
+    ("/api/generate", ["POST"], services.generate_sprite),
+    ("/api/loras", ["GET"], services.list_loras),
+    ("/api/bible", ["POST"], services.generate_character_bible),
+    ("/api/bible/{job_id}", ["GET"], services.bible_status),
+    ("/api/lora", ["POST"], services.train_character_lora),
+    ("/api/lora/{job_id}", ["GET"], services.train_status),
+    ("/api/mask", ["POST"], services.make_mask),
+    ("/api/variant", ["POST"], services.generate_variant),
+    ("/api/transparent", ["POST"], services.make_transparent),
+    ("/api/pixelize", ["POST"], services.pixelize),
+    ("/api/jobs/{job_id}", ["GET"], services.status),
+):
+    app.add_api_route(path, function, methods=methods)
 
 
-@app.post("/api/base")
-async def rest_base(prompt: str, seed: int = 1) -> dict:
-    return await services.start_base(prompt, seed)
+async def _event_stream(since: str | None = None) -> AsyncIterator[str]:
+    """Emit persisted events first, then follow the append-only log."""
+    cursor = since
+    while True:
+        for event in services.events.read_since(cursor):
+            cursor = event["event_id"]
+            encoded = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
+            yield f"id: {cursor}\nevent: {event['kind']}\ndata: {encoded}\n\n"
+        yield ": keep-alive\n\n"
+        await asyncio.sleep(0.25)
 
 
-@app.post("/api/generate")
-async def rest_generate(prompt: str, count: int = 4, seed: int = 1,
-                        lora_name: str | None = None, lora_trigger: str | None = None,
-                        pose_image: str | None = None, turbo: bool = True) -> dict:
-    return await services.generate_sprite(prompt, count, seed, lora_name, lora_trigger, pose_image, turbo)
-
-
-@app.post("/api/bible")
-async def rest_bible(source: str, name: str, char_desc: str, attr: str = "", seed: int = 1) -> dict:
-    return await services.generate_character_bible(source, name, char_desc, attr, seed)
-
-
-@app.get("/api/bible/{job_id}")
-async def rest_bible_status(job_id: str) -> dict:
-    return await services.bible_status(job_id)
-
-
-@app.post("/api/mask")
-async def rest_mask(image_id: str, prompt: str = "character", points: str | None = None) -> dict:
-    return await services.make_mask(image_id, prompt, points)
-
-
-@app.post("/api/variant")
-async def rest_variant(base_id: str, prompt: str, mask_id: str | None = None, seed: int = 1) -> dict:
-    return await services.generate_variant(base_id, prompt, mask_id, seed)
-
-
-@app.post("/api/transparent")
-async def rest_transparent(image_id: str) -> dict:
-    return await services.make_transparent(image_id)
-
-
-@app.post("/api/pixelize")
-async def rest_pixelize(image_id: str, block: int = 8, posterize: int = 0) -> dict:
-    return await services.pixelize(image_id, block, posterize)
-
-
-@app.get("/api/jobs/{job_id}")
-async def rest_status(job_id: str) -> dict:
-    return await services.status(job_id)
+@app.get("/api/events")
+async def rest_events(since: str | None = None) -> StreamingResponse:
+    return StreamingResponse(_event_stream(since), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 app.mount("/mcp", mcp_app)

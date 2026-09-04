@@ -24,7 +24,9 @@ def test_service_status_transitions_and_emits_events(tmp_path):
 
     assert status["status"] == "success"
     assert status["prompt_id"] == "prompt-1"
-    assert [event["kind"] for event in events.read(job["job_id"])] == ["queued", "submitted", "success"]
+    assert [event["kind"] for event in events.read(job["job_id"])] == [
+        "tool_called", "queued", "submitted", "tool_called", "success"
+    ]
 
 
 def test_service_returns_unknown_for_missing_job(tmp_path):

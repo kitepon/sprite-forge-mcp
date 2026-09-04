@@ -45,4 +45,6 @@ def test_training_copies_panels_streams_progress_and_persists_job(tmp_path, monk
     assert result["status"] == "completed"
     assert result["progress"] == {"step": 3, "total": 3}
     assert result["lora_name"].endswith(".safetensors")
-    assert [event["kind"] for event in events.read(result["job_id"])] == ["queued", "running", "progress", "progress", "completed"]
+    assert [event["kind"] for event in events.read(result["job_id"])] == [
+        "tool_called", "queued", "running", "progress", "progress", "completed"
+    ]
