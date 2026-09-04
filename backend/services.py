@@ -83,8 +83,8 @@ class Services:
         the product itself carries no style words."""
         source_path = self._source_path(source)
         style_paths = [self._source_path(ref.strip()) for ref in style_refs.split(",") if ref.strip()]
-        if len(style_paths) > 5:
-            raise ValueError("style_refs accepts at most five images (JoyAI takes six references in total)")
+        if len(style_paths) > 4:
+            raise ValueError("style_refs accepts at most four images (JoyAI takes six references: master, source, and these)")
         job_id = str(uuid.uuid4())
         key = bible.safe_name(name)
         panel_root = self.generated_root / f"bible_{key}_panels"
@@ -101,11 +101,11 @@ class Services:
             source_upload = await self.comfy.upload(bible.on_white(source_path.read_bytes()), f"sf_bible_src_{key}.png")
             style_uploads = [await self.comfy.upload(bible.on_white(path.read_bytes()), f"sf_bible_style_{key}_{i}.png")
                              for i, path in enumerate(style_paths)]
-            styled = len(style_uploads)
             job.update(status="generating master sheet")
             self.events.save_job(job)
+            master_refs = [source_upload, *style_uploads]
             master = bible.on_white(await self._run_edit(job_id, workflows.joy_edit(
-                [source_upload, *style_uploads], bible.master_prompt(styled), seed,
+                master_refs, bible.master_prompt(len(master_refs)), seed,
                 negative=bible.NEG_MASTER, size=bible.MASTER_SIZE)))
             master_path = self._write_generated(f"bible_{key}_master.png", master)
             master_upload = await self.comfy.upload(master, f"sf_bible_master_{key}.png")
@@ -116,9 +116,11 @@ class Services:
             for index, panel in enumerate(bible.PANELS):
                 job.update(status="generating panels", panel=panel.key, completed_panels=index)
                 self.events.save_job(job)
-                reference = front_upload if panel.kind == "item" else master_upload
+                # image 1 = what to redraw (master sheet, or the front figure for items);
+                # image 2 = the owner's source picture, whose look every panel copies; then extra style refs
+                refs = [front_upload if panel.kind == "item" else master_upload, source_upload, *style_uploads]
                 content = await self._run_edit(job_id, workflows.joy_edit(
-                    [reference, *style_uploads], bible.instruction(panel, possessive, styled), seed + 100 + index,
+                    refs, bible.instruction(panel, possessive, len(refs)), seed + 100 + index,
                     negative=bible.negative(panel), size=bible.size(panel)))
                 panel_path = panel_root / f"{panel.key}.png"
                 panel_path.parent.mkdir(parents=True, exist_ok=True)

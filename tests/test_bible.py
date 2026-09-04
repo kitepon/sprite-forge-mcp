@@ -66,10 +66,13 @@ def test_bible_generates_all_panels_model_sheet_and_embedded_html(tmp_path):
     assert asyncio.run(service.bible_status(job["job_id"]))["status"] == "completed"
     assert len(comfy.submitted) == 24
     master, first_panel = comfy.submitted[0], comfy.submitted[1]
-    assert master["20"]["inputs"]["prompt"] == bible.MASTER_PROMPT + bible.style_clause(2) + "."
-    assert "images 2-3" in master["20"]["inputs"]["prompt"]
+    assert master["20"]["inputs"]["prompt"] == bible.MASTER_PROMPT + bible.style_clause(3) + "."
+    assert "images 1-3" in master["20"]["inputs"]["prompt"]
     assert master["20"]["inputs"]["images.image1"] == ["11", 0] and master["20"]["inputs"]["images.image2"] == ["12", 0]
-    assert first_panel["11"]["inputs"]["image"] == "sf_bible_style_ember_mage_0.png"
+    assert first_panel["10"]["inputs"]["image"] == "sf_bible_master_ember_mage.png"
+    assert first_panel["11"]["inputs"]["image"] == "sf_bible_src_ember_mage.png"
+    assert first_panel["12"]["inputs"]["image"] == "sf_bible_style_ember_mage_0.png"
+    assert "images 1-4" in first_panel["20"]["inputs"]["prompt"]
     assert master["22"]["inputs"] == {"width": 1280, "height": 1024, "batch_size": 1}
     assert first_panel["10"]["inputs"]["image"] == "sf_bible_master_ember_mage.png"
     assert first_panel["21"]["inputs"]["prompt"] == bible.NEG
@@ -97,6 +100,6 @@ def test_style_comes_only_from_references_never_from_the_product():
     bare = instruction(face, "their")
     for word in ("cel", "anime style", "high detail", "painterly", "glossy"):
         assert word not in bare
-    assert bible.style_clause(0) == "" and bare.endswith("plain white background.")
-    assert "drawing style of image 2:" in instruction(face, "their", 1)
-    assert "images 2-6" in bible.master_prompt(5)
+    assert "drawing style of images 1-2:" in bare  # master + the owner's source picture
+    assert "drawing style of image 1:" in bible.master_prompt(1)  # the source alone is the style
+    assert "images 1-6" in instruction(face, "their", 6)

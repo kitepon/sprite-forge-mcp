@@ -28,8 +28,8 @@ MASTER_PROMPT = (
     "throughout, consistent design, plain white background, model sheet layout")
 
 
-def master_prompt(style_count: int = 0) -> str:
-    return MASTER_PROMPT + style_clause(style_count) + "."
+def master_prompt(image_count: int = 1) -> str:
+    return MASTER_PROMPT + style_clause(image_count) + "."
 MASTER_SIZE = (1280, 1024)
 NEG_MASTER = "extra different characters, text, watermark, lowres"
 
@@ -107,23 +107,24 @@ def possessive_pronoun(char_desc: str) -> str:
     return "their"
 
 
-def style_clause(style_count: int) -> str:
-    """The rendering style is never written into the product: it is copied from the style
-    reference images (JoyAI images 2..N) supplied with the job. No references, no clause."""
-    if style_count <= 0:
-        return ""
-    last = 1 + style_count
-    span = "image 2" if style_count == 1 else f"images 2-{last}"
+def style_clause(image_count: int) -> str:
+    """The rendering style is never written into the product: it is copied from the reference
+    images themselves. The source picture the owner brings is the first style reference; extra
+    ``style_refs`` widen the set. ``image_count`` is the total number of JoyAI reference images."""
+    if image_count <= 0:
+        raise ValueError("a style clause needs at least one reference image")
+    span = "image 1" if image_count == 1 else f"images 1-{image_count}"
     return (f" Render it in exactly the drawing style of {span}: copy their shading, line work, "
             "lighting, eye rendering and level of detail")
 
 
-def instruction(panel: Panel, possessive: str, style_count: int = 0) -> str:
+def instruction(panel: Panel, possessive: str, image_count: int = 2) -> str:
     """Instruction that references the MASTER SHEET (image 1) and asks for a single isolated
-    panel of that same character; the look comes from the style references."""
+    panel of that same character; the look is copied from all reference images (master, source,
+    extra style refs)."""
     head = "Using the exact character shown in the character reference sheet in image 1,"
     suffix = panel.suffix.format(p=possessive)
-    style = style_clause(style_count)
+    style = style_clause(image_count)
     if panel.kind == "face":
         body = (f"{head} draw a close-up headshot of ONLY that character's face with {suffix}, "
                 "single face, head and shoulders, plain white background")
