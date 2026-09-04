@@ -96,7 +96,21 @@ function settings(root) {
   const save = element("button", { onclick: async () => { try { result.replaceChildren(element("p", { class: "muted" }, "LoRA 学習（約 15 分）→ 23 パネル生成。過程画面で進捗が見られる")); const job = await API.bible(images.value, name.value, desc.value, costume.value, lora.value, captions.value); state.activeJob = job.job_id; record("設定画", name.value || "設定画を生成", job.sheet_path || job.job_id, job.job_id); result.replaceChildren(preview(job.sheet_path), element("p", { class: "muted" }, `${job.sheet_path} / ${job.html_path} · LoRA ${job.lora_name}`)); notice("設定画を生成しました"); } catch (error) { notice(error.message, true); } } }, "設定画を生成");
   root.replaceChildren(element("header", { class: "page-head" }, element("h1", {}, "設定画"), element("p", {}, "持ってきた画像で LoRA を学習し、その LoRA で方向・表情・衣装・ちび・装備の 23 パネルを描きます。絵柄は画像から学ぶので、言葉では指定しません。")),
     card("設定画を作る", element("div", { class: "stack" }, element("label", {}, "画像", images.node), element("label", {}, "名前", name), element("label", {}, "説明", desc), element("label", {}, "画像ごとの説明", captions), element("label", {}, "属性", costume), element("label", {}, "LoRA", lora), save, result)),
+    redrawCard(name),
     presetCard());
+}
+
+function redrawCard(nameInput) {
+  // Review-and-adjust: pick any panel of a finished bible, say what it should be, redraw it.
+  const target = element("input", { placeholder: "設定画名（空なら上の名前）" });
+  const panel = element("select", {});
+  const tags = element("textarea", { rows: "2", placeholder: "内容の言葉（空ならそのパネルの既定。例: ball gown, floor-length dress, elbow gloves, no frills）" });
+  const seed = element("input", { type: "number", value: "1", min: "0" });
+  const out = element("div", { class: "stack" });
+  API.panels().then((items) => { panel.replaceChildren(...items.map((item) => element("option", { value: item.key, "data-tags": item.tags }, `${item.section} / ${item.label}`))); tags.placeholder = panel.selectedOptions[0]?.dataset.tags || tags.placeholder; }).catch(() => {});
+  panel.addEventListener("change", () => { tags.placeholder = panel.selectedOptions[0]?.dataset.tags || ""; });
+  const go = element("button", { onclick: async () => { try { out.replaceChildren(element("p", { class: "muted" }, "描き直し中…")); const job = await API.redraw(target.value || nameInput.value, panel.value, tags.value, seed.value); record("描き直し", `${job.name} / ${job.panel}`, job.path, job.job_id); out.replaceChildren(preview(job.path), element("p", { class: "muted" }, `${job.prompt} · ${job.elapsed_s}s · シート更新: ${job.sheet_path}`)); } catch (error) { notice(error.message, true); } } }, "このパネルを描き直す");
+  return card("パネルを描き直す（見て、指示して、直す）", element("div", { class: "stack" }, element("label", {}, "設定画", target), element("label", {}, "パネル", panel), element("label", {}, "言葉", tags), element("label", {}, "Seed", seed), go, out));
 }
 
 function presetCard() {

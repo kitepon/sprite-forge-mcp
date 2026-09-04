@@ -100,7 +100,8 @@ class Services:
         trigger = trigger or key.lower()
         panel_root = self.generated_root / f"bible_{key}_panels"
         job = {"job_id": job_id, "kind": "character_bible", "status": "queued", "name": name, "trigger": trigger,
-               "images": [str(p) for p in picture_paths], "lora_name": lora_name, "panels_dir": str(panel_root)}
+               "char_desc": char_desc, "attr": attr, "images": [str(p) for p in picture_paths],
+               "lora_name": lora_name, "panels_dir": str(panel_root)}
         self.events.save_job(job)
         self._record_call("generate_character_bible", job_id, {"name": name, "seed": seed, "lora_name": lora_name})
         self.events.append(job_id, "queued", {"name": name, "images": job["images"]})
@@ -241,11 +242,49 @@ class Services:
         return paths
 
     def _bible_info(self, name: str) -> dict[str, Any]:
-        """LoRA and trigger of the newest completed bible of that name (from the job records)."""
+        """The newest completed bible job of that name (LoRA, trigger, description, panels dir)."""
         for job in self.events.list_jobs():
             if job.get("kind") == "character_bible" and job.get("name") == name and job.get("status") == "completed":
-                return {"lora_name": job["lora_name"], "trigger": job.get("trigger", "")}
+                return job
         raise FileNotFoundError(f"no completed character bible named {name!r}")
+
+    async def list_bible_panels(self) -> list[dict[str, str]]:
+        """The panel slots of a bible with their default content tags (what redraw_panel replaces)."""
+        return [{"key": p.key, "section": p.section, "label": p.label, "kind": p.kind, "tags": p.tags} for p in bible.PANELS]
+
+    async def redraw_panel(self, name: str, panel: str, tags: str = "", seed: int = 1, turbo: bool = False) -> dict[str, Any]:
+        """Fix one panel of a finished bible by instruction: redraw it with the same LoRA from
+        ``tags`` (content words; empty = the panel's default tags) and ``seed``, then rebuild the
+        sheet and HTML. Any panel, any words — this is the review-and-adjust step."""
+        info = self._bible_info(name)
+        spec = next((p for p in bible.PANELS if p.key == panel), None)
+        if spec is None:
+            raise ValueError(f"unknown panel {panel!r}; see list_bible_panels")
+        job_id = str(uuid.uuid4())
+        key = bible.safe_name(name)
+        prompt = bible.panel_prompt(spec._replace(tags=tags) if tags else spec, info.get("trigger", ""), info.get("char_desc", ""))
+        job = {"job_id": job_id, "kind": "redraw_panel", "status": "queued", "name": name, "panel": panel,
+               "prompt": prompt, "seed": seed, "lora_name": info["lora_name"]}
+        self.events.save_job(job); self._record_call("redraw_panel", job_id, {"name": name, "panel": panel, "seed": seed})
+        self.events.append(job_id, "queued", {"prompt": prompt})
+        width, height = bible.size(spec)
+        content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
+            prompt, seed, turbo=turbo, lora_name=info["lora_name"], negative=bible.NEGATIVE, width=width, height=height))
+        panel_root = Path(info["panels_dir"])
+        panel_path = panel_root / f"{panel}.png"
+        previous = panel_root / "history" / f"{panel}-{job_id[:8]}.png"
+        previous.parent.mkdir(parents=True, exist_ok=True)
+        if panel_path.exists():
+            shutil.move(panel_path, previous)  # nothing is thrown away; the old panel stays in history/
+        panel_path.write_bytes(bible.crop_nonwhite(content))
+        panels = [(p.key, panel_root / f"{p.key}.png") for p in bible.PANELS if (panel_root / f"{p.key}.png").is_file()]
+        anchor = Path(info["source"])
+        sheet = bible.compose_model_sheet(name, info.get("attr", ""), panels, anchor, self.generated_root / f"bible_{key}.png")
+        html = bible.write_html(name, info.get("attr", ""), panels, anchor, self.generated_root / f"bible_{key}.html")
+        job.update(status="completed", path=str(panel_path), previous=str(previous) if previous.exists() else None,
+                   sheet_path=str(sheet), html_path=str(html), elapsed_s=elapsed)
+        self.events.save_job(job); self.events.append(job_id, "panel_completed", {"panel": panel, "path": str(panel_path), "elapsed_s": elapsed})
+        return job
 
     async def _resolve_image(self, ref: str) -> Path:
         """One entry point for every picture an owner or Bot brings in: a path or id inside the

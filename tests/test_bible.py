@@ -101,3 +101,22 @@ def test_panel_prompts_carry_content_only_and_the_subject_comes_from_the_descrip
         text = panel_prompt(panel, "bell", "she/her")
         for word in ("cel", "painterly", "glossy", "masterpiece", "best quality", "high detail"):
             assert word not in text
+
+
+def test_redraw_panel_replaces_one_panel_by_words_keeps_the_old_one_and_rebuilds_the_sheet(tmp_path, monkeypatch):
+    service, comfy = make(tmp_path, monkeypatch)
+    a = tmp_path / "a.png"; a.write_bytes(png())
+    job = asyncio.run(service.generate_character_bible(str(a), "Bell", "she/her", "idol", lora_name="BellGrok.safetensors", trigger="bell_idol"))
+    before = (tmp_path / "generated" / "bible_Bell.png").stat().st_mtime_ns
+    redraw = asyncio.run(service.redraw_panel("Bell", "cos_dress", "ball gown, floor-length dress, elbow gloves", seed=9))
+    assert redraw["status"] == "completed" and redraw["prompt"] == "bell_idol, 1girl, ball gown, floor-length dress, elbow gloves, simple background, white background"
+    assert comfy.submitted[-1]["23"]["inputs"]["seed"] == 9 and comfy.submitted[-1]["4"]["inputs"]["lora_name"] == "BellGrok.safetensors"
+    assert (tmp_path / "generated" / "bible_Bell_panels" / "cos_dress.png").is_file() and redraw["previous"].endswith(".png")
+    assert (tmp_path / "generated" / "bible_Bell.png").stat().st_mtime_ns >= before
+    assert [p["key"] for p in asyncio.run(service.list_bible_panels())][:2] == ["turn_front", "turn_34"]
+    try:
+        asyncio.run(service.redraw_panel("Bell", "nope"))
+    except ValueError as error:
+        assert "list_bible_panels" in str(error)
+    else:
+        raise AssertionError("unknown panel must fail")
