@@ -2,7 +2,13 @@
 name = "sprite-forge"
 version = "0.1.0"
 requires-python = ">=3.13"
-dependencies = ["fastapi>=0.115", "fastmcp>=4.0,<5", "httpx>=0.28", "uvicorn>=0.34"]
+dependencies = [
+    "fastapi>=0.115",
+    "fastmcp>=4.0,<5",
+    "httpx>=0.28",
+    "pillow>=12.3.0",
+    "uvicorn>=0.34",
+]
 
 [dependency-groups]
 dev = ["pytest>=8.0"]

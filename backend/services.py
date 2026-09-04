@@ -8,14 +8,18 @@ import zlib
 from pathlib import Path
 from typing import Any
 
+from . import bible
 from . import workflows
 from .comfy import Comfy
+from .config import CACHE
 from .events import EventStore
 
 
 class Services:
-    def __init__(self, comfy: Comfy | None = None, events: EventStore | None = None):
+    def __init__(self, comfy: Comfy | None = None, events: EventStore | None = None,
+                 generated_root: Path | None = None):
         self.comfy, self.events = comfy or Comfy(), events or EventStore()
+        self.generated_root = generated_root or CACHE / "generated"
 
     async def gpu_status(self) -> dict[str, Any]:
         return await self.comfy.stats()
@@ -59,6 +63,58 @@ class Services:
         required = response.json().get("LoraLoader", {}).get("input", {}).get("required", {})
         return list(required.get("lora_name", [[]])[0])
 
+    async def generate_character_bible(self, source: str, name: str, char_desc: str,
+                                       attr: str = "", seed: int = 1) -> dict[str, Any]:
+        """Create a JoyAI turnaround, expression, costume, and chibi reference set."""
+        source_path = self._source_path(source)
+        job_id = str(uuid.uuid4())
+        panel_root = self.generated_root / f"bible_{bible.safe_name(name)}_panels"
+        job = {"job_id": job_id, "kind": "character_bible", "status": "queued", "name": name,
+               "source": str(source_path), "panels_dir": str(panel_root)}
+        self.events.save_job(job)
+        self.events.append(job_id, "queued", {"name": name, "source": str(source_path)})
+        upload = await self.comfy.upload(source_path.read_bytes(), source_path.name)
+        panels: list[tuple[str, Path]] = []
+        try:
+            for index, (label, detail) in enumerate(bible.PANEL_SPECS):
+                job.update(status="generating", panel=label, completed_panels=index)
+                self.events.save_job(job)
+                prompt_id = await self.comfy.submit(workflows.joy_edit(upload, bible.panel_prompt(name, char_desc, attr, detail), seed + index), job_id)
+                output = await self._view(self._first_image(await self._history_until_done(prompt_id)))
+                panel_path = panel_root / f"{label}.png"
+                panel_path.parent.mkdir(parents=True, exist_ok=True)
+                panel_path.write_bytes(output)
+                panels.append((label, panel_path))
+                self.events.append(job_id, "panel_completed", {"panel": label, "prompt_id": prompt_id,
+                                                                 "path": str(panel_path)})
+            sheet = bible.compose_model_sheet(panels, self.generated_root / f"bible_{bible.safe_name(name)}.png")
+            html = bible.write_html(name, panels, self.generated_root / f"bible_{bible.safe_name(name)}.html")
+            job.update(status="completed", completed_panels=len(panels),
+                       panels=[str(path) for _, path in panels], sheet_path=str(sheet), html_path=str(html))
+            self.events.save_job(job)
+            self.events.append(job_id, "completed", {"sheet_path": str(sheet), "html_path": str(html)})
+            return job
+        except Exception as error:
+            job.update(status="failed", error=str(error))
+            self.events.save_job(job)
+            self.events.append(job_id, "failed", {"error": str(error)})
+            raise
+
+    async def bible_status(self, job_id: str) -> dict[str, Any]:
+        return await self.status(job_id)
+
+    def _source_path(self, source: str) -> Path:
+        candidate = Path(source)
+        if candidate.is_file():
+            return candidate
+        direct = self.generated_root / f"{source}.png"
+        if direct.is_file():
+            return direct
+        matches = sorted(self.generated_root.glob(f"{source}*.png"))
+        if len(matches) == 1:
+            return matches[0]
+        raise FileNotFoundError(f"character-bible source not found: {source}")
+
     async def _history_until_done(self, prompt_id: str) -> dict[str, Any]:
         for _ in range(90):
             history = await self.comfy.history(prompt_id)
@@ -85,7 +141,6 @@ class Services:
 
     @staticmethod
     def _generated_path(job_id: str, index: int) -> Path:
-        from .config import CACHE
         return CACHE / "generated" / f"{job_id}-{index}.png"
 
     @staticmethod

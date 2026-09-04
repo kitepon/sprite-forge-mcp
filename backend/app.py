@@ -35,6 +35,16 @@ async def list_loras() -> list[str]:
 
 
 @mcp.tool
+async def generate_character_bible(source: str, name: str, char_desc: str, attr: str = "", seed: int = 1) -> dict:
+    return await services.generate_character_bible(source, name, char_desc, attr, seed)
+
+
+@mcp.tool
+async def bible_status(job_id: str) -> dict:
+    return await services.bible_status(job_id)
+
+
+@mcp.tool
 async def job_status(job_id: str) -> dict:
     return await services.status(job_id)
 
@@ -65,6 +75,16 @@ async def rest_generate(prompt: str, count: int = 4, seed: int = 1,
                         lora_name: str | None = None, lora_trigger: str | None = None,
                         pose_image: str | None = None, turbo: bool = True) -> dict:
     return await services.generate_sprite(prompt, count, seed, lora_name, lora_trigger, pose_image, turbo)
+
+
+@app.post("/api/bible")
+async def rest_bible(source: str, name: str, char_desc: str, attr: str = "", seed: int = 1) -> dict:
+    return await services.generate_character_bible(source, name, char_desc, attr, seed)
+
+
+@app.get("/api/bible/{job_id}")
+async def rest_bible_status(job_id: str) -> dict:
+    return await services.bible_status(job_id)
 
 
 @app.get("/api/jobs/{job_id}")
