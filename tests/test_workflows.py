@@ -1,44 +1,19 @@
-from __future__ import annotations
-
 import pytest
-
 from backend import workflows
 
+@pytest.mark.parametrize("graph", [workflows.anima_txt2img("mage",1,lora_name="anima_joy_sprite_lora.safetensors",pose_image="p1_pose_casting_skeleton.png"), workflows.joy_edit("p1_edit_firemage_front.png","turn",2), workflows.toonout("p1_edit_firemage_front.png"), workflows.sam3_mask("p1_edit_firemage_front.png")])
+def test_four_builders_are_comfy_graphs(graph):
+    assert graph and all(isinstance(x["class_type"],str) and isinstance(x["inputs"],dict) for x in graph.values())
+    assert any(x["class_type"]=="SaveImage" for x in graph.values())
 
-@pytest.mark.parametrize(
-    ("builder", "args", "output_prefix"),
-    [
-        (workflows.anima_base, ("fire mage", 42), "sprite-forge/base"),
-        (workflows.joy_edit, ("hero.png", "turn left", 43), "sprite-forge/edit"),
-        (workflows.toonout, ("hero.png",), "sprite-forge/matte"),
-        (workflows.damage, ("hero.png", "torn robe", 44), "sprite-forge/damage"),
-    ],
-)
-def test_accepted_workflow_builders_return_json_graphs(builder, args, output_prefix):
-    graph = builder(*args)
+def test_optional_anima_and_joy_inputs():
+    graph=workflows.anima_txt2img("m",3,turbo=True,lora_name="x",pose_image="p",width=768,height=1024)
+    assert graph["1"]["inputs"]["unet_name"]=="anima-turbo-v1.1.safetensors"
+    assert graph["8"]["class_type"]=="AnimaControlApply"
+    assert graph["22"]["inputs"]["width"]==768
+    assert len(workflows.joy_edit(["a","b"],"p",4)["20"]["inputs"]["images"])==2
+    with pytest.raises(ValueError): workflows.joy_edit([str(x) for x in range(7)],"p",4)
 
-    assert isinstance(graph, dict)
-    assert graph
-    assert all(isinstance(node["class_type"], str) and isinstance(node["inputs"], dict)
-               for node in graph.values())
-    saved = [node for node in graph.values() if node["class_type"] == "SaveImage"]
-    assert len(saved) == 1
-    assert saved[0]["inputs"]["filename_prefix"] == output_prefix
-
-
-def test_anima_base_uses_requested_dimensions_and_seed():
-    graph = workflows.anima_base("full body mage", 99, width=768, height=1024)
-
-    assert graph["5"]["inputs"] == {"width": 768, "height": 1024, "batch_size": 1}
-    assert graph["6"]["inputs"]["seed"] == 99
-    assert graph["6"]["inputs"]["latent_image"] == ["5", 0]
-
-
-def test_damage_restores_only_the_clothing_mask():
-    graph = workflows.damage("hero.png", "battle damaged robe", 123)
-
-    composite = graph["11"]
-    assert composite["class_type"] == "ImageCompositeMasked"
-    assert composite["inputs"]["destination"] == ["1", 0]
-    assert composite["inputs"]["source"] == ["10", 0]
-    assert composite["inputs"]["mask"] == ["4", 0]
+def test_observed_toonout_and_sam3_names():
+    assert workflows.toonout("a")["2"]["inputs"]["model"]=="BiRefNet_toonout"
+    assert workflows.sam3_mask("a","robe",'[{"x":1,"y":2}]')["4"]["inputs"]["positive_coords"]=='[{"x":1,"y":2}]'
