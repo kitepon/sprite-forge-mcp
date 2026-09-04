@@ -5,11 +5,14 @@ import uuid
 import asyncio
 import struct
 import zlib
+import re
 from pathlib import Path
 from typing import Any
 
 from . import bible
 from . import workflows
+from . import box
+from .config import BOX_LORAS, BOX_SSH
 from .comfy import Comfy
 from .config import CACHE
 from .events import EventStore
@@ -101,6 +104,42 @@ class Services:
             raise
 
     async def bible_status(self, job_id: str) -> dict[str, Any]:
+        return await self.status(job_id)
+
+    async def train_character_lora(self, bible_name: str, trigger: str = "sprite_subject", steps: int = 12) -> dict[str, Any]:
+        if not 1 <= steps <= 200:
+            raise ValueError("steps must be between 1 and 200")
+        panels = self.generated_root / f"bible_{bible.safe_name(bible_name)}_panels"
+        if not panels.is_dir():
+            raise FileNotFoundError(f"bible panels not found: {panels}")
+        job_id, stem = str(uuid.uuid4()), f"{bible.safe_name(bible_name)}_{uuid.uuid4().hex[:8]}"
+        remote_root = r"C:\sf"
+        job = {"job_id": job_id, "kind": "lora_train", "status": "queued", "bible_name": bible_name,
+               "trigger": trigger, "steps": steps, "progress": {"step": 0, "total": steps}, "lora_name": f"{stem}.safetensors"}
+        self.events.save_job(job); self.events.append(job_id, "queued", {"bible_name": bible_name, "steps": steps})
+        for image in panels.glob("*.png"):
+            image.with_suffix(".txt").write_text(f"{trigger}, character reference panel", encoding="utf-8")
+        code, output = await box.copy_tree_to_box(panels, remote_root, ssh=BOX_SSH)
+        if code: raise RuntimeError(output)
+        toml = self.generated_root / f"{job_id}-dataset.toml"
+        toml.write_text(f'[[datasets]]\nresolution = 1024\nbatch_size = 1\nenable_bucket = true\n[[datasets.subsets]]\nimage_dir = "{remote_root}\\\\{panels.name}"\ncaption_extension = ".txt"\nnum_repeats = 1\n', encoding="utf-8")
+        code, output = await box.copy_to_box(toml, rf"{remote_root}\{job_id}-dataset.toml", ssh=BOX_SSH)
+        if code: raise RuntimeError(output)
+        await self.comfy.client.post(f"{self.comfy.base_url}/free", json={})
+        job.update(status="running"); self.events.save_job(job); self.events.append(job_id, "running", {})
+        async for line in box.stream_training(rf"{remote_root}\{job_id}-dataset.toml", stem,
+                                              r"C:\Users\kite_\ComfyUI\ComfyUI\models\diffusion_models\anima-base-v1.0.safetensors",
+                                              r"C:\Users\kite_\ComfyUI\ComfyUI\models\text_encoders\qwen_3_06b_base.safetensors",
+                                              r"C:\Users\kite_\ComfyUI\ComfyUI\models\vae\qwen_image_vae.safetensors", steps, BOX_LORAS, ssh=BOX_SSH):
+            match = re.search(r"(?:step|Step)\s*(\d+)\s*/\s*(\d+)", line)
+            if match:
+                job["progress"] = {"step": int(match.group(1)), "total": int(match.group(2))}
+                self.events.save_job(job); self.events.append(job_id, "progress", job["progress"])
+        job.update(status="completed", progress={"step": steps, "total": steps})
+        self.events.save_job(job); self.events.append(job_id, "completed", {"lora_name": job["lora_name"]})
+        return job
+
+    async def train_status(self, job_id: str) -> dict[str, Any]:
         return await self.status(job_id)
 
     def _source_path(self, source: str) -> Path:
