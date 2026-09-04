@@ -153,6 +153,9 @@ class Services:
     async def train_status(self, job_id: str) -> dict[str, Any]:
         return await self._status(job_id, "train_status")
 
+    async def list_jobs(self) -> list[dict[str, Any]]:
+        return self.events.list_jobs()
+
     async def make_mask(self, image_id: str, prompt: str = "character", points: str | None = None) -> dict[str, Any]:
         """Produce a SAM 3.1 mask artifact for a cached image."""
         source, job_id = self._source_path(image_id), str(uuid.uuid4())

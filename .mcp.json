@@ -1,5 +1,5 @@
 {
   "mcpServers": {
-    "sprite-forge": { "type": "http", "url": "http://127.0.0.1:8765/mcp/" }
+    "sprite-forge": { "type": "http", "url": "http://192.168.1.2:8766/mcp/" }
   }
 }

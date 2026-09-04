@@ -65,3 +65,14 @@ class EventStore:
     def load_job(self, job_id: str) -> dict[str, Any] | None:
         path = self.jobs_path / f"{job_id}.json"
         return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+    def list_jobs(self) -> list[dict[str, Any]]:
+        if not self.jobs_path.exists():
+            return []
+        jobs: list[dict[str, Any]] = []
+        for path in sorted(self.jobs_path.glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True):
+            try:
+                jobs.append(json.loads(path.read_text(encoding="utf-8")))
+            except (json.JSONDecodeError, OSError):
+                continue
+        return jobs

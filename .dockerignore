@@ -1,0 +1,13 @@
+.git
+.github
+.lattice
+.team
+.cache
+.venv
+__pycache__
+*.pyc
+evidence
+tests
+docs
+rag
+design

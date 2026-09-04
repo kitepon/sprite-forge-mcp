@@ -14,8 +14,9 @@ Claude Code ── /mcp/ ───────────┘                   
 
 ## 配置と責務
 
-- メインサーバーは `compose.yaml` の `sprite-forge` 一サービスを `:8765` に公開する。
-  `.cache`、SSH 鍵、`.env` は volume として渡す。
+- メインサーバーは `compose.yaml` の `sprite-forge` 一サービスを
+  `192.168.1.2:8766` に公開する（`:8765` は既存の `ip-mcp` が使用中）。
+  `.cache` と SSH 鍵は volume、ComfyUI/fox 接続先は環境変数として渡す。
 - `backend/app.py` は同じ `Services` インスタンスを REST と FastMCP に投影する。
   重複したビジネスロジックは置かない。
 - `backend/comfy.py` は ComfyUI の HTTP (`/system_stats`, `/prompt`, `/history`,
@@ -32,5 +33,7 @@ REST は `GET /api/gpu`, `POST /api/base`, `GET /api/jobs/{job_id}`、MCP は
 `gpu_status`, `generate_base`, `job_status` である。いずれも `Services` を呼び、
 base ジョブは UUID を発行して queued/submitted のイベントを記録する。
 
-WebUI はビルドなしの `web/` ESM で、作業台・設定画・LoRA・過程・記録を hash route
-で表示する。旧 rpgdev 連携、採用画面、採用ゲートはこの構造に存在しない。
+WebUI は FastAPI が配信するビルドなしの `web/` ESM で、作業台・設定画・LoRA・過程・
+記録を hash route で表示する。記録画面は `GET /api/jobs` から永続 volume 内の
+Bot/WebUI 共通ジョブを読み、詳細を辿れる。旧 rpgdev 連携、採用画面、採用ゲートは
+この構造に存在しない。

@@ -21,6 +21,7 @@ def test_events_are_per_job_sequenced_and_persisted(tmp_path):
     assert path.name == "job-a.json"
     assert store.load_job("job-a") == {"job_id": "job-a", "status": "submitted"}
     assert store.load_job("missing") is None
+    assert store.list_jobs() == [{"job_id": "job-a", "status": "submitted"}]
 
 
 def test_events_skip_malformed_ndjson_records(tmp_path):
