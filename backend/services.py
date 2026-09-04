@@ -356,7 +356,7 @@ class Services:
                                               r"C:\Users\kite_\ComfyUI\ComfyUI\models\vae\qwen_image_vae.safetensors", steps, BOX_LORAS, ssh=BOX_SSH):
             log.write(line.rstrip() + "\n"); log.flush()
             # sd-scripts prints tqdm: "steps:  12%|█▏  | 144/1200 [02:01<14:50,  1.19it/s, ...]"
-            match = re.search(r"(?:step|Step)s?\D{0,20}?(\d+)\s*/\s*(\d+)", line)
+            match = re.search(r"\b(\d+)/(\d+) \[", line) or re.search(r"(?:step|Step)\s*(\d+)\s*/\s*(\d+)", line)
             if match and int(match.group(1)) != job["progress"]["step"]:
                 job["progress"] = {"step": int(match.group(1)), "total": int(match.group(2))}
                 self.events.save_job(job); self.events.append(job_id, "progress", job["progress"])

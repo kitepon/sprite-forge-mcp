@@ -33,8 +33,9 @@ def test_training_copies_panels_streams_progress_and_persists_job(tmp_path, monk
         return 0, ""
 
     async def lines(*args, **kwargs):
-        yield "step 1/3\n"
-        yield "step 3/3\n"
+        yield "steps:  33%|###       | 1/3 [00:01<00:02,  1.24it/s, avr_loss=0.2]"
+        yield "some other trainer chatter"
+        yield "steps: 100%|##########| 3/3 [00:03<00:00,  1.24it/s, avr_loss=0.1]"
 
     monkeypatch.setattr(box, "copy_tree_to_box", copied)
     monkeypatch.setattr(box, "copy_to_box", copied_file)
@@ -45,6 +46,8 @@ def test_training_copies_panels_streams_progress_and_persists_job(tmp_path, monk
     assert result["status"] == "completed"
     assert result["progress"] == {"step": 3, "total": 3}
     assert result["lora_name"].endswith(".safetensors")
+    assert (tmp_path / "generated" / f"{result['job_id']}-train.log").read_text(encoding="utf-8").count("\n") == 3
+    assert [e["payload"] for e in events.read(result["job_id"]) if e["kind"] == "progress"] == [{"step": 1, "total": 3}, {"step": 3, "total": 3}]
     assert [event["kind"] for event in events.read(result["job_id"])] == [
         "tool_called", "queued", "running", "progress", "progress", "completed"
     ]
