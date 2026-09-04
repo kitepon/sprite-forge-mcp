@@ -210,13 +210,17 @@ class Services:
             if panel_root.exists():
                 shutil.rmtree(panel_root)
             panels: list[tuple[str, Path]] = []
+            overrides = record.get("panel_overrides", {})
             for index, panel in enumerate(bible.PANELS):
                 job.update(status="generating panels", panel=panel.key, completed_panels=index)
                 self.events.save_job(job)
                 width, height = bible.size(panel)
+                fix = overrides.get(panel.key, {})  # a correction made with redraw_panel sticks for the next sheet
+                spec = panel._replace(tags=fix["tags"]) if fix.get("tags") else panel
+                negative = ", ".join(part for part in (bible.NEGATIVE, fix.get("avoid", "")) if part)
                 content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
-                    bible.panel_prompt(panel, trigger, char_desc), seed + index, turbo=turbo, lora_name=lora_name,
-                    negative=bible.NEGATIVE, width=width, height=height))
+                    bible.panel_prompt(spec, trigger, char_desc), fix.get("seed", seed + index), turbo=turbo, lora_name=lora_name,
+                    negative=negative, width=width, height=height))
                 panel_path = panel_root / f"{panel.key}.png"
                 panel_path.parent.mkdir(parents=True, exist_ok=True)
                 panel_path.write_bytes(bible.crop_nonwhite(content))
@@ -379,6 +383,8 @@ class Services:
         anchor = Path(info["source"])
         sheet = bible.compose_model_sheet(name, info.get("attr", ""), panels, anchor, self.generated_root / f"bible_{key}.png")
         html = bible.write_html(name, info.get("attr", ""), panels, anchor, self.generated_root / f"bible_{key}.html")
+        record.setdefault("panel_overrides", {})[panel] = {"tags": tags, "avoid": avoid, "seed": seed}
+        self._save_character(record)
         job.update(status="completed", path=str(panel_path), previous=str(previous) if previous.exists() else None,
                    sheet_path=str(sheet), html_path=str(html), elapsed_s=elapsed)
         self.events.save_job(job); self.events.append(job_id, "panel_completed", {"panel": panel, "path": str(panel_path), "elapsed_s": elapsed})

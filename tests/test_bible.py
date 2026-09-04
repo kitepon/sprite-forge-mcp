@@ -99,6 +99,11 @@ def test_three_stages_each_stop_for_correction(tmp_path, monkeypatch):
     redraw = run(service.redraw_panel("Bell", "cos_dress", "ball gown, floor-length dress", seed=9, avoid="frills, boots"))
     assert redraw["prompt"] == "bell, 1girl, ball gown, floor-length dress, simple background, white background"
     assert comfy.submitted[-1]["21"]["inputs"]["text"] == bible.NEGATIVE + ", frills, boots" and redraw["previous"].endswith(".png")
+    assert run(service.character_info("Bell"))["panel_overrides"] == {"cos_dress": {"tags": "ball gown, floor-length dress", "avoid": "frills, boots", "seed": 9}}
+    comfy.submitted.clear()
+    run(service.generate_character_bible("Bell", seed=1))  # the correction sticks for the next sheet
+    dress = comfy.submitted[[p.key for p in PANELS].index("cos_dress")]
+    assert dress["20"]["inputs"]["text"] == redraw["prompt"] and dress["21"]["inputs"]["text"].endswith("frills, boots") and dress["23"]["inputs"]["seed"] == 9
     picture = run(service.generate_from_bible("Bell", "waving, stage", seed=5))
     assert comfy.submitted[-1]["20"]["inputs"]["text"] == "bell, waving, stage" and picture["lora_name"] == training["lora_name"]
     assert [c["name"] for c in run(service.list_characters())] == ["Bell"]
