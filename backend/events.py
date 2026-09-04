@@ -42,6 +42,20 @@ class EventStore:
                     yield value
         return records()
 
+    def read_since(self, event_id: str | None = None) -> Iterator[dict[str, Any]]:
+        """Yield the complete log, or the records written after ``event_id``.
+
+        Event ids are opaque UUIDs, so a client can reconnect without depending
+        on the per-job sequence counter.
+        """
+        records = list(self.read())
+        if event_id is None:
+            return iter(records)
+        for index, event in enumerate(records):
+            if event.get("event_id") == event_id:
+                return iter(records[index + 1:])
+        return iter(records)
+
     def save_job(self, job: dict[str, Any]) -> Path:
         self.jobs_path.mkdir(parents=True, exist_ok=True)
         path = self.jobs_path / f"{job['job_id']}.json"
@@ -51,4 +65,3 @@ class EventStore:
     def load_job(self, job_id: str) -> dict[str, Any] | None:
         path = self.jobs_path / f"{job_id}.json"
         return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
-

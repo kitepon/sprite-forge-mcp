@@ -28,10 +28,11 @@ class Services:
         self.generated_root = generated_root or CACHE / "generated"
 
     async def gpu_status(self) -> dict[str, Any]:
+        self._record_call("gpu_status")
         return await self.comfy.stats()
 
     async def start_base(self, prompt: str, seed: int) -> dict[str, Any]:
-        return await self._start("base", workflows.anima_base(prompt, seed), {"seed": seed})
+        return await self._start("base", workflows.anima_base(prompt, seed), {"seed": seed}, "generate_base")
 
     async def generate_sprite(self, prompt: str, count: int = 4, seed: int = 1,
                               lora_name: str | None = None, lora_trigger: str | None = None,
@@ -41,6 +42,9 @@ class Services:
             raise ValueError("count must be between 1 and 8")
         job_id = str(uuid.uuid4())
         final_prompt = " ".join(part for part in (lora_trigger, prompt) if part)
+        self.events.save_job({"job_id": job_id, "kind": "sprite", "status": "running"})
+        self._record_call("generate_sprite", job_id, {"count": count, "seed": seed,
+                                                        "lora_name": lora_name, "turbo": turbo})
         candidates: list[dict[str, Any]] = []
         for index in range(count):
             source_id = await self.comfy.submit(workflows.anima_txt2img(
@@ -52,7 +56,7 @@ class Services:
             matte_id = await self.comfy.submit(workflows.toonout(uploaded), job_id)
             matte = await self._history_until_done(matte_id)
             result = await self._view(self._first_image(matte))
-            path = self._generated_path(job_id, index)
+            path = self.generated_root / f"{job_id}-{index}.png"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(result)
             measurement = self._measure_rgba_png(result)
@@ -64,6 +68,7 @@ class Services:
         return job
 
     async def list_loras(self) -> list[str]:
+        self._record_call("list_loras")
         response = await self.comfy.client.get(f"{self.comfy.base_url}/object_info")
         response.raise_for_status()
         required = response.json().get("LoraLoader", {}).get("input", {}).get("required", {})
@@ -78,6 +83,7 @@ class Services:
         job = {"job_id": job_id, "kind": "character_bible", "status": "queued", "name": name,
                "source": str(source_path), "panels_dir": str(panel_root)}
         self.events.save_job(job)
+        self._record_call("generate_character_bible", job_id, {"name": name, "seed": seed})
         self.events.append(job_id, "queued", {"name": name, "source": str(source_path)})
         upload = await self.comfy.upload(source_path.read_bytes(), source_path.name)
         panels: list[tuple[str, Path]] = []
@@ -107,7 +113,7 @@ class Services:
             raise
 
     async def bible_status(self, job_id: str) -> dict[str, Any]:
-        return await self.status(job_id)
+        return await self._status(job_id, "bible_status")
 
     async def train_character_lora(self, bible_name: str, trigger: str = "sprite_subject", steps: int = 12) -> dict[str, Any]:
         if not 1 <= steps <= 200:
@@ -119,7 +125,8 @@ class Services:
         remote_root = r"C:\sf"
         job = {"job_id": job_id, "kind": "lora_train", "status": "queued", "bible_name": bible_name,
                "trigger": trigger, "steps": steps, "progress": {"step": 0, "total": steps}, "lora_name": f"{stem}.safetensors"}
-        self.events.save_job(job); self.events.append(job_id, "queued", {"bible_name": bible_name, "steps": steps})
+        self.events.save_job(job); self._record_call("train_character_lora", job_id, {"bible_name": bible_name, "steps": steps})
+        self.events.append(job_id, "queued", {"bible_name": bible_name, "steps": steps})
         for image in panels.glob("*.png"):
             image.with_suffix(".txt").write_text(f"{trigger}, character reference panel", encoding="utf-8")
         code, output = await box.copy_tree_to_box(panels, remote_root, ssh=BOX_SSH)
@@ -144,11 +151,12 @@ class Services:
         return job
 
     async def train_status(self, job_id: str) -> dict[str, Any]:
-        return await self.status(job_id)
+        return await self._status(job_id, "train_status")
 
     async def make_mask(self, image_id: str, prompt: str = "character", points: str | None = None) -> dict[str, Any]:
         """Produce a SAM 3.1 mask artifact for a cached image."""
         source, job_id = self._source_path(image_id), str(uuid.uuid4())
+        self._record_call("make_mask", job_id, {"prompt": prompt})
         uploaded = await self.comfy.upload(source.read_bytes(), source.name)
         prompt_id = await self.comfy.submit(workflows.sam3_mask(uploaded, prompt, points), job_id)
         content = self._as_rgba_png(await self._view(self._first_image(await self._history_until_done(prompt_id))))
@@ -162,6 +170,7 @@ class Services:
                                seed: int = 1) -> dict[str, Any]:
         """Edit with JoyAI and restore base pixels outside an optional SAM mask."""
         base, job_id = self._source_path(base_id), str(uuid.uuid4())
+        self._record_call("generate_variant", job_id, {"mask_id": mask_id, "seed": seed})
         uploaded = await self.comfy.upload(base.read_bytes(), base.name)
         prompt_id = await self.comfy.submit(workflows.joy_edit(uploaded, prompt, seed), job_id)
         edited = self._as_rgba_png(await self._view(self._first_image(await self._history_until_done(prompt_id))))
@@ -177,6 +186,7 @@ class Services:
 
     async def make_transparent(self, image_id: str) -> dict[str, Any]:
         source, job_id = self._source_path(image_id), str(uuid.uuid4())
+        self._record_call("make_transparent", job_id)
         uploaded = await self.comfy.upload(source.read_bytes(), source.name)
         prompt_id = await self.comfy.submit(workflows.toonout(uploaded), job_id)
         content = self._as_rgba_png(await self._view(self._first_image(await self._history_until_done(prompt_id))))
@@ -190,6 +200,7 @@ class Services:
         if not 1 <= block <= 128 or not 0 <= posterize <= 8:
             raise ValueError("block must be 1..128 and posterize must be 0..8")
         source, job_id = self._source_path(image_id), str(uuid.uuid4())
+        self._record_call("pixelize", job_id, {"block": block, "posterize": posterize})
         content = self._pixelize_png(source.read_bytes(), block, posterize)
         path = self._write_generated(f"{job_id}-pixel.png", content)
         job = {"job_id": job_id, "kind": "pixelize", "status": "completed", "source": str(source),
@@ -337,26 +348,30 @@ class Services:
 
     async def start_edit(self, image: bytes, name: str, prompt: str, seed: int) -> dict[str, Any]:
         upload = await self.comfy.upload(image, name)
-        return await self._start("edit", workflows.joy_edit(upload, prompt, seed), {"input": upload, "seed": seed})
+        return await self._start("edit", workflows.joy_edit(upload, prompt, seed), {"input": upload, "seed": seed}, "start_edit")
 
     async def start_matte(self, image: bytes, name: str) -> dict[str, Any]:
         upload = await self.comfy.upload(image, name)
-        return await self._start("matte", workflows.toonout(upload), {"input": upload})
+        return await self._start("matte", workflows.toonout(upload), {"input": upload}, "start_matte")
 
     async def start_damage(self, image: bytes, name: str, prompt: str, seed: int) -> dict[str, Any]:
         upload = await self.comfy.upload(image, name)
-        return await self._start("damage", workflows.damage(upload, prompt, seed), {"input": upload, "seed": seed})
+        return await self._start("damage", workflows.damage(upload, prompt, seed), {"input": upload, "seed": seed}, "start_damage")
 
-    async def _start(self, kind: str, workflow: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    async def _start(self, kind: str, workflow: dict[str, Any], payload: dict[str, Any], tool: str) -> dict[str, Any]:
         job_id = str(uuid.uuid4())
         job = {"job_id": job_id, "kind": kind, "status": "queued", **payload}
-        self.events.save_job(job); self.events.append(job_id, "queued", payload)
+        self.events.save_job(job); self._record_call(tool, job_id, payload); self.events.append(job_id, "queued", payload)
         prompt_id = await self.comfy.submit(workflow, job_id)
         job.update(status="submitted", prompt_id=prompt_id)
         self.events.save_job(job); self.events.append(job_id, "submitted", {"prompt_id": prompt_id})
         return job
 
     async def status(self, job_id: str) -> dict[str, Any]:
+        return await self._status(job_id, "job_status")
+
+    async def _status(self, job_id: str, tool: str) -> dict[str, Any]:
+        self._record_call(tool, job_id)
         job = self.events.load_job(job_id)
         if not job:
             return {"job_id": job_id, "status": "unknown"}
@@ -367,3 +382,9 @@ class Services:
                 job["status"] = state.get("status_str", "completed")
                 self.events.save_job(job); self.events.append(job_id, job["status"], {"prompt_id": job["prompt_id"]})
         return job
+
+    def _record_call(self, tool: str, job_id: str | None = None, payload: dict[str, Any] | None = None) -> str:
+        """Record a public Services invocation before it performs work."""
+        invocation_id = job_id or str(uuid.uuid4())
+        self.events.append(invocation_id, "tool_called", {"tool": tool, **(payload or {})})
+        return invocation_id
