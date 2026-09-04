@@ -154,3 +154,42 @@ raw は `firemage-damaged-raw_00001_.png`、SAM マスク確認は
 
 目視では、ローブの裾と袖に焦げ・破れが入り、顔、髪、王冠、手、杖は元画像のまま保たれた。
 マスク外復元により、編集器の出力が衣装外へ及ぼす変化は残らない。
+
+## ポーズ指定（Phase 1 / p1-pose）
+
+素体比較の勝者 Mage-Flow を人物参照に、編集比較の勝者 Mage-Flow-Edit へ黒い棒人間の
+キャスティング・ランジ骨格を第2参照として渡した。Anima-Control-Pose preview-2 は
+Anima 素体を前提とする候補であり、p1-base の勝者が Mage-Flow だったため、この比較には
+適用しない。
+
+### 条件
+
+- 人物参照: `output/p1-base/mage-flow/2026090401_00001_.png` を input の
+  `p1_pose_mage_base.png` として使用（1024×1024、SHA-256
+  `200b1d8c2fc0402c08ede170a1b85985724f56670f6a9a80b5af7b4ba2b801f1`）。
+- 骨格参照: 左手を上げた杖、右腕を前へ伸ばす、両脚を開いたランジを示す
+  `p1_pose_casting_skeleton.png`（1024×1024、SHA-256
+  `b1bdc60e93e059d163dbc097cc14ea16450416786d5e7f09b15b210ed8706cef`）。
+- 編集器: `mage_flow_edit_int8_convrot.safetensors`、Qwen3-VL 4B、Mage VAE、seed
+  `2026090405`、30 steps、CFG 5、Euler/simple。人物参照を `image_1`、骨格を
+  `image_2` として `TextEncodeMageFlowEdit` へ接続した。
+
+### 結果
+
+ComfyUI workflow `44fb4042-e642-4e80-9f53-ddbbec5dc620` は成功し、14.513 秒で
+`ComfyUI/output/p1-pose/mage-flow-edit-skeleton_00001_.png` を出力した
+（1024×1024、SHA-256
+`eb22bf6a50ba5291024cc710f03b6eaf15675c8d1addbbd55c009a711a96d987`）。
+
+| 判定 | 観測 |
+| --- | --- |
+| 同一性 | 銀髪、teal/navy の外套、ブーツ、顔、金の杖は人物参照と同じまま残った。 |
+| ポーズ追従 | 右腕と両脚は骨格方向へ伸びたが、杖は縦のままで、人物自体はランジへ再構成されなかった。 |
+| 出力品質 | 黒/青の棒人間線と関節が人物の上にそのまま描かれ、通常のキャラクター画像として使えない。 |
+
+### 採用
+
+**骨格画像を Mage-Flow-Edit の第2参照へそのまま渡す方式は不採用とする。** 人物同一性は
+残る一方、骨格が制御信号ではなく描画要素として混入し、ポーズと杖の追従も不十分だった。
+Mage-Flow を素体とする現構成では、Anima-Control-Pose と同条件の比較対象はなく、今回の
+参照方式だけでは任意ポーズの受入経路を満たさない。
