@@ -1,0 +1,9 @@
+services:
+  sprite-forge:
+    build: .
+    ports: ["8765:8765"]
+    volumes:
+      - ./.cache:/app/.cache
+      - ${SPRITEFORGE_SSH_DIR:-~/.ssh}:/run/ssh:ro
+      - ${SPRITEFORGE_ENV_FILE:-./.env}:/app/.env:ro
+    command: ["uv", "run", "uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8765"]
