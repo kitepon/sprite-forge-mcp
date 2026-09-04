@@ -102,15 +102,20 @@ class Services:
             job["master_path"] = str(master_path)
             self.events.append(job_id, "master_completed", {"path": str(master_path)})
             panels: list[tuple[str, Path]] = []
+            front_upload = master_upload  # item panels reference the single front figure once it exists
             for index, panel in enumerate(bible.PANELS):
                 job.update(status="generating panels", panel=panel.key, completed_panels=index)
                 self.events.save_job(job)
+                reference = front_upload if panel.kind == "item" else master_upload
                 content = await self._run_edit(job_id, workflows.joy_edit(
-                    master_upload, bible.instruction(panel, possessive), seed + 100 + index,
+                    reference, bible.instruction(panel, possessive), seed + 100 + index,
                     negative=bible.negative(panel), size=bible.size(panel)))
                 panel_path = panel_root / f"{panel.key}.png"
                 panel_path.parent.mkdir(parents=True, exist_ok=True)
-                panel_path.write_bytes(bible.crop_nonwhite(content))
+                cropped = bible.crop_nonwhite(content)
+                panel_path.write_bytes(cropped)
+                if panel.key == "turn_front":
+                    front_upload = await self.comfy.upload(cropped, f"sf_bible_front_{key}.png")
                 panels.append((panel.key, panel_path))
                 self.events.append(job_id, "panel_completed", {"panel": panel.key, "path": str(panel_path)})
             sheet = bible.compose_model_sheet(name, attr, panels, master_path, self.generated_root / f"bible_{key}.png")

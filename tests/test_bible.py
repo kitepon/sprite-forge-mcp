@@ -66,6 +66,8 @@ def test_bible_generates_all_panels_model_sheet_and_embedded_html(tmp_path):
     assert master["22"]["inputs"] == {"width": 1280, "height": 1024, "batch_size": 1}
     assert first_panel["10"]["inputs"]["image"] == "sf_bible_master_ember_mage.png"
     assert first_panel["21"]["inputs"]["prompt"] == bible.NEG
+    item_index = next(i for i, panel in enumerate(PANELS) if panel.kind == "item")
+    assert comfy.submitted[1 + item_index]["10"]["inputs"]["image"] == "sf_bible_front_ember_mage.png"
 
 
 def test_bible_prompt_uses_description_pronouns_not_fixed_her():

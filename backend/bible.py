@@ -59,7 +59,7 @@ PANELS: tuple[Panel, ...] = (
     Panel("cos_dress", "ALTERNATE COSTUMES", "FORMAL", "full", "wearing a completely different outfit: a floor-length elegant evening ball gown with long skirt and gloves, a formal party dress instead of {p} usual costume, standing"),
     Panel("chibi_big", "CHIBI / SD", "CHIBI", "chibi", "exactly ONE chibi super-deformed version of that character: two heads tall, huge oversized head, tiny stubby body and limbs, big sparkling eyes, cute mascot proportions, a single figure alone"),
     Panel("chibi_multi", "CHIBI / SD", "POSES", "chibi", "a row of three chibi super-deformed versions of that character in different cute poses (waving, jumping, sitting), each two heads tall with a huge head and tiny body"),
-    Panel("item_head", "WARDROBE / ITEMS", "HEADWEAR", "item", "the hair accessories and headwear (clips, ribbons, tiara or hat) worn by the character, drawn as small isolated objects like a jewelry product shot"),
+    Panel("item_head", "WARDROBE / ITEMS", "HEADWEAR", "item", "the hair accessories and headwear (hair clips, ribbons, tiara or hat) worn by the character, drawn close-up as small isolated jewelry objects floating on white, no head, no hair"),
     Panel("item_outfit", "WARDROBE / ITEMS", "OUTFIT", "item", "the outfit garments worn by the character, laid out flat like a clothing catalog (empty top, skirt, sleeves, gloves), flat lay of empty clothes"),
     Panel("item_shoes", "WARDROBE / ITEMS", "FOOTWEAR", "item", "the footwear worn by the character, drawn as an isolated pair of shoes"),
 )
@@ -113,7 +113,7 @@ def instruction(panel: Panel, possessive: str) -> str:
                 "in an expressive Japanese anime style with big expressive anime eyes and clean anime cel shading, "
                 "single face, head and shoulders, plain white background, high detail")
     if panel.kind == "item":
-        return (f"Product illustration of ONLY {suffix} in this character reference sheet: no person, no body, no face, "
+        return (f"Product illustration of ONLY {suffix} in image 1: no person, no body, no face, "
                 "no character, objects only, centered on plain white background, high detail")
     if panel.kind == "chibi":
         return f"{head} draw {suffix}, keep {possessive} exact colors and outfit, plain white background, high detail"
