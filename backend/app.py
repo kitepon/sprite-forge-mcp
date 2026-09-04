@@ -5,9 +5,11 @@ import asyncio
 import json
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from fastmcp import FastMCP
 from fastmcp.utilities.lifespan import combine_lifespans
 
@@ -31,6 +33,7 @@ for name, function in (
     ("make_transparent", services.make_transparent),
     ("pixelize", services.pixelize),
     ("job_status", services.status),
+    ("list_jobs", services.list_jobs),
 ):
     mcp.tool(function, name=name)
 
@@ -59,6 +62,7 @@ for path, methods, function in (
     ("/api/variant", ["POST"], services.generate_variant),
     ("/api/transparent", ["POST"], services.make_transparent),
     ("/api/pixelize", ["POST"], services.pixelize),
+    ("/api/jobs", ["GET"], services.list_jobs),
     ("/api/jobs/{job_id}", ["GET"], services.status),
 ):
     app.add_api_route(path, function, methods=methods)
@@ -83,3 +87,4 @@ async def rest_events(since: str | None = None) -> StreamingResponse:
 
 
 app.mount("/mcp", mcp_app)
+app.mount("/", StaticFiles(directory=Path(__file__).resolve().parents[1] / "web", html=True), name="web")

@@ -89,8 +89,22 @@ function process(root) {
 
 function records(root) {
   const list = element("div", { class: "records" });
-  if (!state.records.length) list.append(element("p", { class: "muted" }, "生成・設定画・LoRA の記録はまだありません。"));
-  else state.records.forEach((item) => { const detail = element("small", { hidden: "hidden" }, `${new Date(item.at).toLocaleString("ja-JP")} · ${item.detail}`); list.append(element("article", {}, element("strong", {}, item.kind), element("span", {}, item.title), element("button", { class: "quiet", onclick: () => detail.removeAttribute("hidden") }, "詳細"), detail)); });
+  const draw = (items) => {
+    list.replaceChildren();
+    if (!items.length) return list.append(element("p", { class: "muted" }, "生成・設定画・LoRA の記録はまだありません。"));
+    items.forEach((item) => {
+      const kind = item.kind || "job";
+      const title = item.title || item.name || item.bible_name || item.job_id;
+      const value = item.detail || `${item.status || "unknown"} · ${item.lora_name || item.sheet_path || item.candidates?.[0]?.path || item.job_id}`;
+      const detail = element("small", { hidden: "hidden" }, value);
+      list.append(element("article", {}, element("strong", {}, kind), element("span", {}, title), element("button", { class: "quiet", onclick: () => detail.removeAttribute("hidden") }, "詳細"), detail));
+    });
+  };
+  draw(state.records);
+  API.jobs().then((jobs) => {
+    const localIds = new Set(state.records.map((item) => item.id));
+    draw([...jobs.filter((job) => !localIds.has(job.job_id)), ...state.records]);
+  }).catch((error) => notice(`サーバー記録を取得できません: ${error.message}`, true));
   root.replaceChildren(element("header", { class: "page-head" }, element("h1", {}, "記録"), element("p", {}, "過去の生成、設定画、LoRA を端末ごとに辿れます。")), card("履歴", list));
 }
 

@@ -1,9 +1,18 @@
 services:
   sprite-forge:
     build: .
-    ports: ["8765:8765"]
+    restart: unless-stopped
+    ports: ["192.168.1.2:8766:8765"]
+    environment:
+      SPRITEFORGE_CACHE: /app/.cache
+      SPRITEFORGE_COMFY_URL: ${SPRITEFORGE_COMFY_URL:-http://192.168.1.11:8188}
+      SPRITEFORGE_BOX_SSH: ${SPRITEFORGE_BOX_SSH:-fox}
     volumes:
       - ./.cache:/app/.cache
-      - ${SPRITEFORGE_SSH_DIR:-~/.ssh}:/run/ssh:ro
-      - ${SPRITEFORGE_ENV_FILE:-./.env}:/app/.env:ro
-    command: ["uv", "run", "uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8765"]
+      - ${SPRITEFORGE_SSH_DIR:-/home/kite/.ssh}:/root/.ssh:ro
+    command: ["/app/.venv/bin/uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8765"]
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/', timeout=5)"]
+      interval: 10s
+      timeout: 6s
+      retries: 6
