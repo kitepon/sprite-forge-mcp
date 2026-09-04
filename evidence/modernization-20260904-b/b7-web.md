@@ -8,10 +8,11 @@ LoRA calls `POST /api/lora`; process subscribes to `GET /api/events`; and record
 retain each resulting job id.  The old per-job SSE URL was removed in favour of
 the b6 append-only event stream.
 
-## Browser verification
+## Playwright verification
 
-`python3 -m http.server 8767 --bind 127.0.0.1` served `web/`.  Headless Chrome
-loaded each hash route at 1280×900 with no console syntax error; screenshots:
+A local fixture served `web/` and b2–b6 shaped API responses on port 8767.
+Playwright 1.62.1 connected to headless Chrome and traversed all five hash routes;
+the `console` error collector returned `[]`.
 
 - `.cache/b7-screenshots/workbench.png`
 - `.cache/b7-screenshots/settings.png`
