@@ -29,6 +29,7 @@ def test_training_copies_panels_streams_progress_and_persists_job(tmp_path, monk
 
     async def copied_file(local, remote, **kwargs):
         assert local.name.endswith("dataset.toml")
+        assert 'image_dir = "C:/sf/bible_ember_panels"' in local.read_text(encoding="utf-8")
         return 0, ""
 
     async def lines(*args, **kwargs):

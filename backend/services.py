@@ -122,7 +122,8 @@ class Services:
         code, output = await box.copy_tree_to_box(panels, remote_root, ssh=BOX_SSH)
         if code: raise RuntimeError(output)
         toml = self.generated_root / f"{job_id}-dataset.toml"
-        toml.write_text(f'[[datasets]]\nresolution = 1024\nbatch_size = 1\nenable_bucket = true\n[[datasets.subsets]]\nimage_dir = "{remote_root}\\\\{panels.name}"\ncaption_extension = ".txt"\nnum_repeats = 1\n', encoding="utf-8")
+        toml_path = f"{remote_root.replace(chr(92), '/')}/{panels.name}"
+        toml.write_text(f'[[datasets]]\nresolution = 1024\nbatch_size = 1\nenable_bucket = true\n[[datasets.subsets]]\nimage_dir = "{toml_path}"\ncaption_extension = ".txt"\nnum_repeats = 1\n', encoding="utf-8")
         code, output = await box.copy_to_box(toml, rf"{remote_root}\{job_id}-dataset.toml", ssh=BOX_SSH)
         if code: raise RuntimeError(output)
         await self.comfy.client.post(f"{self.comfy.base_url}/free", json={})
