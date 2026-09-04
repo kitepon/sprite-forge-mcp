@@ -1,63 +1,36 @@
-# 03 — Architecture（1バックエンド＝2フェイス）
+# 03 — Architecture
 
-> **状態（2026-06-18）**: 実装と1点相違＝**backend / MCP / matting は box でなく Mac で稼働**（GPU機 は ComfyUI のみ）。理由＝採用先 rpgdev も Claude/Codex も Mac でローカル完結。下図の box 配置はこの点だけ読み替えること。1バックエンド2フェイス・共有 `services.py`・FastAPI＋FastMCP 同居は実装通り。最新は `CLAUDE.md`「アーキテクチャ」。
-
-## 全体像
+sprite-forge はメインサーバー上の一つの Python サービスを、人向け WebUI と
+エージェント向け MCP から利用する。画像生成・編集・透過・学習は GPU 機 fox の
+Windows ネイティブ ComfyUI／学習器だけで実行する。
 
 ```
-Mac (Claude/Codex 開発・ブラウザ)            box Windows (RTX5090 32GB)
-  │                                          ┌────────────────────────────────────┐
-  │  ブラウザ → 人間 WebUI (HTTP/SSE)        │ ComfyUI (headless / NSSM :8188)     │
-  ├──────────────────────────────────────────┤        ▲ HTTP + WebSocket           │
-  │  Claude/Codex → MCP (HTTP, LAN IP)        │ sprite-forge backend (Python)       │
-  │  http://<GPU_HOST>:<PORT>               │  ├ FastAPI: /api/* + SSE /progress  │ ← 顔A 人間UI
-  │                                          │  ├ FastMCP: /mcp ツール              │ ← 顔B エージェント
-  │                                          │  ├ 共有サービス層（生成/編集/採用）  │
-  │                                          │  │   └ ComfyUI WS client + Pillow    │
-  │                                          │  └ 静的配信: vanilla ESM + Konva SPA │
-  └───────────────────────────────────────────└────────────────────────────────────┘
-                       採用時 → rpgdev/public/assets/sprites/ へ書き出し（採用ゲート後）
+browser ── WebUI (vanilla ESM) ─┐
+                                ├─ FastAPI + FastMCP 4 ─ services ─ HTTP ─ fox:8188
+Claude Code ── /mcp/ ───────────┘                         │
+                                                         .cache/
+                                              jobs/*.json + events.ndjson
 ```
 
-## 原則
+## 配置と責務
 
-1. **1つの Python バックエンド＝2つのフェイス**。人間 WebUI（FastAPI）とエージェント MCP（FastMCP）が**同一の共有サービス層**を呼ぶ。ロジックを二重化しない＝同期ズレを防ぐ。
-2. **ComfyUI は内部詳細**。headless デーモン（NSSM サービス、`:8188`）。ユーザーはノードグラフを見ない。バックエンドが WS API（`/ws`・`/prompt`・`/history`・`/view`・`/upload`）でワークフロー JSON を投げ、進捗を購読。
-3. **静かなフォールバック禁止**（rpgdev の鉄則を継承）。失敗はエラー全文＋段階＋対象パスで明示し、非サイレントに記録する。
-4. **採用ゲートを必ず通す**。AI 出力をそのまま採用しない。bbox/canvas 一致・黒漏れ監査を通った物だけ `public/assets/sprites/` へ。
+- メインサーバーは `compose.yaml` の `sprite-forge` 一サービスを `:8765` に公開する。
+  `.cache`、SSH 鍵、`.env` は volume として渡す。
+- `backend/app.py` は同じ `Services` インスタンスを REST と FastMCP に投影する。
+  重複したビジネスロジックは置かない。
+- `backend/comfy.py` は ComfyUI の HTTP (`/system_stats`, `/prompt`, `/history`,
+  `/upload/image`) だけを扱う。WebSocket、再接続、サービス側ポーリングは持たない。
+- `backend/box.py` は `ssh fox py -3.13 C:\sf\train.py ...` と `scp` の実行境界である。
+  Windows の PowerShell 文字列やシェルスクリプトを生成しない。
+- `backend/events.py` は append-only の `.cache/events.ndjson` とジョブごとの JSON
+  を所有する。イベントには `event_id`, `job_id`, `seq`, `schema_version`, `at`,
+  `kind`, `payload` があり、WebUI は選択した一つのジョブだけを SSE で購読する。
 
-## プロセス構成
+## 実装済み API 面
 
-- 単一 `uvicorn` プロセスで FastAPI と FastMCP（`/mcp`）を同居マウント。
-- ComfyUI クライアントは startup（FastAPI lifespan）で1接続を張り共有。WS タイムアウト/ハングは指数バックオフ再接続。
-- `asyncio.Queue` でジョブを直列化（GPU は1ワークフローずつ＝実測知見の「同時常駐させない」規律）。
-- **長尺ジョブ系の MCP ツール（`generate_character_bible` / `train_style_lora` / `train_character_lora`）は必ず `async def` で定義する**（不変条件）。これらは内部で `asyncio.create_task(...)` によりバックグラウンドジョブを起動して `job_id` を即返しするため、ツールを同期 `def` にすると FastMCP がワーカースレッド（実行中ループ無し）で走らせ、`RuntimeError: no running event loop` で即死する。`generate_sprite`/`generate_variant` と同じく `async` 必須。
-- バッチ生成は seed を振って 4–6 案。進捗は候補ごとに **SSE** で並列ストリーム。
-- 生成物は box のローカル（例 `./.cache/generated/`）にキャッシュし、`GET /api/image/{id}` で配信＝ブラウザに即表示（パス探し不要）。
+REST は `GET /api/gpu`, `POST /api/base`, `GET /api/jobs/{job_id}`、MCP は
+`gpu_status`, `generate_base`, `job_status` である。いずれも `Services` を呼び、
+base ジョブは UUID を発行して queued/submitted のイベントを記録する。
 
-## HTTP / MCP 表面（同一サービスの2投影）
-
-| サービス | HTTP（人間UI） | MCP（エージェント） |
-|---|---|---|
-| 状態 | `GET /api/state`, `GET /api/gpu` | `gpu_status` |
-| 生成 | `POST /api/generate` | `generate_sprite` |
-| 差分編集 | `POST /api/variant` | `generate_variant` |
-| 注釈 | WebUI 内 Konva → `POST /api/annotation` | `annotate`（URL 返却＋待受） |
-| 透過 | `POST /api/transparent` | `make_transparent` |
-| ピクセル化 | `POST /api/pixelize` | `pixelize` |
-| 採用ゲート | `POST /api/adopt` | `adopt` / `fit_to_base` |
-| 進捗 | `GET /api/progress`（SSE） | （ツール戻り値＋ログ） |
-| 比較 | `GET /api/compare/{id}` | `compare_grid` / `inspect` |
-
-詳細仕様は [05_tool_surface.md](05_tool_surface.md)。
-
-## ネットワーク / 配置
-
-- LAN の IP 直指定（WAN 公開は不要）。`http://<GPU_HOST>:<PORT>`（既定ポートは実装時確定）。
-- ComfyUI は `0.0.0.0:8188`（同一 box 内ループバックでも可）。バックエンドは `0.0.0.0:<PORT>` で LAN 公開。
-- Claude/Codex には `http://<GPU_HOST>:<PORT>/mcp` を URL 型 MCP として登録。
-
-## フロント（vanilla ESM ＋ Konva・ビルド工程ゼロ）
-
-- rpgdev の overlay/control ページ流儀を踏襲（素の ESM、`EventSource` で SSE 購読、`fetch`）。
-- 注釈は Konva.js（ESM/CDN）。ギャラリーは素の JS グリッド。詳細は [07_webui_ux.md](07_webui_ux.md)。
+WebUI はビルドなしの `web/` ESM で、作業台・設定画・LoRA・過程・記録を hash route
+で表示する。旧 rpgdev 連携、採用画面、採用ゲートはこの構造に存在しない。
