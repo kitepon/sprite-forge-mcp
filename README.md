@@ -71,32 +71,36 @@ The backend can run on the same machine as ComfyUI or a different one (it just n
 ## The pipeline — three stages, each one stops for correction
 
 ```
-① samples        create_character → add_samples / remove_sample / set_caption → look at samples.png
-② LoRA           train_character_lora (minutes, only when asked) → preview_character (seconds, any words, any seed)
-③ bible          generate_character_bible (23 panels, ~3 min) → redraw_panel (one panel by words) → generate_from_bible
+① samples   create_character → add_samples / remove_sample / set_caption → look at samples.png
+② LoRA      train_character_lora (minutes, only when asked) → preview_character (seconds, any words, any seed)
+③ bible     generate_character_bible (23 panels, ~3 min) → redraw_panel (one panel by words) → generate_from_bible
+   styles   create_style → add_style_samples → train_style_lora   (a saved look; stack it on any character, or draw with it alone)
 ```
 
-A character is one folder (`.cache/characters/<name>/`): its sample pictures with captions, the LoRA
-trained on them, and its bible. The look is never described in words inside the product — the LoRA
-carries character and rendering style; every generation is Anima + that LoRA with content tags only.
-Nothing retrains unless you call `train_character_lora`; a correction costs seconds, not the whole run.
+A character is one folder (`.cache/characters/<name>/`): sample pictures with captions, the LoRA
+trained on them, its bible and its per-panel corrections. A style is the same thing for a look
+(`.cache/styles/<name>/`). The product never describes a style in words: LoRAs trained on pictures
+carry character and rendering style; every generation is Anima + those LoRAs with content tags only.
+Nothing retrains unless you call `train_*_lora`; a correction costs seconds, not the whole run.
 
 1. **Samples** — `create_character(name, char_desc, attr?, trigger?, lora_name?)` (`char_desc` names the
    subject: she/he/they; `lora_name` adopts an existing LoRA), `add_samples(name, images, captions?)`
-   (comma-separated paths / URLs / data URLs; captions `|`-separated, e.g. the outfit of each picture),
-   `remove_sample`, `set_caption`, `character_info`, `list_characters`.
+   (comma-separated paths / URLs / data URLs; captions `|`-separated, e.g. the outfit of each picture so
+   outfits are learned apart), `remove_sample`, `set_caption`, `character_info`, `list_characters`.
 2. **LoRA** — `train_character_lora(name, steps?)` on fox (sd-scripts, bf16), then
-   `preview_character(name, tags?, seed?, count?)` to check identity and look before spending on the sheet.
-3. **Bible** — `generate_character_bible(name, seed?)`: turnaround, leotard body reference, six expressions,
+   `preview_character(name, tags?, seed?, count?, style?)` to check identity and look before spending on the sheet.
+3. **Bible** — `generate_character_bible(name, seed?, style?)`: turnaround, leotard body reference, six expressions,
    three actions, three costumes, chibi, wardrobe items → aligned PNG sheet + self-contained HTML + panels.
    `list_bible_panels` · `redraw_panel(name, panel, tags?, seed?, avoid?)` fixes one panel (old one kept under
-   `history/`). `generate_from_bible(name, prompt)` draws new pictures of the character.
+   `history/`; the correction sticks for the next sheet). `generate_from_bible(name, prompt, style?)` draws new pictures.
+4. **Styles** — `create_style(name, note?)`, `add_style_samples(name, images, captions?)`, `train_style_lora(name, steps?)`,
+   `style_info`, `list_styles`, `delete_style`. `set_character_style(name, style, strength?)` makes a character wear a look
+   (character from picture A, look from picture B). `generate_image(prompt, style, …)` draws anything in that look alone.
 
 Also: `generate_sprite(prompt, lora_name?, pose_image?)` (Anima + ToonOut → RGBA sprites with measurements),
 `refine_image(image, prompt, lora_name, denoise?)` (img2img redraw with a LoRA), and the JoyAI reference-picture
-edits: `make_mask` (SAM 3.1) → `generate_variant`, `generate_image(prompt, style_preset | style_refs)` with style
-presets (`save_style_preset` · `list_style_presets` · `delete_style_preset`). `make_transparent` (ToonOut) and
-`pixelize` (Pillow) finish sprites. Pictures come in as a cache path, an `http(s)` URL, a `data:` URL, or the WebUI
+edit `make_mask` (SAM 3.1) → `generate_variant` (base pixels restored outside the mask). `make_transparent` (ToonOut)
+and `pixelize` (Pillow) finish sprites. Pictures come in as a cache path, an `http(s)` URL, a `data:` URL, or the WebUI
 upload (`POST /api/upload`).
 
 ## Requirements
@@ -129,10 +133,10 @@ MCP and REST call the same `Services` functions; defaults live only in those sig
 |---|---|
 | Status | `gpu_status` · `list_loras` · `list_jobs` · `job_status` |
 | Sprites | `generate_base` · `generate_sprite` · `make_transparent` · `pixelize` |
-| Character | `create_character` · `add_samples` · `remove_sample` · `set_caption` · `character_info` · `list_characters` |
+| Character | `create_character` · `add_samples` · `remove_sample` · `set_caption` · `set_character_style` · `character_info` · `list_characters` |
 | LoRA | `train_character_lora` · `train_status` · `preview_character` · `refine_image` |
 | Bible | `generate_character_bible` · `bible_status` · `list_bible_panels` · `redraw_panel` · `generate_from_bible` |
-| Style pictures | `save_style_preset` · `list_style_presets` · `delete_style_preset` · `generate_image` |
+| Style | `create_style` · `add_style_samples` · `train_style_lora` · `style_info` · `list_styles` · `delete_style` · `generate_image` |
 | Variants | `make_mask` · `generate_variant` |
 
 ## Design principles (the "scars")
