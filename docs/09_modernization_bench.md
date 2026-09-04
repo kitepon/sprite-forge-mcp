@@ -1,5 +1,8 @@
 # 近代化ベンチマーク
 
+> Phase 2 の実装前提は **Anima / JoyAI-Image-Edit-Plus / ToonOut / SAM 3.1**。
+> Mage-Flow の数値は比較履歴として残すが、公式配布取り下げにより依存には含めない。
+
 ## 素体生成（Phase 1 / p1-base）
 
 fox の ComfyUI 0.34.0（RTX 5090）で、同一の JRPG キャラクター指示を使い
