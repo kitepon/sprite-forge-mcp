@@ -106,11 +106,12 @@ function redrawCard(nameInput) {
   const panel = element("select", {});
   const tags = element("textarea", { rows: "2", placeholder: "内容の言葉（空ならそのパネルの既定。例: ball gown, floor-length dress, elbow gloves, no frills）" });
   const seed = element("input", { type: "number", value: "1", min: "0" });
+  const avoid = element("input", { placeholder: "避ける言葉（例: frills, boots）。「no ○○」は効かないのでこちらへ" });
   const out = element("div", { class: "stack" });
   API.panels().then((items) => { panel.replaceChildren(...items.map((item) => element("option", { value: item.key, "data-tags": item.tags }, `${item.section} / ${item.label}`))); tags.placeholder = panel.selectedOptions[0]?.dataset.tags || tags.placeholder; }).catch(() => {});
   panel.addEventListener("change", () => { tags.placeholder = panel.selectedOptions[0]?.dataset.tags || ""; });
-  const go = element("button", { onclick: async () => { try { out.replaceChildren(element("p", { class: "muted" }, "描き直し中…")); const job = await API.redraw(target.value || nameInput.value, panel.value, tags.value, seed.value); record("描き直し", `${job.name} / ${job.panel}`, job.path, job.job_id); out.replaceChildren(preview(job.path), element("p", { class: "muted" }, `${job.prompt} · ${job.elapsed_s}s · シート更新: ${job.sheet_path}`)); } catch (error) { notice(error.message, true); } } }, "このパネルを描き直す");
-  return card("パネルを描き直す（見て、指示して、直す）", element("div", { class: "stack" }, element("label", {}, "設定画", target), element("label", {}, "パネル", panel), element("label", {}, "言葉", tags), element("label", {}, "Seed", seed), go, out));
+  const go = element("button", { onclick: async () => { try { out.replaceChildren(element("p", { class: "muted" }, "描き直し中…")); const job = await API.redraw(target.value || nameInput.value, panel.value, tags.value, seed.value, avoid.value); record("描き直し", `${job.name} / ${job.panel}`, job.path, job.job_id); out.replaceChildren(preview(job.path), element("p", { class: "muted" }, `${job.prompt} · ${job.elapsed_s}s · シート更新: ${job.sheet_path}`)); } catch (error) { notice(error.message, true); } } }, "このパネルを描き直す");
+  return card("パネルを描き直す（見て、指示して、直す）", element("div", { class: "stack" }, element("label", {}, "設定画", target), element("label", {}, "パネル", panel), element("label", {}, "言葉", tags), element("label", {}, "避ける言葉", avoid), element("label", {}, "Seed", seed), go, out));
 }
 
 function presetCard() {

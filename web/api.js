@@ -10,7 +10,7 @@ export const API = {
   sprite: (prompt, seed) => api(`/api/generate?${new URLSearchParams({ prompt, seed, count: 1 })}`, { method: "POST" }),
   bible: (images, name, char_desc, attr, lora_name = "", captions = "") => api(`/api/bible?${new URLSearchParams({ images, name, char_desc, attr, lora_name, captions })}`, { method: "POST" }),
   panels: () => api("/api/panels"),
-  redraw: (name, panel, tags = "", seed = 1) => api(`/api/panel?${new URLSearchParams({ name, panel, tags, seed })}`, { method: "POST" }),
+  redraw: (name, panel, tags = "", seed = 1, avoid = "") => api(`/api/panel?${new URLSearchParams({ name, panel, tags, seed, avoid })}`, { method: "POST" }),
   fromBible: (name, prompt, seed = 1) => api(`/api/from-bible?${new URLSearchParams({ name, prompt, seed })}`, { method: "POST" }),
   image: (prompt, style_preset = "", style_refs = "", seed = 1) => api(`/api/image?${new URLSearchParams({ prompt, style_preset, style_refs, seed })}`, { method: "POST" }),
   presets: () => api("/api/presets"),

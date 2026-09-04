@@ -252,10 +252,12 @@ class Services:
         """The panel slots of a bible with their default content tags (what redraw_panel replaces)."""
         return [{"key": p.key, "section": p.section, "label": p.label, "kind": p.kind, "tags": p.tags} for p in bible.PANELS]
 
-    async def redraw_panel(self, name: str, panel: str, tags: str = "", seed: int = 1, turbo: bool = False) -> dict[str, Any]:
+    async def redraw_panel(self, name: str, panel: str, tags: str = "", seed: int = 1, avoid: str = "",
+                           turbo: bool = False) -> dict[str, Any]:
         """Fix one panel of a finished bible by instruction: redraw it with the same LoRA from
-        ``tags`` (content words; empty = the panel's default tags) and ``seed``, then rebuild the
-        sheet and HTML. Any panel, any words — this is the review-and-adjust step."""
+        ``tags`` (content words; empty = the panel's default tags), ``avoid`` (words the picture
+        must not contain — diffusion ignores "no X" in the prompt, so they go to the negative side)
+        and ``seed``, then rebuild the sheet and HTML. Any panel, any words — the review-and-adjust step."""
         info = self._bible_info(name)
         spec = next((p for p in bible.PANELS if p.key == panel), None)
         if spec is None:
@@ -263,13 +265,14 @@ class Services:
         job_id = str(uuid.uuid4())
         key = bible.safe_name(name)
         prompt = bible.panel_prompt(spec._replace(tags=tags) if tags else spec, info.get("trigger", ""), info.get("char_desc", ""))
+        negative = ", ".join(part for part in (bible.NEGATIVE, avoid.strip()) if part)
         job = {"job_id": job_id, "kind": "redraw_panel", "status": "queued", "name": name, "panel": panel,
-               "prompt": prompt, "seed": seed, "lora_name": info["lora_name"]}
+               "prompt": prompt, "negative": negative, "seed": seed, "lora_name": info["lora_name"]}
         self.events.save_job(job); self._record_call("redraw_panel", job_id, {"name": name, "panel": panel, "seed": seed})
         self.events.append(job_id, "queued", {"prompt": prompt})
         width, height = bible.size(spec)
         content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
-            prompt, seed, turbo=turbo, lora_name=info["lora_name"], negative=bible.NEGATIVE, width=width, height=height))
+            prompt, seed, turbo=turbo, lora_name=info["lora_name"], negative=negative, width=width, height=height))
         panel_root = Path(info["panels_dir"])
         panel_path = panel_root / f"{panel}.png"
         previous = panel_root / "history" / f"{panel}-{job_id[:8]}.png"
