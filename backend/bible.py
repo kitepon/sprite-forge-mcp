@@ -34,7 +34,7 @@ class Panel(NamedTuple):
     key: str
     section: str
     label: str
-    kind: str      # full | back | body | face | item | free
+    kind: str      # full | back | body | face | item | free | chibi
     suffix: str    # may contain {p} for the possessive pronoun
 
 
@@ -56,19 +56,22 @@ PANELS: tuple[Panel, ...] = (
     Panel("act_jump", "ACTION POSES", "JUMP", "full", "jumping in the air, dynamic pose"),
     Panel("cos_casual", "ALTERNATE COSTUMES", "CASUAL", "full", "wearing a casual hoodie and shorts, standing"),
     Panel("cos_armor", "ALTERNATE COSTUMES", "ARMOR", "full", "wearing ornate knight armor, standing"),
-    Panel("cos_dress", "ALTERNATE COSTUMES", "FORMAL", "full", "wearing an elegant formal dress, standing"),
-    Panel("chibi_big", "CHIBI / SD", "CHIBI", "free", "a cute chibi super-deformed version, big head small body, full body"),
-    Panel("chibi_multi", "CHIBI / SD", "POSES", "free", "three small chibi SD versions in different cute poses in a row"),
-    Panel("item_head", "WARDROBE / ITEMS", "HEADWEAR", "item", "the head accessory / headwear"),
-    Panel("item_outfit", "WARDROBE / ITEMS", "OUTFIT", "item", "the main outfit garments"),
-    Panel("item_shoes", "WARDROBE / ITEMS", "FOOTWEAR", "item", "the footwear / boots"),
+    Panel("cos_dress", "ALTERNATE COSTUMES", "FORMAL", "full", "wearing a completely different outfit: a floor-length elegant evening ball gown with long skirt and gloves, a formal party dress instead of {p} usual costume, standing"),
+    Panel("chibi_big", "CHIBI / SD", "CHIBI", "chibi", "exactly ONE chibi super-deformed version of that character: two heads tall, huge oversized head, tiny stubby body and limbs, big sparkling eyes, cute mascot proportions, a single figure alone"),
+    Panel("chibi_multi", "CHIBI / SD", "POSES", "chibi", "a row of three chibi super-deformed versions of that character in different cute poses (waving, jumping, sitting), each two heads tall with a huge head and tiny body"),
+    Panel("item_head", "WARDROBE / ITEMS", "HEADWEAR", "item", "the hair accessories and headwear (clips, ribbons, tiara or hat) worn by the character, drawn as small isolated objects like a jewelry product shot"),
+    Panel("item_outfit", "WARDROBE / ITEMS", "OUTFIT", "item", "the outfit garments worn by the character, laid out flat like a clothing catalog (empty top, skirt, sleeves, gloves), flat lay of empty clothes"),
+    Panel("item_shoes", "WARDROBE / ITEMS", "FOOTWEAR", "item", "the footwear worn by the character, drawn as an isolated pair of shoes"),
 )
 
 # Panels reference the master SHEET, so always forbid reproducing the sheet layout.
 NEG = "reference sheet, multiple views, grid, collage, multiple characters, extra people, text, watermark, lowres"
 NEG_BACK = NEG + ", face, facing viewer, front view, eyes, looking at viewer, frontal"
+NEG_ITEM = NEG + ", girl, person, character, body, face, head, hair, legs, arms, wearing, mannequin"
+NEG_CHIBI = "reference sheet, grid, collage, extra people, realistic proportions, tall, full-size body, text, watermark, lowres"
+NEG_DRESS = NEG + ", idol costume, stage costume, short skirt, frills, crop top"
 SIZES = {"full": (832, 1216), "back": (832, 1216), "body": (832, 1216),
-         "face": (1024, 1024), "item": (1024, 1024), "free": (1024, 1024)}
+         "face": (1024, 1024), "item": (1024, 1024), "free": (1024, 1024), "chibi": (1024, 1024)}
 
 SECTIONS = (
     ("TURNAROUND", ("turn_front", "turn_34", "turn_side", "turn_back"), 440, True, (40, 2000)),
@@ -110,8 +113,10 @@ def instruction(panel: Panel, possessive: str) -> str:
                 "in an expressive Japanese anime style with big expressive anime eyes and clean anime cel shading, "
                 "single face, head and shoulders, plain white background, high detail")
     if panel.kind == "item":
-        return (f"{head} draw ONLY {suffix} of that character as a single isolated object, no person, no body, "
-                "centered on plain white background, high detail")
+        return (f"Product illustration of ONLY {suffix} in this character reference sheet: no person, no body, no face, "
+                "no character, objects only, centered on plain white background, high detail")
+    if panel.kind == "chibi":
+        return f"{head} draw {suffix}, keep {possessive} exact colors and outfit, plain white background, high detail"
     if panel.kind == "free":
         return f"{head} draw {suffix} of that character, keep {possessive} exact colors, plain white background, high detail"
     return (f"{head} redraw ONLY that character as a SINGLE full-body figure {suffix}, "
@@ -120,7 +125,15 @@ def instruction(panel: Panel, possessive: str) -> str:
 
 
 def negative(panel: Panel) -> str:
-    return NEG_BACK if panel.kind == "back" or "rear" in panel.suffix else NEG
+    if panel.kind == "back" or "rear" in panel.suffix:
+        return NEG_BACK
+    if panel.kind == "item":
+        return NEG_ITEM
+    if panel.kind == "chibi":
+        return NEG_CHIBI
+    if panel.key == "cos_dress":
+        return NEG_DRESS
+    return NEG
 
 
 def size(panel: Panel) -> tuple[int, int]:

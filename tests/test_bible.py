@@ -74,4 +74,8 @@ def test_bible_prompt_uses_description_pronouns_not_fixed_her():
     assert "with his back fully toward the viewer" in prompt and "her" not in prompt.split()
     assert bible.negative(back) == bible.NEG_BACK
     assert "close-up headshot" in instruction(next(p for p in PANELS if p.kind == "face"), "their")
-    assert "no person, no body" in instruction(next(p for p in PANELS if p.kind == "item"), "their")
+    item = next(p for p in PANELS if p.kind == "item")
+    assert "no person, no body" in instruction(item, "their") and bible.negative(item) == bible.NEG_ITEM
+    chibi = next(p for p in PANELS if p.key == "chibi_big")
+    assert "two heads tall" in instruction(chibi, "their") and bible.negative(chibi) == bible.NEG_CHIBI
+    assert "{p}" not in instruction(next(p for p in PANELS if p.key == "cos_dress"), "their")
