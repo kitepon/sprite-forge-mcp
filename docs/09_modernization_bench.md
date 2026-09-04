@@ -1,5 +1,28 @@
 # 近代化ベンチマーク
 
+## 素体生成（Phase 1 / p1-base）
+
+fox の ComfyUI 0.34.0（RTX 5090）で、同一の JRPG キャラクター指示を使い
+Anima Base v1.0、Mage-Flow int8、Krea 2 raw int8 を各 4 枚ずつ比較した。
+すべて 1024×1024、seed `2026090401`–`2026090404`、正面の neutral A-pose とした。
+
+| 候補 | 平均時間 | 画質判定 | 代表画像パス |
+| --- | ---: | --- | --- |
+| Anima Base v1.0 | 6.65 秒 | 2/4 は良好だが、残る 2 枚は人物が小さ過ぎるか顔が黒く潰れた | `C:\\Users\\kite_\\ComfyUI\\ComfyUI\\output\\p1-base\\anima\\2026090401_00001_.png` |
+| Mage-Flow int8 | **3.71 秒** | **4/4** で全身・正面・銀髪・teal/navy 配色・杖・淡色背景が維持され、輪郭が最も明瞭 | `C:\\Users\\kite_\\ComfyUI\\ComfyUI\\output\\p1-base\\mage-flow\\2026090401_00001_.png` |
+| Krea 2 raw int8 | 3.96 秒 | 4/4 で線と人物外縁が軟焦点になり、小物混入・頭部の潰れもあった | `C:\\Users\\kite_\\ComfyUI\\ComfyUI\\output\\p1-base\\krea2\\2026090401_00001_.png` |
+
+各候補の残る出力は、それぞれの `p1-base/{anima,mage-flow,krea2}/`
+ディレクトリに `2026090402_00001_.png`–`2026090404_00001_.png` として保存した。
+Anima は `sd-scripts/anima_train_network.py` の学習器を p0-trainer で smoke 実証済みであり、
+Krea 2 の musubi と Mage-Flow 専用学習器は fox では未検証である。
+
+### 採用
+
+**素体生成の勝者は Mage-Flow とする。** 3候補中で平均生成時間が最短であり、4 枚すべてで
+JRPG 用の人物サイズ・指定色・全身輪郭を安定して保った。透過・編集へ渡す素体として、
+再生成率を最も低くできるためである。
+
 ## 編集・設定画（Phase 1 / p1-edit）
 
 既存の `bible_firemage` の正面素体を共通参照として、fox の ComfyUI 0.34.0
