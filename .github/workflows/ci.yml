@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  syntax:
+  test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -14,7 +14,13 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
-      - name: Python syntax check
-        run: python -m compileall backend
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install locked test dependencies
+        run: uv sync --locked --group dev
+
+      - name: Run test suite
+        run: uv run pytest
