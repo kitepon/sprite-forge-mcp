@@ -68,5 +68,24 @@ def sam3_mask(image_name: str, prompt: str = "character", points: str | None = N
     return {"1":{"class_type":"CheckpointLoaderSimple","inputs":{"ckpt_name":"sam3.1_multiplex_fp16.safetensors"}},"2":{"class_type":"CLIPTextEncode","inputs":{"text":prompt,"clip":["1",1]}},"3":{"class_type":"LoadImage","inputs":{"image":image_name}},"4":{"class_type":"SAM3_Detect","inputs":detect},"5":{"class_type":"MaskToImage","inputs":{"mask":["4",0]}},"6":{"class_type":"SaveImage","inputs":{"images":["5",0],"filename_prefix":"sprite-forge/sam3-mask"}}}
 
 
+def anima_refine(image_name: str, prompt: str, seed: int, *, lora_name: str, lora_strength: float = .8,
+                 denoise: float = .45, steps: int = 28, cfg: float = 4.0) -> Graph:
+    """Redraw an existing picture with Anima Base + a character/style LoRA (img2img).
+    The picture supplies the composition; the LoRA supplies the character and the look."""
+    return {
+        "1": {"class_type":"UNETLoader","inputs":{"unet_name":"anima-base-v1.0.safetensors","weight_dtype":"default"}},
+        "2": {"class_type":"CLIPLoader","inputs":{"clip_name":"qwen_3_06b_base.safetensors","type":"qwen_image"}},
+        "3": {"class_type":"VAELoader","inputs":{"vae_name":"qwen_image_vae.safetensors"}},
+        "4": {"class_type":"LoraLoader","inputs":{"model":["1",0],"clip":["2",0],"lora_name":lora_name,"strength_model":lora_strength,"strength_clip":lora_strength}},
+        "10":{"class_type":"LoadImage","inputs":{"image":image_name}},
+        "11":{"class_type":"VAEEncode","inputs":{"pixels":["10",0],"vae":["3",0]}},
+        "20":{"class_type":"CLIPTextEncode","inputs":{"text":prompt,"clip":["4",1]}},
+        "21":{"class_type":"CLIPTextEncode","inputs":{"text":"","clip":["4",1]}},
+        "23":{"class_type":"KSampler","inputs":{"model":["4",0],"seed":seed,"steps":steps,"cfg":cfg,"sampler_name":"euler","scheduler":"simple","positive":["20",0],"negative":["21",0],"latent_image":["11",0],"denoise":denoise}},
+        "24":{"class_type":"VAEDecode","inputs":{"samples":["23",0],"vae":["3",0]}},
+        "25":{"class_type":"SaveImage","inputs":{"images":["24",0],"filename_prefix":"sprite-forge/anima-refine"}},
+    }
+
+
 def anima_base(prompt: str, seed: int, width: int = 1024, height: int = 1024) -> Graph:
     return anima_txt2img(prompt, seed, width=width, height=height)

@@ -117,3 +117,12 @@ def test_waiting_follows_the_queue_and_fails_only_when_comfy_drops_the_prompt(tm
         assert "dropped" in str(error)
     else:
         raise AssertionError("a prompt absent from queue and history must fail")
+
+
+def test_refine_image_redraws_with_anima_and_lora(tmp_path):
+    service, comfy = make(tmp_path)
+    draft = tmp_path / "draft.png"; draft.write_bytes(png())
+    job = asyncio.run(service.refine_image(str(draft), "bell_idol, front view", "bell.safetensors", denoise=0.5))
+    assert job["status"] == "completed" and job["path"].endswith("-refine.png")
+    graph = comfy.submitted[0]
+    assert graph["1"]["inputs"]["unet_name"] == "anima-base-v1.0.safetensors" and graph["23"]["inputs"]["denoise"] == 0.5

@@ -17,3 +17,10 @@ def test_optional_anima_and_joy_inputs():
 def test_observed_toonout_and_sam3_names():
     assert workflows.toonout("a")["2"]["inputs"]["model"]=="BiRefNet_toonout"
     assert workflows.sam3_mask("a","robe",'[{"x":1,"y":2}]')["4"]["inputs"]["positive_coords"]=='[{"x":1,"y":2}]'
+
+
+def test_anima_refine_is_img2img_with_lora():
+    graph = workflows.anima_refine("draft.png", "bell_idol, waving", 3, lora_name="bell.safetensors", denoise=0.4)
+    assert graph["23"]["inputs"]["latent_image"] == ["11", 0] and graph["23"]["inputs"]["denoise"] == 0.4
+    assert graph["11"]["inputs"]["pixels"] == ["10", 0] and graph["4"]["inputs"]["lora_name"] == "bell.safetensors"
+    assert graph["20"]["inputs"]["clip"] == ["4", 1] and graph["23"]["inputs"]["model"] == ["4", 0]

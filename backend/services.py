@@ -305,20 +305,37 @@ class Services:
     async def bible_status(self, job_id: str) -> dict[str, Any]:
         return await self._status(job_id, "bible_status")
 
-    async def train_character_lora(self, bible_name: str, trigger: str = "sprite_subject", steps: int = 12) -> dict[str, Any]:
-        if not 1 <= steps <= 200:
-            raise ValueError("steps must be between 1 and 200")
-        panels = self.generated_root / f"bible_{bible.safe_name(bible_name)}_panels"
-        if not panels.is_dir():
-            raise FileNotFoundError(f"bible panels not found: {panels}")
+    async def train_character_lora(self, bible_name: str = "", trigger: str = "sprite_subject", steps: int = 1200,
+                                   images: str = "") -> dict[str, Any]:
+        """Train an Anima LoRA on fox. Material is either a bible's panels (``bible_name``) or any
+        pictures you bring (``images``: comma-separated paths / URLs / data URLs) — e.g. the
+        pictures the owner generated elsewhere, which then carry both the character and the look."""
+        if images:
+            picture_paths = [await self._resolve_image(ref.strip()) for ref in images.split(",") if ref.strip()]
+            if not picture_paths:
+                raise ValueError("images is empty")
+            bible_name = bible_name or picture_paths[0].stem
+            panels = self.generated_root / f"lora_{bible.safe_name(bible_name)}_dataset"
+            if panels.exists():
+                shutil.rmtree(panels)
+            panels.mkdir(parents=True)
+            for index, path in enumerate(picture_paths):
+                (panels / f"{index}.png").write_bytes(bible.on_white(path.read_bytes()))
+        else:
+            if not bible_name:
+                raise ValueError("give bible_name (a bible's panels) or images (pictures to learn from)")
+            panels = self.generated_root / f"bible_{bible.safe_name(bible_name)}_panels"
+            if not panels.is_dir():
+                raise FileNotFoundError(f"bible panels not found: {panels}")
         job_id, stem = str(uuid.uuid4()), f"{bible.safe_name(bible_name)}_{uuid.uuid4().hex[:8]}"
         remote_root = r"C:\sf"
         job = {"job_id": job_id, "kind": "lora_train", "status": "queued", "bible_name": bible_name,
-               "trigger": trigger, "steps": steps, "progress": {"step": 0, "total": steps}, "lora_name": f"{stem}.safetensors"}
+               "trigger": trigger, "steps": steps, "progress": {"step": 0, "total": steps}, "lora_name": f"{stem}.safetensors",
+               "dataset": str(panels), "images": len(list(panels.glob("*.png")))}
         self.events.save_job(job); self._record_call("train_character_lora", job_id, {"bible_name": bible_name, "steps": steps})
         self.events.append(job_id, "queued", {"bible_name": bible_name, "steps": steps})
         for image in panels.glob("*.png"):
-            image.with_suffix(".txt").write_text(f"{trigger}, character reference panel", encoding="utf-8")
+            image.with_suffix(".txt").write_text(trigger, encoding="utf-8")
         code, output = await box.copy_tree_to_box(panels, remote_root, ssh=BOX_SSH)
         if code: raise RuntimeError(output)
         toml = self.generated_root / f"{job_id}-dataset.toml"
@@ -338,6 +355,24 @@ class Services:
                 self.events.save_job(job); self.events.append(job_id, "progress", job["progress"])
         job.update(status="completed", progress={"step": steps, "total": steps})
         self.events.save_job(job); self.events.append(job_id, "completed", {"lora_name": job["lora_name"]})
+        return job
+
+    async def refine_image(self, image: str, prompt: str, lora_name: str, denoise: float = 0.45,
+                           lora_strength: float = 0.8, seed: int = 1) -> dict[str, Any]:
+        """Redraw a picture (e.g. a JoyAI draft or a bible panel) with Anima Base + a LoRA.
+        The draft fixes the composition; the LoRA brings the character and the look."""
+        source = await self._resolve_image(image)
+        job_id = str(uuid.uuid4())
+        job = {"job_id": job_id, "kind": "refine", "status": "queued", "source": str(source), "prompt": prompt,
+               "lora_name": lora_name, "denoise": denoise, "lora_strength": lora_strength, "seed": seed}
+        self.events.save_job(job); self._record_call("refine_image", job_id, {"lora_name": lora_name, "denoise": denoise, "seed": seed})
+        self.events.append(job_id, "queued", {"source": str(source)})
+        uploaded = await self.comfy.upload(bible.on_white(source.read_bytes()), f"sf_refine_{job_id}.png")
+        content, elapsed = await self._run_edit(job_id, workflows.anima_refine(
+            uploaded, prompt, seed, lora_name=lora_name, lora_strength=lora_strength, denoise=denoise))
+        path = self._write_generated(f"{job_id}-refine.png", content)
+        job.update(status="completed", path=str(path), elapsed_s=elapsed)
+        self.events.save_job(job); self.events.append(job_id, "image_completed", {"path": str(path), "elapsed_s": elapsed})
         return job
 
     async def train_status(self, job_id: str) -> dict[str, Any]:
