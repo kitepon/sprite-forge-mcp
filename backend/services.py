@@ -76,15 +76,21 @@ class Services:
         return list(required.get("lora_name", [[]])[0])
 
     async def generate_character_bible(self, source: str, name: str, char_desc: str,
-                                       attr: str = "", seed: int = 1) -> dict[str, Any]:
+                                       attr: str = "", seed: int = 1, style_refs: str = "") -> dict[str, Any]:
         """Master-sheet-anchored bible: one packed master edit, then one high-res panel per spec,
-        each referencing the whole master sheet (see backend/bible.py)."""
+        each referencing the whole master sheet (see backend/bible.py). ``style_refs`` is a
+        comma-separated list of up to five images whose rendering style every panel copies;
+        the product itself carries no style words."""
         source_path = self._source_path(source)
+        style_paths = [self._source_path(ref.strip()) for ref in style_refs.split(",") if ref.strip()]
+        if len(style_paths) > 5:
+            raise ValueError("style_refs accepts at most five images (JoyAI takes six references in total)")
         job_id = str(uuid.uuid4())
         key = bible.safe_name(name)
         panel_root = self.generated_root / f"bible_{key}_panels"
         job = {"job_id": job_id, "kind": "character_bible", "status": "queued", "name": name,
-               "source": str(source_path), "panels_dir": str(panel_root)}
+               "source": str(source_path), "style_refs": [str(path) for path in style_paths],
+               "panels_dir": str(panel_root)}
         self.events.save_job(job)
         self._record_call("generate_character_bible", job_id, {"name": name, "seed": seed})
         self.events.append(job_id, "queued", {"name": name, "source": str(source_path)})
@@ -93,10 +99,14 @@ class Services:
             if panel_root.exists():
                 shutil.rmtree(panel_root)  # the panel set is also LoRA material: no stale panels from an earlier run
             source_upload = await self.comfy.upload(bible.on_white(source_path.read_bytes()), f"sf_bible_src_{key}.png")
+            style_uploads = [await self.comfy.upload(bible.on_white(path.read_bytes()), f"sf_bible_style_{key}_{i}.png")
+                             for i, path in enumerate(style_paths)]
+            styled = len(style_uploads)
             job.update(status="generating master sheet")
             self.events.save_job(job)
             master = bible.on_white(await self._run_edit(job_id, workflows.joy_edit(
-                source_upload, bible.MASTER_PROMPT, seed, negative=bible.NEG_MASTER, size=bible.MASTER_SIZE)))
+                [source_upload, *style_uploads], bible.master_prompt(styled), seed,
+                negative=bible.NEG_MASTER, size=bible.MASTER_SIZE)))
             master_path = self._write_generated(f"bible_{key}_master.png", master)
             master_upload = await self.comfy.upload(master, f"sf_bible_master_{key}.png")
             job["master_path"] = str(master_path)
@@ -108,7 +118,7 @@ class Services:
                 self.events.save_job(job)
                 reference = front_upload if panel.kind == "item" else master_upload
                 content = await self._run_edit(job_id, workflows.joy_edit(
-                    reference, bible.instruction(panel, possessive), seed + 100 + index,
+                    [reference, *style_uploads], bible.instruction(panel, possessive, styled), seed + 100 + index,
                     negative=bible.negative(panel), size=bible.size(panel)))
                 panel_path = panel_root / f"{panel.key}.png"
                 panel_path.parent.mkdir(parents=True, exist_ok=True)

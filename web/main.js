@@ -51,11 +51,14 @@ function settings(root) {
   const expressions = ["通常", "笑顔", "怒り", "驚き"];
   const costume = element("input", { placeholder: "例: 紺のローブ、teal の差し色" });
   const source = element("input", { placeholder: "素体候補の画像パスまたはID" });
+  const name = element("input", { placeholder: "キャラクター名" });
+  const desc = element("input", { placeholder: "説明（代名詞を含める。例: she/her, silver twin-tail idol）" });
+  const styleRefs = element("input", { placeholder: "質感のネタ画像（パスを , 区切り、最大 5 枚）。質感はここから写す" });
   const result = element("div", { id: "bible-result", class: "muted" });
-  const save = element("button", { onclick: async () => { try { result.textContent = "生成中…"; const job = await API.bible(source.value, "Azure Mage", "silver-haired mage", costume.value); state.activeJob = job.job_id; record("設定画", "設定画を生成", job.sheet_path || job.job_id, job.job_id); result.textContent = `完成: ${job.sheet_path} / ${job.html_path}`; notice("設定画を生成しました"); } catch (error) { notice(error.message, true); } } }, "設定画を生成");
+  const save = element("button", { onclick: async () => { try { result.textContent = "生成中…"; const job = await API.bible(source.value, name.value, desc.value, costume.value, styleRefs.value); state.activeJob = job.job_id; record("設定画", "設定画を生成", job.sheet_path || job.job_id, job.job_id); result.textContent = `完成: ${job.sheet_path} / ${job.html_path}`; notice("設定画を生成しました"); } catch (error) { notice(error.message, true); } } }, "設定画を生成");
   root.replaceChildren(element("header", { class: "page-head" }, element("h1", {}, "設定画"), element("p", {}, "多方向・表情・衣装を選び、ジョブの進捗は過程画面で確認します。")),
     card("方向", element("div", { class: "chips" }, ...directions.map((name) => element("label", {}, element("input", { type: "checkbox", checked: name === "正面" }), name))), measurement({ "選択": "最大 6 方向", "モデル": "JoyAI-Image-Edit-Plus" })),
-    card("表情と衣装", element("div", { class: "stack" }, element("div", { class: "chips" }, ...expressions.map((name) => element("label", {}, element("input", { type: "checkbox" }), name))), element("label", {}, "素体", source), element("label", {}, "衣装", costume), save, result)));
+    card("表情と衣装", element("div", { class: "stack" }, element("div", { class: "chips" }, ...expressions.map((name) => element("label", {}, element("input", { type: "checkbox" }), name))), element("label", {}, "素体", source), element("label", {}, "名前", name), element("label", {}, "説明", desc), element("label", {}, "衣装", costume), element("label", {}, "質感のネタ", styleRefs), save, result)));
 }
 
 function lora(root) {

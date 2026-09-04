@@ -8,7 +8,7 @@ export async function api(path, options = {}) {
 export const API = {
   gpu: () => api("/api/gpu"),
   sprite: (prompt, seed) => api(`/api/generate?${new URLSearchParams({ prompt, seed, count: 1 })}`, { method: "POST" }),
-  bible: (source, name, char_desc, attr) => api(`/api/bible?${new URLSearchParams({ source, name, char_desc, attr })}`, { method: "POST" }),
+  bible: (source, name, char_desc, attr, style_refs = "") => api(`/api/bible?${new URLSearchParams({ source, name, char_desc, attr, style_refs })}`, { method: "POST" }),
   loras: () => api("/api/loras"),
   train: (bible_name) => api(`/api/lora?${new URLSearchParams({ bible_name })}`, { method: "POST" }),
   transparent: (image_id) => api(`/api/transparent?${new URLSearchParams({ image_id })}`, { method: "POST" }),

@@ -22,10 +22,14 @@ from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 
 MASTER_PROMPT = (
-    "Create a comprehensive character reference model sheet of this exact character on one white "
+    "Create a comprehensive character reference model sheet of the exact character in image 1 on one white "
     "sheet: full-body front view, three-quarter view, side view and back view in a row; a row of "
     "facial expressions (neutral, smile, angry, sad, surprised); two action poses; same character "
     "throughout, consistent design, plain white background, model sheet layout")
+
+
+def master_prompt(style_count: int = 0) -> str:
+    return MASTER_PROMPT + style_clause(style_count) + "."
 MASTER_SIZE = (1280, 1024)
 NEG_MASTER = "extra different characters, text, watermark, lowres"
 
@@ -59,7 +63,7 @@ PANELS: tuple[Panel, ...] = (
     Panel("cos_dress", "ALTERNATE COSTUMES", "FORMAL", "full", "wearing a completely different outfit: a floor-length elegant evening ball gown with long skirt and gloves, a formal party dress instead of {p} usual costume, standing"),
     Panel("chibi_big", "CHIBI / SD", "CHIBI", "chibi", "exactly ONE chibi super-deformed version of that character: two heads tall, huge oversized head, tiny stubby body and limbs, big sparkling eyes, cute mascot proportions, a single figure alone"),
     Panel("chibi_multi", "CHIBI / SD", "POSES", "chibi", "a row of three chibi super-deformed versions of that character in different cute poses (waving, jumping, sitting), each two heads tall with a huge head and tiny body"),
-    Panel("item_head", "WARDROBE / ITEMS", "HEADWEAR", "item", "the hair accessories and headwear (hair clips, ribbons, tiara or hat) worn by the character, drawn close-up as small isolated jewelry objects floating on white, no head, no hair"),
+    Panel("item_head", "WARDROBE / ITEMS", "HEADWEAR", "item", "the hair accessories and headwear (hair clips, ribbons, tiara or hat) worn by the character, drawn close-up as small isolated objects floating on white, no head, no hair"),
     Panel("item_outfit", "WARDROBE / ITEMS", "OUTFIT", "item", "the outfit garments worn by the character, laid out flat like a clothing catalog (empty top, skirt, sleeves, gloves), flat lay of empty clothes"),
     Panel("item_shoes", "WARDROBE / ITEMS", "FOOTWEAR", "item", "the footwear worn by the character, drawn as an isolated pair of shoes"),
 )
@@ -103,25 +107,38 @@ def possessive_pronoun(char_desc: str) -> str:
     return "their"
 
 
-def instruction(panel: Panel, possessive: str) -> str:
-    """Instruction that references the MASTER SHEET (the edit image) and asks for a single
-    isolated high-res panel of that same character."""
-    head = "Using the exact character shown in this character reference sheet,"
+def style_clause(style_count: int) -> str:
+    """The rendering style is never written into the product: it is copied from the style
+    reference images (JoyAI images 2..N) supplied with the job. No references, no clause."""
+    if style_count <= 0:
+        return ""
+    last = 1 + style_count
+    span = "image 2" if style_count == 1 else f"images 2-{last}"
+    return (f" Render it in exactly the drawing style of {span}: copy their shading, line work, "
+            "lighting, eye rendering and level of detail")
+
+
+def instruction(panel: Panel, possessive: str, style_count: int = 0) -> str:
+    """Instruction that references the MASTER SHEET (image 1) and asks for a single isolated
+    panel of that same character; the look comes from the style references."""
+    head = "Using the exact character shown in the character reference sheet in image 1,"
     suffix = panel.suffix.format(p=possessive)
+    style = style_clause(style_count)
     if panel.kind == "face":
-        return (f"{head} draw a close-up headshot of ONLY that character's face with {suffix}, "
-                "in an expressive Japanese anime style with big expressive anime eyes and clean anime cel shading, "
-                "single face, head and shoulders, plain white background, high detail")
-    if panel.kind == "item":
-        return (f"Product illustration of ONLY {suffix} in image 1: no person, no body, no face, "
-                "no character, objects only, centered on plain white background, high detail")
-    if panel.kind == "chibi":
-        return f"{head} draw {suffix}, keep {possessive} exact colors and outfit, plain white background, high detail"
-    if panel.kind == "free":
-        return f"{head} draw {suffix} of that character, keep {possessive} exact colors, plain white background, high detail"
-    return (f"{head} redraw ONLY that character as a SINGLE full-body figure {suffix}, "
-            f"one character only, isolated, centered, keep {possessive} exact face hair outfit and colors, "
-            "plain white background, high detail")
+        body = (f"{head} draw a close-up headshot of ONLY that character's face with {suffix}, "
+                "single face, head and shoulders, plain white background")
+    elif panel.kind == "item":
+        body = (f"Product illustration of ONLY {suffix} in image 1: no person, no body, no face, "
+                "no character, objects only, centered on plain white background")
+    elif panel.kind == "chibi":
+        body = f"{head} draw {suffix}, keep {possessive} exact colors and outfit, plain white background"
+    elif panel.kind == "free":
+        body = f"{head} draw {suffix} of that character, keep {possessive} exact colors, plain white background"
+    else:
+        body = (f"{head} redraw ONLY that character as a SINGLE full-body figure {suffix}, "
+                f"one character only, isolated, centered, keep {possessive} exact face hair outfit and colors, "
+                "plain white background")
+    return body + style + "."
 
 
 def negative(panel: Panel) -> str:
