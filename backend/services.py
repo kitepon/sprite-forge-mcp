@@ -23,19 +23,19 @@ from . import workflows
 from . import box
 from .config import BOX_LORAS, BOX_SSH
 from .comfy import Comfy
-from .config import CACHE, CHARACTERS, PRESETS, UPLOADS
+from .config import CACHE, CHARACTERS, STYLES, UPLOADS
 from .events import EventStore
 
 
 class Services:
     def __init__(self, comfy: Comfy | None = None, events: EventStore | None = None,
                  generated_root: Path | None = None, uploads_root: Path | None = None,
-                 presets_root: Path | None = None, characters_root: Path | None = None):
+                 characters_root: Path | None = None, styles_root: Path | None = None):
         self.comfy, self.events = comfy or Comfy(), events or EventStore()
         self.generated_root = generated_root or CACHE / "generated"
         self.uploads_root = uploads_root or UPLOADS
-        self.presets_root = presets_root or PRESETS
         self.characters_root = characters_root or CHARACTERS
+        self.styles_root = styles_root or STYLES
 
     async def gpu_status(self) -> dict[str, Any]:
         self._record_call("gpu_status")
@@ -94,22 +94,63 @@ class Services:
     def _character_dir(self, name: str) -> Path:
         return self.characters_root / bible.safe_name(name)
 
-    def _load_character(self, name: str) -> dict[str, Any]:
-        meta = self._character_dir(name) / "character.json"
+    def _style_dir(self, name: str) -> Path:
+        return self.styles_root / bible.safe_name(name)
+
+    @staticmethod
+    def _load_record(root: Path, name: str, kind: str) -> dict[str, Any]:
+        meta = root / f"{kind}.json"
         if not meta.is_file():
-            raise FileNotFoundError(f"no character named {name!r}: create_character first")
+            raise FileNotFoundError(f"no {kind} named {name!r}: create_{kind} first")
         return json.loads(meta.read_text(encoding="utf-8"))
 
-    def _save_character(self, record: dict[str, Any]) -> dict[str, Any]:
-        root = self._character_dir(record["name"])
+    @staticmethod
+    def _save_record(root: Path, record: dict[str, Any], kind: str) -> dict[str, Any]:
         root.mkdir(parents=True, exist_ok=True)
         samples = [Path(sample["path"]) for sample in record["samples"] if Path(sample["path"]).is_file()]
         if samples:
             strip = root / "samples.png"
             bible.contact_strip(samples).save(strip, "PNG")
             record["samples_sheet"] = str(strip)
-        (root / "character.json").write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        (root / f"{kind}.json").write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return record
+
+    def _load_character(self, name: str) -> dict[str, Any]:
+        return self._load_record(self._character_dir(name), name, "character")
+
+    def _save_character(self, record: dict[str, Any]) -> dict[str, Any]:
+        return self._save_record(self._character_dir(record["name"]), record, "character")
+
+    def _load_style(self, name: str) -> dict[str, Any]:
+        return self._load_record(self._style_dir(name), name, "style")
+
+    def _save_style(self, record: dict[str, Any]) -> dict[str, Any]:
+        return self._save_record(self._style_dir(record["name"]), record, "style")
+
+    async def _add_pictures(self, record: dict[str, Any], root: Path, images: str, captions: str) -> None:
+        paths = [await self._resolve_image(ref.strip()) for ref in images.split(",") if ref.strip()]
+        texts = [c.strip() for c in captions.split("|")] if captions else []
+        root.mkdir(parents=True, exist_ok=True)
+        for offset, path in enumerate(paths):
+            index = len(record["samples"])
+            target = root / f"{index:03d}.png"
+            target.write_bytes(bible.on_white(path.read_bytes()))
+            record["samples"].append({"index": index, "path": str(target), "caption": texts[offset] if offset < len(texts) else "", "origin": str(path)})
+
+    def _loras(self, record: dict[str, Any], style: str = "", style_strength: float = 0.0) -> tuple[list[tuple[str, float]], str]:
+        """The LoRA chain for a character: its own LoRA, then a style LoRA (the one named now, or
+        the one set on the character). Returns (chain, style trigger word)."""
+        chain: list[tuple[str, float]] = []
+        if record.get("lora_name"):
+            chain.append((record["lora_name"], 0.8))
+        style_name = style or record.get("style", "")
+        if style_name:
+            style_record = self._load_style(style_name)
+            if not style_record.get("lora_name"):
+                raise ValueError(f"style {style_name!r} has no LoRA yet: train_style_lora first")
+            chain.append((style_record["lora_name"], style_strength or record.get("style_strength") or 0.7))
+            return chain, style_record["trigger"]
+        return chain, ""
 
     async def create_character(self, name: str, char_desc: str, attr: str = "", trigger: str = "",
                                lora_name: str = "") -> dict[str, Any]:
@@ -126,18 +167,77 @@ class Services:
         """Add pictures (comma-separated paths / URLs / data URLs) with optional '|'-separated
         captions (what is in each picture, e.g. the outfit). Returns the record with samples.png."""
         record = self._load_character(name)
-        paths = [await self._resolve_image(ref.strip()) for ref in images.split(",") if ref.strip()]
-        texts = [c.strip() for c in captions.split("|")] if captions else []
-        root = self._character_dir(name) / "samples"
-        root.mkdir(parents=True, exist_ok=True)
-        for offset, path in enumerate(paths):
-            index = len(record["samples"])
-            target = root / f"{index:03d}.png"
-            target.write_bytes(bible.on_white(path.read_bytes()))
-            caption = texts[offset] if offset < len(texts) else ""
-            record["samples"].append({"index": index, "path": str(target), "caption": caption, "origin": str(path)})
-        self._record_call("add_samples", None, {"name": name, "added": len(paths)})
+        await self._add_pictures(record, self._character_dir(name) / "samples", images, captions)
+        self._record_call("add_samples", None, {"name": name, "images": len(record["samples"])})
         return self._save_character(record)
+
+    async def set_character_style(self, name: str, style: str = "", strength: float = 0.7) -> dict[str, Any]:
+        """Usage 2: draw this character in the look of a style (a style LoRA trained on other
+        pictures). Empty ``style`` removes it."""
+        record = self._load_character(name)
+        if style:
+            self._load_style(style)
+        record["style"], record["style_strength"] = style, strength
+        self._record_call("set_character_style", None, {"name": name, "style": style})
+        return self._save_character(record)
+
+    # ---- styles: pictures whose look becomes a style LoRA (usage 4: a saved, reusable look) ----
+    async def create_style(self, name: str, note: str = "", trigger: str = "") -> dict[str, Any]:
+        key = bible.safe_name(name)
+        record = {"name": name, "key": key, "trigger": trigger or f"{key.lower()}_style", "note": note, "samples": [],
+                  "lora_name": "", "train_job": None, "created": datetime.now(UTC).isoformat().replace("+00:00", "Z")}
+        self._record_call("create_style", None, {"name": name})
+        return self._save_style(record)
+
+    async def add_style_samples(self, name: str, images: str, captions: str = "") -> dict[str, Any]:
+        record = self._load_style(name)
+        await self._add_pictures(record, self._style_dir(name) / "samples", images, captions)
+        self._record_call("add_style_samples", None, {"name": name, "images": len(record["samples"])})
+        return self._save_style(record)
+
+    async def style_info(self, name: str) -> dict[str, Any]:
+        return self._load_style(name)
+
+    async def list_styles(self) -> list[dict[str, Any]]:
+        if not self.styles_root.is_dir():
+            return []
+        return [json.loads(m.read_text(encoding="utf-8")) for m in sorted(self.styles_root.glob("*/style.json"))]
+
+    async def delete_style(self, name: str) -> dict[str, Any]:
+        root = self._style_dir(name)
+        if not root.is_dir():
+            raise FileNotFoundError(f"no style named {name!r}")
+        shutil.rmtree(root)
+        return {"name": name, "deleted": True}
+
+    async def train_style_lora(self, name: str, steps: int = 1200) -> dict[str, Any]:
+        """Train a style LoRA on fox from the style's pictures. Its trigger word (default
+        <key>_style) is what the pictures teach; the character LoRA supplies the person."""
+        record = self._load_style(name)
+        if not record["samples"]:
+            raise ValueError(f"style {name!r} has no samples: add_style_samples first")
+        job = await self._train_lora(record, self._style_dir(name), f"style_{record['key']}", "train_style_lora", steps)
+        self._save_style(record)
+        return job
+
+    async def generate_image(self, prompt: str, style: str, width: int = 1024, height: int = 1024, seed: int = 1,
+                             strength: float = 0.8, turbo: bool = False) -> dict[str, Any]:
+        """Usage 5: a brand-new picture in a style's look only (no character LoRA)."""
+        style_record = self._load_style(style)
+        if not style_record.get("lora_name"):
+            raise ValueError(f"style {style!r} has no LoRA yet: train_style_lora first")
+        job_id = str(uuid.uuid4())
+        full_prompt = ", ".join(part for part in (style_record["trigger"], prompt) if part)
+        job = {"job_id": job_id, "kind": "image", "status": "queued", "prompt": full_prompt, "style": style,
+               "lora_name": style_record["lora_name"], "seed": seed}
+        self.events.save_job(job); self._record_call("generate_image", job_id, {"style": style, "seed": seed})
+        self.events.append(job_id, "queued", {"prompt": full_prompt})
+        content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
+            full_prompt, seed, turbo=turbo, loras=[(style_record["lora_name"], strength)], negative=bible.NEGATIVE, width=width, height=height))
+        path = self._write_generated(f"{job_id}-image.png", content)
+        job.update(status="completed", path=str(path), elapsed_s=elapsed)
+        self.events.save_job(job); self.events.append(job_id, "image_completed", {"path": str(path), "elapsed_s": elapsed})
+        return job
 
     async def remove_sample(self, name: str, index: int) -> dict[str, Any]:
         record = self._load_character(name)
@@ -169,20 +269,21 @@ class Services:
         return [json.loads(m.read_text(encoding="utf-8")) for m in sorted(self.characters_root.glob("*/character.json"))]
 
     async def preview_character(self, name: str, tags: str = "full body, standing, front view, looking at viewer",
-                                seed: int = 1, count: int = 1, turbo: bool = False) -> dict[str, Any]:
+                                seed: int = 1, count: int = 1, style: str = "", turbo: bool = False) -> dict[str, Any]:
         """Stage 2 check: a few seconds per picture with the trained LoRA. Look, then decide whether
         to retrain (fix samples / captions / steps) or go on to the bible."""
         record = self._load_character(name)
         if not record.get("lora_name"):
             raise ValueError(f"{name!r} has no LoRA yet: train_character_lora first")
+        chain, style_word = self._loras(record, style)
         job_id = str(uuid.uuid4())
-        prompt = ", ".join(part for part in (record["trigger"], bible.subject_tag(record["char_desc"]), tags, bible.COMMON) if part)
-        job = {"job_id": job_id, "kind": "preview", "status": "queued", "name": name, "prompt": prompt, "seed": seed, "lora_name": record["lora_name"]}
+        prompt = ", ".join(part for part in (record["trigger"], style_word, bible.subject_tag(record["char_desc"]), tags, bible.COMMON) if part)
+        job = {"job_id": job_id, "kind": "preview", "status": "queued", "name": name, "prompt": prompt, "seed": seed, "loras": chain}
         self.events.save_job(job); self._record_call("preview_character", job_id, {"name": name, "seed": seed, "count": count})
         pictures = []
         for offset in range(max(1, count)):
             content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
-                prompt, seed + offset, turbo=turbo, lora_name=record["lora_name"], negative=bible.NEGATIVE, width=832, height=1216))
+                prompt, seed + offset, turbo=turbo, loras=chain, negative=bible.NEGATIVE, width=832, height=1216))
             path = self._write_generated(f"{job_id}-preview-{offset}.png", content)
             pictures.append({"path": str(path), "seed": seed + offset, "elapsed_s": elapsed})
         job.update(status="completed", pictures=pictures)
@@ -190,19 +291,21 @@ class Services:
         return job
 
     async def generate_character_bible(self, name: str, seed: int = 1, turbo: bool = False,
-                                       attr: str = "") -> dict[str, Any]:
+                                       attr: str = "", style: str = "") -> dict[str, Any]:
         """Stage 3: 23 panels with the character's LoRA (about three minutes). No training happens
         here — train_character_lora is a separate, deliberate step."""
         record = self._load_character(name)
         if not record.get("lora_name"):
             raise ValueError(f"{name!r} has no LoRA yet: train_character_lora first")
-        trigger, char_desc, lora_name = record["trigger"], record["char_desc"], record["lora_name"]
+        chain, style_word = self._loras(record, style)
+        trigger = ", ".join(t for t in (record["trigger"], style_word) if t)
+        char_desc, lora_name = record["char_desc"], record["lora_name"]
         attr = attr or record.get("attr", "")
         job_id = str(uuid.uuid4())
         key = record["key"]
         panel_root = self._character_dir(name) / "bible" / "panels"
         job = {"job_id": job_id, "kind": "character_bible", "status": "queued", "name": name, "trigger": trigger,
-               "lora_name": lora_name, "panels_dir": str(panel_root)}
+               "lora_name": lora_name, "loras": chain, "style": style or record.get("style", ""), "panels_dir": str(panel_root)}
         self.events.save_job(job)
         self._record_call("generate_character_bible", job_id, {"name": name, "seed": seed, "lora_name": lora_name})
         self.events.append(job_id, "queued", {"name": name})
@@ -219,7 +322,7 @@ class Services:
                 spec = panel._replace(tags=fix["tags"]) if fix.get("tags") else panel
                 negative = ", ".join(part for part in (bible.NEGATIVE, fix.get("avoid", "")) if part)
                 content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
-                    bible.panel_prompt(spec, trigger, char_desc), fix.get("seed", seed + index), turbo=turbo, lora_name=lora_name,
+                    bible.panel_prompt(spec, trigger, char_desc), fix.get("seed", seed + index), turbo=turbo, loras=chain,
                     negative=negative, width=width, height=height))
                 panel_path = panel_root / f"{panel.key}.png"
                 panel_path.parent.mkdir(parents=True, exist_ok=True)
@@ -230,7 +333,7 @@ class Services:
             sheet = bible.compose_model_sheet(name, attr, panels, anchor, self.generated_root / f"bible_{key}.png")
             html = bible.write_html(name, attr, panels, anchor, self.generated_root / f"bible_{key}.html")
             record["bible"] = {"job_id": job_id, "sheet_path": str(sheet), "html_path": str(html), "panels_dir": str(panel_root),
-                               "attr": attr, "seed": seed, "at": datetime.now(UTC).isoformat().replace("+00:00", "Z")}
+                               "attr": attr, "seed": seed, "style": job["style"], "at": datetime.now(UTC).isoformat().replace("+00:00", "Z")}
             self._save_character(record)
             job.update(status="completed", completed_panels=len(panels), panels=[str(path) for _, path in panels],
                        sheet_path=str(sheet), html_path=str(html))
@@ -250,97 +353,25 @@ class Services:
         return content, round(time.monotonic() - started, 1)
 
     async def generate_from_bible(self, name: str, prompt: str, width: int = 1024, height: int = 1024,
-                                  seed: int = 1, turbo: bool = False) -> dict[str, Any]:
+                                  seed: int = 1, style: str = "", turbo: bool = False) -> dict[str, Any]:
         """A new picture of a character, drawn by Anima + that character's LoRA. ``prompt`` is
         content (pose, place, outfit) in Danbooru-style tags or plain words."""
         record = self._load_character(name)
         if not record.get("lora_name"):
             raise ValueError(f"{name!r} has no LoRA yet: train_character_lora first")
+        chain, style_word = self._loras(record, style)
         job_id = str(uuid.uuid4())
         job = {"job_id": job_id, "kind": "from_bible", "status": "queued", "name": name, "prompt": prompt,
-               "lora_name": record["lora_name"], "seed": seed}
+               "lora_name": record["lora_name"], "loras": chain, "seed": seed}
         self.events.save_job(job); self._record_call("generate_from_bible", job_id, {"name": name, "seed": seed})
         self.events.append(job_id, "queued", {"name": name, "prompt": prompt})
-        full_prompt = ", ".join(part for part in (record["trigger"], prompt) if part)
+        full_prompt = ", ".join(part for part in (record["trigger"], style_word, prompt) if part)
         content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
-            full_prompt, seed, turbo=turbo, lora_name=record["lora_name"], negative=bible.NEGATIVE, width=width, height=height))
+            full_prompt, seed, turbo=turbo, loras=chain, negative=bible.NEGATIVE, width=width, height=height))
         path = self._write_generated(f"{job_id}-from-bible.png", content)
         job.update(status="completed", path=str(path), elapsed_s=elapsed)
         self.events.save_job(job); self.events.append(job_id, "image_completed", {"path": str(path), "elapsed_s": elapsed})
         return job
-
-    async def generate_image(self, prompt: str, width: int = 1024, height: int = 1024, seed: int = 1,
-                             style_refs: str = "", style_preset: str = "") -> dict[str, Any]:
-        """Usage 5: a brand-new picture that borrows only the look of the style pictures."""
-        style_paths = await self._style_paths(style_preset, style_refs)
-        if not style_paths:
-            raise ValueError("generate_image needs style pictures: pass style_preset and/or style_refs")
-        job_id = str(uuid.uuid4())
-        job = {"job_id": job_id, "kind": "image", "status": "queued", "prompt": prompt,
-               "style_refs": [str(p) for p in style_paths], "style_preset": style_preset, "seed": seed}
-        self.events.save_job(job); self._record_call("generate_image", job_id, {"seed": seed})
-        self.events.append(job_id, "queued", {"prompt": prompt})
-        refs = [await self.comfy.upload(bible.on_white(p.read_bytes()), f"sf_style_{job_id}_{i}.png") for i, p in enumerate(style_paths)]
-        content, elapsed = await self._run_edit(job_id, workflows.joy_edit(
-            refs, bible.image_prompt(prompt, len(refs)), seed, negative=bible.NEG_IMAGE, size=(width, height)))
-        path = self._write_generated(f"{job_id}-image.png", content)
-        job.update(status="completed", path=str(path), elapsed_s=elapsed)
-        self.events.save_job(job); self.events.append(job_id, "image_completed", {"path": str(path), "elapsed_s": elapsed})
-        return job
-
-    # ---- style presets: bundles of pictures, nothing else ----
-    async def save_style_preset(self, name: str, images: str, note: str = "") -> dict[str, Any]:
-        """Usage 4: keep a set of style pictures under a name. ``images`` is comma-separated
-        (paths / URLs / data URLs). ``note`` is the owner's own words, stored verbatim."""
-        paths = [await self._resolve_image(ref.strip()) for ref in images.split(",") if ref.strip()]
-        if not paths:
-            raise ValueError("a style preset needs at least one picture")
-        key = bible.safe_name(name)
-        root = self.presets_root / key
-        if root.exists():
-            shutil.rmtree(root)
-        root.mkdir(parents=True)
-        stored = []
-        for index, path in enumerate(paths):
-            target = root / f"{index}.png"
-            target.write_bytes(bible.on_white(path.read_bytes()))
-            stored.append(str(target))
-        preset = {"name": name, "key": key, "images": stored, "note": note,
-                  "created": datetime.now(UTC).isoformat().replace("+00:00", "Z")}
-        (root / "preset.json").write_text(json.dumps(preset, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        self._record_call("save_style_preset", None, {"name": name, "images": len(stored)})
-        self.events.append(str(uuid.uuid4()), "preset_saved", {"name": name, "images": stored})
-        return preset
-
-    async def list_style_presets(self) -> list[dict[str, Any]]:
-        self._record_call("list_style_presets")
-        if not self.presets_root.is_dir():
-            return []
-        presets = []
-        for meta in sorted(self.presets_root.glob("*/preset.json")):
-            presets.append(json.loads(meta.read_text(encoding="utf-8")))
-        return presets
-
-    async def delete_style_preset(self, name: str) -> dict[str, Any]:
-        root = self.presets_root / bible.safe_name(name)
-        if not root.is_dir():
-            raise FileNotFoundError(f"no style preset named {name!r}")
-        shutil.rmtree(root)
-        self._record_call("delete_style_preset", None, {"name": name})
-        return {"name": name, "deleted": True}
-
-    async def _style_paths(self, style_preset: str, style_refs: str) -> list[Path]:
-        """Preset pictures first, then the individually named ones."""
-        paths: list[Path] = []
-        if style_preset:
-            meta = self.presets_root / bible.safe_name(style_preset) / "preset.json"
-            if not meta.is_file():
-                raise FileNotFoundError(f"no style preset named {style_preset!r}")
-            paths.extend(Path(p) for p in json.loads(meta.read_text(encoding="utf-8"))["images"])
-        for ref in style_refs.split(","):
-            if ref.strip():
-                paths.append(await self._resolve_image(ref.strip()))
-        return paths
 
     async def list_bible_panels(self) -> list[dict[str, str]]:
         """The panel slots of a bible with their default content tags (what redraw_panel replaces)."""
@@ -355,8 +386,9 @@ class Services:
         record = self._load_character(name)
         if not record.get("bible"):
             raise ValueError(f"{name!r} has no bible yet: generate_character_bible first")
-        info = {"trigger": record["trigger"], "char_desc": record["char_desc"], "lora_name": record["lora_name"],
-                "panels_dir": record["bible"]["panels_dir"], "attr": record["bible"].get("attr", ""),
+        chain, style_word = self._loras(record, record["bible"].get("style", ""))
+        info = {"trigger": ", ".join(t for t in (record["trigger"], style_word) if t), "char_desc": record["char_desc"],
+                "lora_name": record["lora_name"], "panels_dir": record["bible"]["panels_dir"], "attr": record["bible"].get("attr", ""),
                 "source": record.get("samples_sheet") or str(Path(record["bible"]["panels_dir"]) / "turn_front.png")}
         spec = next((p for p in bible.PANELS if p.key == panel), None)
         if spec is None:
@@ -371,7 +403,7 @@ class Services:
         self.events.append(job_id, "queued", {"prompt": prompt})
         width, height = bible.size(spec)
         content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
-            prompt, seed, turbo=turbo, lora_name=info["lora_name"], negative=negative, width=width, height=height))
+            prompt, seed, turbo=turbo, loras=chain, negative=negative, width=width, height=height))
         panel_root = Path(info["panels_dir"])
         panel_path = panel_root / f"{panel}.png"
         previous = panel_root / "history" / f"{panel}-{job_id[:8]}.png"
@@ -423,8 +455,15 @@ class Services:
         record = self._load_character(name)
         if not record["samples"]:
             raise ValueError(f"{name!r} has no samples: add_samples first")
+        job = await self._train_lora(record, self._character_dir(name), f"dataset_{record['key']}", "train_character_lora", steps)
+        self._save_character(record)
+        return job
+
+    async def _train_lora(self, record: dict[str, Any], root: Path, dataset_name: str, tool: str, steps: int = 1200) -> dict[str, Any]:
+        """Shared trainer: copy the record's samples with '<trigger>, <caption>' captions to fox and
+        run sd-scripts. Updates record[lora_name / train_job / steps]."""
         trigger = record["trigger"]
-        panels = self._character_dir(name) / f"dataset_{record['key']}"
+        panels = root / dataset_name
         if panels.exists():
             shutil.rmtree(panels)
         panels.mkdir(parents=True)
@@ -432,14 +471,13 @@ class Services:
             target = panels / f"{sample['index']:03d}.png"
             target.write_bytes(Path(sample["path"]).read_bytes())
             target.with_suffix(".txt").write_text(", ".join(t for t in (trigger, sample.get("caption", "")) if t), encoding="utf-8")
-        bible_name = name
-        job_id, stem = str(uuid.uuid4()), f"{bible.safe_name(bible_name)}_{uuid.uuid4().hex[:8]}"
+        job_id, stem = str(uuid.uuid4()), f"{record['key']}_{uuid.uuid4().hex[:8]}"
         remote_root = r"C:\sf"
-        job = {"job_id": job_id, "kind": "lora_train", "status": "queued", "bible_name": bible_name,
+        job = {"job_id": job_id, "kind": "lora_train", "status": "queued", "name": record["name"], "tool": tool,
                "trigger": trigger, "steps": steps, "progress": {"step": 0, "total": steps}, "lora_name": f"{stem}.safetensors",
-               "dataset": str(panels), "images": len(list(panels.glob("*.png")))}
-        self.events.save_job(job); self._record_call("train_character_lora", job_id, {"bible_name": bible_name, "steps": steps})
-        self.events.append(job_id, "queued", {"bible_name": bible_name, "steps": steps})
+               "dataset": str(panels), "images": len(record["samples"])}
+        self.events.save_job(job); self._record_call(tool, job_id, {"name": record["name"], "steps": steps})
+        self.events.append(job_id, "queued", {"name": record["name"], "steps": steps})
         code, output = await box.copy_tree_to_box(panels, remote_root, ssh=BOX_SSH)
         if code: raise RuntimeError(output)
         self.generated_root.mkdir(parents=True, exist_ok=True)
@@ -469,7 +507,6 @@ class Services:
         job.update(status="completed", progress={"step": steps, "total": steps})
         self.events.save_job(job); self.events.append(job_id, "completed", {"lora_name": job["lora_name"]})
         record["lora_name"], record["train_job"], record["steps"] = job["lora_name"], job_id, steps
-        self._save_character(record)
         return job
 
     async def refine_image(self, image: str, prompt: str, lora_name: str, denoise: float = 0.45,
@@ -510,16 +547,12 @@ class Services:
         return job
 
     async def generate_variant(self, base_id: str, prompt: str, mask_id: str | None = None,
-                               seed: int = 1, style_refs: str = "", style_preset: str = "") -> dict[str, Any]:
-        """Edit with JoyAI and restore base pixels outside an optional SAM mask. Style pictures,
-        when given, ride along as references 2..N and the instruction asks to copy their look."""
+                               seed: int = 1) -> dict[str, Any]:
+        """Edit with JoyAI and restore base pixels outside an optional SAM mask."""
         base, job_id = await self._resolve_image(base_id), str(uuid.uuid4())
-        style_paths = await self._style_paths(style_preset, style_refs)
         self._record_call("generate_variant", job_id, {"mask_id": mask_id, "seed": seed})
         uploaded = await self.comfy.upload(base.read_bytes(), base.name)
-        refs = [uploaded, *[await self.comfy.upload(bible.on_white(p.read_bytes()), f"sf_style_{job_id}_{i}.png") for i, p in enumerate(style_paths)]]
-        instruction = prompt + (bible.copy_style(2, len(refs)) + "." if style_paths else "")
-        prompt_id = await self.comfy.submit(workflows.joy_edit(refs, instruction, seed), job_id)
+        prompt_id = await self.comfy.submit(workflows.joy_edit(uploaded, prompt, seed), job_id)
         edited = self._as_rgba_png(await self._view(self._first_image(await self._history_until_done(prompt_id))))
         if mask_id:
             edited = self._restore_outside_mask(base.read_bytes(), edited, self._source_path(mask_id).read_bytes())

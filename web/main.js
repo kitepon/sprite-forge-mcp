@@ -25,9 +25,9 @@ function picker(placeholder, multiple = true) {
   return { node: element("div", { class: "stack" }, text, file), get value() { return text.value; } };
 }
 
-function presetSelect() {
-  const select = element("select", {}, element("option", { value: "" }, "（プリセットなし）"));
-  API.presets().then((items) => items.forEach((item) => select.append(element("option", { value: item.name }, `${item.name}（${item.images.length} 枚）`)))).catch(() => {});
+function styleSelect(withNone = true) {
+  const select = element("select", {}, withNone ? element("option", { value: "" }, "（画風なし＝キャラの LoRA だけ）") : "");
+  API.styles().then((items) => items.forEach((item) => select.append(element("option", { value: item.name }, `${item.name}（${item.samples.length} 枚${item.lora_name ? "・学習済み" : "・未学習"}）`)))).catch(() => {});
   return select;
 }
 
@@ -70,18 +70,18 @@ function workbench(root) {
 function fromBibleCard() {
   const name = element("input", { placeholder: "設定画の名前（例: Bell）" });
   const prompt = element("textarea", { rows: "2", placeholder: "描いてほしい絵（例: waving on a stage, spotlight）" });
+  const style = styleSelect();
   const out = element("div", { class: "stack" });
-  const go = element("button", { onclick: async () => { try { out.replaceChildren(element("p", { class: "muted" }, "生成中…")); const job = await API.fromBible(name.value, prompt.value); record("シートから", prompt.value, job.path, job.job_id); out.replaceChildren(preview(job.path), element("p", { class: "muted" }, `${job.path} · ${job.elapsed_s}s`)); } catch (error) { notice(error.message, true); } } }, "シートから描く");
-  return card("シートから描く", element("div", { class: "stack" }, element("label", {}, "設定画", name), element("label", {}, "指示（内容だけ。絵柄は LoRA）", prompt), go, out));
+  const go = element("button", { onclick: async () => { try { out.replaceChildren(element("p", { class: "muted" }, "生成中…")); const job = await API.fromBible(name.value, prompt.value, 1, style.value); record("シートから", prompt.value, job.path, job.job_id); out.replaceChildren(preview(job.path), element("p", { class: "muted" }, `${job.path} · ${job.elapsed_s}s`)); } catch (error) { notice(error.message, true); } } }, "キャラを描く");
+  return card("キャラを描く（設定画の LoRA）", element("div", { class: "stack" }, element("label", {}, "キャラクター", name), element("label", {}, "指示（内容だけ。絵柄は LoRA）", prompt), element("label", {}, "画風", style), go, out));
 }
 
 function imageCard() {
   const prompt = element("textarea", { rows: "2", placeholder: "描いてほしい絵（例: a small fox on a snowy street）" });
-  const preset = presetSelect();
-  const refs = picker("質感のネタ画像");
+  const style = styleSelect(false);
   const out = element("div", { class: "stack" });
-  const go = element("button", { onclick: async () => { try { out.replaceChildren(element("p", { class: "muted" }, "生成中…")); const job = await API.image(prompt.value, preset.value, refs.value); record("質感だけで", prompt.value, job.path, job.job_id); out.replaceChildren(preview(job.path), element("p", { class: "muted" }, `${job.path} · ${job.elapsed_s}s`)); } catch (error) { notice(error.message, true); } } }, "質感だけで描く");
-  return card("質感だけで描く", element("div", { class: "stack" }, element("label", {}, "指示", prompt), element("label", {}, "質感プリセット", preset), element("label", {}, "質感のネタ", refs.node), go, out));
+  const go = element("button", { onclick: async () => { try { out.replaceChildren(element("p", { class: "muted" }, "生成中…")); const job = await API.image(prompt.value, style.value); record("画風だけで", prompt.value, job.path, job.job_id); out.replaceChildren(preview(job.path), element("p", { class: "muted" }, `${job.path} · ${job.elapsed_s}s`)); } catch (error) { notice(error.message, true); } } }, "画風だけで描く");
+  return card("画風だけで描く（画風 LoRA）", element("div", { class: "stack" }, element("label", {}, "指示", prompt), element("label", {}, "画風", style), go, out));
 }
 
 function settings(root) {
@@ -97,7 +97,7 @@ function settings(root) {
           element("button", { class: "quiet", onclick: async () => { await API.setCaption(name.value, s.index, cap.value); notice("説明を保存"); } }, "保存"),
           element("button", { class: "quiet", onclick: async () => { await API.removeSample(name.value, s.index); show(); } }, "外す"));
       });
-      current.replaceChildren(element("p", { class: "muted" }, `trigger: ${c.trigger} · LoRA: ${c.lora_name || "未学習"} · 設定画: ${c.bible?.sheet_path || "未作成"}`), ...rows, c.samples_sheet ? preview(c.samples_sheet) : "");
+      current.replaceChildren(element("p", { class: "muted" }, `trigger: ${c.trigger} · LoRA: ${c.lora_name || "未学習"} · 画風: ${c.style || "なし"} · 設定画: ${c.bible?.sheet_path || "未作成"}`), ...rows, c.samples_sheet ? preview(c.samples_sheet) : "");
     } catch (error) { current.replaceChildren(element("p", { class: "muted" }, error.message)); }
   };
   name.addEventListener("change", show);
@@ -112,6 +112,8 @@ function settings(root) {
   const steps = element("input", { type: "number", value: "1200", min: "1" });
   const trainOut = element("p", { class: "muted" });
   const train = element("button", { onclick: async () => { try { trainOut.textContent = "学習中（約 15 分）…過程画面で進捗"; const job = await API.train(name.value, steps.value); state.activeJob = job.job_id; trainOut.textContent = `完了: ${job.lora_name}`; record("LoRA", name.value, job.lora_name, job.job_id); show(); } catch (error) { notice(error.message, true); } } }, "② LoRA を学習する");
+  const style = styleSelect();
+  const setStyle = element("button", { class: "quiet", onclick: async () => { try { await API.setCharacterStyle(name.value, style.value); notice(style.value ? `画風 ${style.value} を設定` : "画風を外した"); show(); } catch (error) { notice(error.message, true); } } }, "この画風をキャラに設定");
   const ptags = element("input", { value: "full body, standing, front view, looking at viewer", placeholder: "プレビューの内容" });
   const pseed = element("input", { type: "number", value: "1", min: "0" });
   const pout = element("div", { class: "stack" });
@@ -123,10 +125,10 @@ function settings(root) {
   root.replaceChildren(element("header", { class: "page-head" }, element("h1", {}, "設定画"), element("p", {}, "① サンプルを集めて直す → ② LoRA を学習してプレビューで確かめる → ③ 設定画を作り、パネルを言葉で直す。各段で止まる。")),
     card("キャラクター", element("div", { class: "stack" }, element("label", {}, "名前", name), current)),
     card("① サンプル", element("div", { class: "stack" }, element("label", {}, "説明", desc), element("label", {}, "属性", attr), create, element("label", {}, "画像", images.node), element("label", {}, "画像ごとの説明", captions), add)),
-    card("② LoRA とプレビュー", element("div", { class: "stack" }, element("label", {}, "step 数", steps), train, trainOut, element("label", {}, "プレビューの内容", ptags), element("label", {}, "Seed", pseed), prev, pout)),
+    card("② LoRA とプレビュー", element("div", { class: "stack" }, element("label", {}, "step 数", steps), train, trainOut, element("label", {}, "画風（別の画像から学習した画風 LoRA を重ねる）", style), setStyle, element("label", {}, "プレビューの内容", ptags), element("label", {}, "Seed", pseed), prev, pout)),
     card("③ 設定画", element("div", { class: "stack" }, element("label", {}, "Seed", bseed), make, bout)),
     redrawCard(name),
-    presetCard());
+    styleCard());
 }
 
 function redrawCard(nameInput) {
@@ -143,15 +145,21 @@ function redrawCard(nameInput) {
   return card("パネルを描き直す（見て、指示して、直す）", element("div", { class: "stack" }, element("label", {}, "設定画", target), element("label", {}, "パネル", panel), element("label", {}, "言葉", tags), element("label", {}, "避ける言葉", avoid), element("label", {}, "Seed", seed), go, out));
 }
 
-function presetCard() {
-  const name = element("input", { placeholder: "プリセット名" });
-  const images = picker("プリセットにする画像（複数）");
+function styleCard() {
+  // A style = pictures → a style LoRA. Usage 4 (a saved look) and the source of usages 2 and 5.
+  const name = element("input", { placeholder: "画風名" });
   const note = element("input", { placeholder: "自分用メモ（任意）" });
+  const images = picker("画風の画像（複数）");
+  const captions = element("input", { placeholder: "画像ごとの説明を | 区切りで（任意。何が写っているか）" });
+  const steps = element("input", { type: "number", value: "1200", min: "1" });
   const list = element("div", { class: "stack" });
-  const draw = () => API.presets().then((items) => list.replaceChildren(...(items.length ? items.map((item) => element("div", { class: "actions" }, element("strong", {}, item.name), element("span", { class: "muted" }, `${item.images.length} 枚 ${item.note || ""}`), element("button", { class: "quiet", onclick: async () => { await API.deletePreset(item.name); draw(); } }, "削除"))) : [element("p", { class: "muted" }, "まだありません")]))).catch(() => {});
+  const draw = () => API.styles().then((items) => list.replaceChildren(...(items.length ? items.map((item) => element("div", { class: "actions" }, element("strong", {}, item.name), element("span", { class: "muted" }, `${item.samples.length} 枚 · ${item.lora_name || "未学習"} ${item.note || ""}`), element("button", { class: "quiet", onclick: async () => { await API.deleteStyle(item.name); draw(); } }, "削除"))) : [element("p", { class: "muted" }, "まだありません")]))).catch(() => {});
   draw();
-  const save = element("button", { onclick: async () => { try { await API.savePreset(name.value, images.value, note.value); notice(`プリセット ${name.value} を保存しました`); draw(); } catch (error) { notice(error.message, true); } } }, "プリセットを保存");
-  return card("質感プリセット", element("div", { class: "stack" }, element("label", {}, "名前", name), element("label", {}, "画像", images.node), element("label", {}, "メモ", note), save, list));
+  const create = element("button", { onclick: async () => { try { await API.createStyle(name.value, note.value); notice(`画風 ${name.value} を作成`); draw(); } catch (error) { notice(error.message, true); } } }, "画風を作る");
+  const add = element("button", { onclick: async () => { try { await API.addStyleSamples(name.value, images.value, captions.value); notice("画像を追加"); draw(); } catch (error) { notice(error.message, true); } } }, "画像を追加");
+  const out = element("p", { class: "muted" });
+  const train = element("button", { onclick: async () => { try { out.textContent = "学習中（約 15 分）…"; const job = await API.trainStyle(name.value, steps.value); out.textContent = `完了: ${job.lora_name}`; draw(); } catch (error) { notice(error.message, true); } } }, "画風 LoRA を学習する");
+  return card("画風（画像から学習する画風 LoRA）", element("div", { class: "stack" }, element("label", {}, "名前", name), element("label", {}, "メモ", note), create, element("label", {}, "画像", images.node), element("label", {}, "画像ごとの説明", captions), add, element("label", {}, "step 数", steps), train, out, list));
 }
 
 function lora(root) {

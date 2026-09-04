@@ -13,5 +13,6 @@ BOX_LORAS = os.environ.get("SPRITEFORGE_BOX_LORAS", r"C:\Users\kite_\ComfyUI\Com
 UPLOADS = CACHE / "uploads"      # pictures brought in by the owner / Bots (upload, URL, base64)
 PRESETS = CACHE / "presets"      # style presets: bundles of reference pictures
 CHARACTERS = CACHE / "characters"  # one folder per character: samples, captions, LoRA, bible
+STYLES = CACHE / "styles"          # one folder per style: pictures whose look a style LoRA learns
 EVENTS_PATH = CACHE / "events.ndjson"
 JOBS_PATH = CACHE / "jobs"

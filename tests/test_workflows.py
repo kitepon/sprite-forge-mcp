@@ -24,3 +24,10 @@ def test_anima_refine_is_img2img_with_lora():
     assert graph["23"]["inputs"]["latent_image"] == ["11", 0] and graph["23"]["inputs"]["denoise"] == 0.4
     assert graph["11"]["inputs"]["pixels"] == ["10", 0] and graph["4"]["inputs"]["lora_name"] == "bell.safetensors"
     assert graph["20"]["inputs"]["clip"] == ["4", 1] and graph["23"]["inputs"]["model"] == ["4", 0]
+
+
+def test_anima_txt2img_stacks_loras_in_order():
+    graph = workflows.anima_txt2img("p", 1, loras=[("char.safetensors", 0.8), ("style.safetensors", 0.6)])
+    assert graph["4"]["inputs"]["lora_name"] == "char.safetensors" and graph["40"]["inputs"]["lora_name"] == "style.safetensors"
+    assert graph["40"]["inputs"]["model"] == ["4", 0] and graph["40"]["inputs"]["strength_model"] == 0.6
+    assert graph["23"]["inputs"]["model"] == ["40", 0] and graph["20"]["inputs"]["clip"] == ["40", 1]

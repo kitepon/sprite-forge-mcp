@@ -1,4 +1,4 @@
-"""Style presets, picture intake, and the two style-driven drawing tools."""
+"""Styles: pictures whose look becomes a style LoRA; stacked on a character or used alone."""
 from __future__ import annotations
 
 import asyncio
@@ -7,6 +7,7 @@ from io import BytesIO
 
 from PIL import Image
 
+from backend import box
 from backend.events import EventStore
 from backend.services import Services
 
@@ -20,8 +21,11 @@ def png(color: str = "#44aaff") -> bytes:
 class ComfyFixture:
     def __init__(self):
         self.submitted: list[dict] = []
+        self.base_url = "http://fox:8188"
+        class _Client:
+            async def post(self, url, json): assert url.endswith("/free")
+        self.client = _Client()
         self.drop_after: int | None = None
-        self.polls = 0
 
     async def upload(self, content, name):
         return name
@@ -31,7 +35,6 @@ class ComfyFixture:
         return f"prompt-{len(self.submitted)}"
 
     async def history(self, prompt_id):
-        self.polls += 1
         if self.drop_after is not None:
             return {}
         return {"status": {"completed": True, "status_str": "success"},
@@ -41,30 +44,72 @@ class ComfyFixture:
         return {"queue_running": [], "queue_pending": []}
 
 
-def make(tmp_path):
+def make(tmp_path, monkeypatch):
+    async def copied(local, remote, **kwargs): return 0, ""
+    async def lines(*args, **kwargs):
+        yield "steps: 100%|##########| 3/3 [00:03<00:00,  1.24it/s]"
+    monkeypatch.setattr(box, "copy_tree_to_box", copied)
+    monkeypatch.setattr(box, "copy_to_box", copied)
+    monkeypatch.setattr(box, "stream_training", lines)
     comfy = ComfyFixture()
     service = Services(comfy=comfy, events=EventStore(tmp_path / "events.ndjson", tmp_path / "jobs"),
                        generated_root=tmp_path / "generated", uploads_root=tmp_path / "uploads",
-                       presets_root=tmp_path / "presets")
+                       characters_root=tmp_path / "characters", styles_root=tmp_path / "styles")
     async def view(_image): return png()
     service._view = view
     return service, comfy
 
 
-def test_presets_are_bundles_of_pictures_saved_listed_and_deleted(tmp_path):
-    service, _ = make(tmp_path)
-    a, b = tmp_path / "a.png", tmp_path / "b.jpg"
-    a.write_bytes(png("#ff0000")); Image.new("RGB", (8, 8), "green").save(b, "JPEG")
-    preset = asyncio.run(service.save_style_preset("glow", f"{a}, {b}", note="owner's words"))
-    assert preset["key"] == "glow" and len(preset["images"]) == 2 and preset["note"] == "owner's words"
-    assert all(p.endswith(".png") for p in preset["images"])
-    assert [p["name"] for p in asyncio.run(service.list_style_presets())] == ["glow"]
-    assert asyncio.run(service.delete_style_preset("glow"))["deleted"]
-    assert asyncio.run(service.list_style_presets()) == []
+def test_style_is_pictures_then_a_lora_then_a_look_for_new_pictures(tmp_path, monkeypatch):
+    service, comfy = make(tmp_path, monkeypatch)
+    run = asyncio.run
+    a = tmp_path / "a.png"; a.write_bytes(png("#ff0000"))
+    style = run(service.create_style("glow", note="owner's words"))
+    assert style["trigger"] == "glow_style" and style["samples"] == []
+    style = run(service.add_style_samples("glow", str(a), "night sky, sparkles"))
+    assert (tmp_path / "styles" / "glow" / "samples.png").is_file()
+    try:
+        run(service.generate_image("a fox", "glow"))
+    except ValueError as error:
+        assert "train_style_lora" in str(error)
+    else:
+        raise AssertionError("a style without a LoRA cannot draw")
+    training = run(service.train_style_lora("glow", steps=3))
+    assert (tmp_path / "styles" / "glow" / "style_glow" / "000.txt").read_text() == "glow_style, night sky, sparkles"
+    assert run(service.style_info("glow"))["lora_name"] == training["lora_name"]
+    job = run(service.generate_image("a fox on a snowy street", "glow", width=768, height=512, seed=4))
+    graph = comfy.submitted[-1]
+    assert job["prompt"] == "glow_style, a fox on a snowy street" and graph["20"]["inputs"]["text"] == job["prompt"]
+    assert graph["4"]["inputs"]["lora_name"] == training["lora_name"] and graph["22"]["inputs"]["width"] == 768
+    assert [s["name"] for s in run(service.list_styles())] == ["glow"]
+    assert run(service.delete_style("glow"))["deleted"] and run(service.list_styles()) == []
 
 
-def test_pictures_come_in_as_paths_data_urls_or_uploads(tmp_path):
-    service, _ = make(tmp_path)
+def test_character_in_a_style_stacks_both_loras(tmp_path, monkeypatch):
+    service, comfy = make(tmp_path, monkeypatch)
+    run = asyncio.run
+    a = tmp_path / "a.png"; a.write_bytes(png())
+    run(service.create_style("glow")); run(service.add_style_samples("glow", str(a))); run(service.train_style_lora("glow", steps=3))
+    run(service.create_character("Bell", "she/her", lora_name="BellGrok.safetensors", trigger="bell_idol"))
+    preview = run(service.preview_character("Bell", "waving", seed=1, style="glow"))
+    graph = comfy.submitted[-1]
+    assert graph["4"]["inputs"]["lora_name"] == "BellGrok.safetensors" and graph["40"]["inputs"]["lora_name"].startswith("glow_")
+    assert graph["40"]["inputs"]["model"] == ["4", 0] and graph["23"]["inputs"]["model"] == ["40", 0] and graph["20"]["inputs"]["clip"] == ["40", 1]
+    assert preview["prompt"].startswith("bell_idol, glow_style, 1girl, waving")
+    record = run(service.set_character_style("Bell", "glow", 0.6))
+    assert record["style"] == "glow" and record["style_strength"] == 0.6
+    job = run(service.generate_character_bible("Bell"))
+    assert job["style"] == "glow" and comfy.submitted[-1]["40"]["inputs"]["strength_model"] == 0.6
+    assert comfy.submitted[-1]["20"]["inputs"]["text"].startswith("bell_idol, glow_style, ")
+    picture = run(service.generate_from_bible("Bell", "on stage"))
+    assert comfy.submitted[-1]["20"]["inputs"]["text"] == "bell_idol, glow_style, on stage"
+    run(service.set_character_style("Bell", ""))
+    run(service.preview_character("Bell", "waving"))
+    assert "40" not in comfy.submitted[-1]
+
+
+def test_pictures_come_in_as_paths_data_urls_or_uploads(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
     data = "data:image/png;base64," + base64.b64encode(png("#123456")).decode()
     stored = asyncio.run(service._resolve_image(data))
     assert stored.parent == tmp_path / "uploads" and Image.open(stored).size == (24, 32)
@@ -73,28 +118,8 @@ def test_pictures_come_in_as_paths_data_urls_or_uploads(tmp_path):
     assert asyncio.run(service._resolve_image(uploaded.stem)) == uploaded
 
 
-def test_generate_image_uses_only_style_pictures(tmp_path):
-    service, comfy = make(tmp_path)
-    s1 = tmp_path / "s1.png"; s1.write_bytes(png())
-    asyncio.run(service.save_style_preset("glow", str(s1)))
-    s2 = tmp_path / "s2.png"; s2.write_bytes(png("#00ff00"))
-    job = asyncio.run(service.generate_image("a fox", width=768, height=512, style_preset="glow", style_refs=str(s2)))
-    assert job["status"] == "completed" and job["path"].endswith("-image.png") and job["elapsed_s"] >= 0
-    graph = comfy.submitted[0]
-    assert graph["20"]["inputs"]["images.image0"] == ["10", 0] and graph["20"]["inputs"]["images.image1"] == ["11", 0]
-    assert "images.image2" not in graph["20"]["inputs"]
-    assert graph["22"]["inputs"] == {"width": 768, "height": 512, "batch_size": 1}
-    assert "Do not copy the subjects" in graph["20"]["inputs"]["prompt"] and "images 1-2" in graph["20"]["inputs"]["prompt"]
-    try:
-        asyncio.run(service.generate_image("a fox"))
-    except ValueError as error:
-        assert "style" in str(error)
-    else:
-        raise AssertionError("generate_image without style pictures must fail")
-
-
-def test_waiting_follows_the_queue_and_fails_only_when_comfy_drops_the_prompt(tmp_path):
-    service, comfy = make(tmp_path)
+def test_waiting_follows_the_queue_and_fails_only_when_comfy_drops_the_prompt(tmp_path, monkeypatch):
+    service, comfy = make(tmp_path, monkeypatch)
     comfy.drop_after = 0
     try:
         asyncio.run(service._history_until_done("prompt-x"))
@@ -104,8 +129,8 @@ def test_waiting_follows_the_queue_and_fails_only_when_comfy_drops_the_prompt(tm
         raise AssertionError("a prompt absent from queue and history must fail")
 
 
-def test_refine_image_redraws_with_anima_and_lora(tmp_path):
-    service, comfy = make(tmp_path)
+def test_refine_image_redraws_with_anima_and_lora(tmp_path, monkeypatch):
+    service, comfy = make(tmp_path, monkeypatch)
     draft = tmp_path / "draft.png"; draft.write_bytes(png())
     job = asyncio.run(service.refine_image(str(draft), "bell_idol, front view", "bell.safetensors", denoise=0.5))
     assert job["status"] == "completed" and job["path"].endswith("-refine.png")

@@ -7,16 +7,21 @@ Graph = dict[str, dict[str, Any]]
 
 def anima_txt2img(prompt: str, seed: int, *, turbo: bool = False, lora_name: str | None = None,
                   lora_strength: float = .8, pose_image: str | None = None,
-                  width: int = 1024, height: int = 1024, negative: str = "") -> Graph:
+                  width: int = 1024, height: int = 1024, negative: str = "",
+                  loras: list[tuple[str, float]] | None = None) -> Graph:
+    """Anima txt2img. LoRAs stack in order (``lora_name`` first, then ``loras``): e.g. a character
+    LoRA and a style LoRA. Nodes 4, 40, 41, ... are the LoraLoader chain."""
     graph: Graph = {
         "1": {"class_type":"UNETLoader","inputs":{"unet_name":"anima-turbo-v1.1.safetensors" if turbo else "anima-base-v1.0.safetensors","weight_dtype":"default"}},
         "2": {"class_type":"CLIPLoader","inputs":{"clip_name":"qwen_3_06b_base.safetensors","type":"qwen_image"}},
         "3": {"class_type":"VAELoader","inputs":{"vae_name":"qwen_image_vae.safetensors"}},
     }
     model, clip = ["1", 0], ["2", 0]
-    if lora_name:
-        graph["4"]={"class_type":"LoraLoader","inputs":{"model":model,"clip":clip,"lora_name":lora_name,"strength_model":lora_strength,"strength_clip":lora_strength}}
-        model, clip = ["4",0], ["4",1]
+    chain = ([(lora_name, lora_strength)] if lora_name else []) + list(loras or [])
+    for index, (name, strength) in enumerate(chain):
+        node = "4" if index == 0 else str(39 + index)
+        graph[node]={"class_type":"LoraLoader","inputs":{"model":model,"clip":clip,"lora_name":name,"strength_model":strength,"strength_clip":strength}}
+        model, clip = [node,0], [node,1]
     if pose_image:
         graph.update({
             "5":{"class_type":"LoadImage","inputs":{"image":pose_image}},

@@ -92,22 +92,6 @@ def size(panel: Panel) -> tuple[int, int]:
     return SIZES[panel.kind]
 
 
-def copy_style(first: int, last: int) -> str:
-    """For JoyAI edits that borrow a look from reference pictures (generate_variant / generate_image)."""
-    span = f"image {first}" if first == last else f"images {first}-{last}"
-    return (f" Render it in exactly the drawing style of {span}: copy only their shading, line work, "
-            "lighting, eye rendering and level of detail; do NOT copy their backgrounds, poses, camera angle or composition")
-
-
-NEG_IMAGE = "text, watermark, lowres, collage, grid, reference sheet, multiple views"
-
-
-def image_prompt(prompt: str, style_count: int) -> str:
-    body = (f"Draw a completely new picture: {prompt}. Do not copy the subjects, characters, poses "
-            "or composition of the reference images")
-    return body + copy_style(1, style_count) + "."
-
-
 def _load(content: bytes) -> Image.Image:
     return Image.open(BytesIO(content))
 
