@@ -35,6 +35,11 @@ class Comfy:
         response.raise_for_status()
         return response.json().get(prompt_id, {})
 
+    async def queue(self) -> dict[str, Any]:
+        response = await self.client.get(f"{self.base_url}/queue")
+        response.raise_for_status()
+        return response.json()
+
     async def upload(self, content: bytes, name: str) -> str:
         response = await self.client.post(f"{self.base_url}/upload/image", files={"image": (name, content, "image/png")}, data={"overwrite": "true"})
         response.raise_for_status()

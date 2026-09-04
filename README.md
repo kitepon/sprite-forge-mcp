@@ -71,66 +71,69 @@ The backend can run on the same machine as ComfyUI or a different one (it just n
 ## The pipeline
 
 ```
-text idea → ① base sprite → ② character bible → ③ character LoRA → ④ any pose → adopt
+a picture you like ─▶ ① character bible ─▶ ② character LoRA ─▶ ③ sprites in any pose
+        └─▶ style preset (a bundle of pictures) ─▶ ④ new pictures from the bible / ⑤ brand-new pictures in that look
 ```
 
-1. **Base sprite** — SDXL (Illustrious) txt2img + matte → transparent RGBA. Optional AI prompt-crafting expands a rough idea into a tag prompt by shelling *your own* `claude` / `codex` CLI (no extra API cost). Pale/white characters auto-switch to a high-contrast background so the matte stays clean.
-2. **Character bible** — one Qwen-Image-Edit "master sheet" anchors a consistent turnaround + expressions + actions + alt costumes; exported as an aligned sheet **and** a self-contained HTML bible.
-3. **Character LoRA** — train a LoRA from the bible's panels in one click; the backend drives kohya sd-scripts on the GPU box over SSH.
-4. **Any pose** — `generate_sprite` with the character LoRA produces that character in new poses/outfits; `adopt` writes accepted sprites into your game (irreversible, opt-in, gated).
+The look is never described in words inside the product. Every generation copies its rendering
+style from pictures: the source you bring, a saved **style preset**, or extra reference pictures.
 
-Plus a **damage/variant editor** (Qwen-Image-Edit with pose-lock + optional garment mask for pixel-exact bbox) and **SAM2** point-masking.
+1. **Character bible** — `generate_character_bible(source, name, char_desc, attr, style_refs?, style_preset?)`.
+   One packed JoyAI **master sheet** anchors consistency; then 23 panels (turnaround, leotard body
+   reference, six expressions, three actions, three costumes, chibi, wardrobe items), each drawn
+   from the master sheet + the source picture. Output: an aligned PNG sheet, a self-contained HTML
+   bible, and the panels (which double as LoRA material). Without style pictures the source's own
+   look is copied; with them, the design comes from the source and the look from the pictures.
+2. **Character LoRA** — `train_character_lora(bible_name)` trains an Anima LoRA from the panels on
+   the GPU box (`ssh fox python C:\sf\train.py`).
+3. **Sprites** — `generate_sprite(prompt, lora_name?, pose_image?)`: Anima txt2img (+LoRA, +Anima-Control-Pose) → ToonOut → RGBA candidates with measurements.
+4. **From the bible** — `generate_from_bible(name, prompt, style_preset?, style_refs?)`: a new picture of that character.
+5. **Only the look** — `generate_image(prompt, style_preset | style_refs)`: a brand-new picture that borrows nothing but the rendering style.
+
+Style presets: `save_style_preset(name, images, note?)` · `list_style_presets` · `delete_style_preset`.
+Pictures come in as a cache path, an `http(s)` URL, a `data:` URL, or the WebUI upload (`POST /api/upload`).
+
+Plus the **variant editor** (`make_mask` with SAM 3.1 → `generate_variant` with JoyAI, base pixels restored outside the mask), `make_transparent` (ToonOut) and `pixelize` (Pillow).
 
 ## Requirements
 
 This is a **remote-GPU orchestrator — it does not generate anything by itself.** You need:
 
-- A **CUDA GPU running ComfyUI**, reachable over HTTP+WS. Target **~30 GB VRAM** (RTX 5090 class) — the edit path co-loads a ~20 GB DiT. **Not runnable on a small GPU** as-is.
-- The **model set** + required custom nodes (Qwen-Image-Edit, Union ControlNet) — see **[docs/models.md](docs/models.md)**.
-- **Python 3.11+** for the backend.
+- A **CUDA GPU running ComfyUI 0.34+** reachable over HTTP (RTX 5090 class; the JoyAI int8 edit model and Anima co-load).
+- The **model set**: Anima Base/Turbo (+ `qwen_3_06b_base`, `qwen_image_vae`), Anima-Control-Pose, JoyAI-Image-Edit-Plus (+ `qwen3vl_8b_joyimage_edit_plus`, `wan_2.1_vae`), ToonOut via ComfyUI-RMBG, SAM 3.1 (native).
+- **Python 3.13** and `uv` for the backend; `sd-scripts` (Anima) on the GPU box for LoRA training.
 
 ## Quickstart
 
-> Full setup (GPU box, models, optional features, honest limits) is in **[INSTALL.md](INSTALL.md)**.
-
 ```bash
-git clone https://github.com/kitepon/sprite-forge-mcp.git
-cd sprite-forge-mcp
-python3.12 -m venv .venv && . .venv/bin/activate     # 3.11+
-pip install -r requirements.txt
-cp .env.example .env                                  # set SPRITEFORGE_COMFY_URL → your ComfyUI
-uvicorn backend.app:app --host 127.0.0.1 --port 8765
+git clone https://github.com/kitepon/sprite-forge-mcp.git && cd sprite-forge-mcp
+uv sync
+cp .env.example .env            # SPRITEFORGE_COMFY_URL → your ComfyUI, SPRITEFORGE_BOX_SSH → the GPU box
+.venv/bin/uvicorn backend.app:app --host 0.0.0.0 --port 8765
 ```
 
-- **WebUI** → <http://127.0.0.1:8765/>  ·  **health** → `curl localhost:8765/api/gpu`
-- **MCP endpoint** → `http://127.0.0.1:8765/mcp/` (URL/HTTP server; `uvicorn` must be running)
+Or on the server: `docker compose up -d --build` (port 8766 → 8765, `.cache` as a volume).
 
-Register it in Claude Code with explicit user scope:
-
-```bash
-claude mcp add --scope user --transport http sprite-forge http://127.0.0.1:8765/mcp/
-```
-
-For client-side registration patterns beyond this project-specific URL, use the dotagents README runbook instead of duplicating global MCP client policy here.
+- **WebUI** → `http://<host>:8765/`  ·  **health** → `curl <host>:8765/api/gpu`
+- **MCP endpoint** → `http://<host>:8765/mcp/` (streamable HTTP; register it in your agent CLI)
 
 ## MCP tools (the agent face)
 
-All 15 tools share the same gated services as the WebUI. The server is self-documenting (it returns a pipeline manual + glossary on initialize).
+MCP and REST call the same `Services` functions; defaults live only in those signatures.
 
 | Group | Tools |
 |---|---|
-| Discovery / status | `gpu_status` · `list_sprites` · `list_loras` |
-| Prompt | `craft_prompt` (shells your `claude`/`codex` CLI) |
-| Generate / edit | `generate_sprite` · `generate_variant` · `make_transparent` · `pixelize` · `fit_to_base` |
-| Character | `generate_character_bible` · `bible_status` · `train_character_lora` |
-| Style LoRA | `train_style_lora` · `train_status` |
-| Adopt | `adopt` (gated write into your game) |
+| Status | `gpu_status` · `list_loras` · `list_jobs` · `job_status` |
+| Sprites | `generate_base` · `generate_sprite` · `make_transparent` · `pixelize` |
+| Character | `generate_character_bible` · `bible_status` · `train_character_lora` · `train_status` |
+| Style | `save_style_preset` · `list_style_presets` · `delete_style_preset` · `generate_from_bible` · `generate_image` |
+| Variants | `make_mask` · `generate_variant` |
 
 ## Design principles (the "scars")
 
-- **RGBA, four transparent corners, never a black background.** Transparency is a gate, not a hope.
-- **Damaged variants match the base canvas/bbox within ≤1 px** (denoise-locked; a garment mask guarantees 0 px).
-- **The retro style phrase is mandatory and auto-injected** — no silent drift.
+- **Measure, don't gate.** Corner alpha, bbox, canvas and bbox deltas are reported as numbers; nothing is rejected for you.
+- **The look lives in pictures, not in prompts.** No style phrase is baked into the product; presets are bundles of pictures.
+- **Wait for the GPU, don't time it out.** A job waits as long as ComfyUI holds the prompt; it fails only when the prompt is gone.
 - **No hand-paint.** You point (mask / point / line); the model regenerates. Fixes are re-generation, never manual rescue.
 - **No silent fallback.** Failures surface with the stage and reason; nothing is quietly "fixed."
 - **Adopt is explicit and irreversible** — it writes into your game project only when you ask.

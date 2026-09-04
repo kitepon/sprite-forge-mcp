@@ -10,5 +10,7 @@ COMFY_URL = os.environ.get("SPRITEFORGE_COMFY_URL", "http://192.168.1.11:8188").
 BOX_SSH = os.environ.get("SPRITEFORGE_BOX_SSH", "fox")
 BOX_TRAIN = os.environ.get("SPRITEFORGE_BOX_TRAIN", r"C:\sf\train.py")
 BOX_LORAS = os.environ.get("SPRITEFORGE_BOX_LORAS", r"C:\Users\kite_\ComfyUI\ComfyUI\models\loras")
+UPLOADS = CACHE / "uploads"      # pictures brought in by the owner / Bots (upload, URL, base64)
+PRESETS = CACHE / "presets"      # style presets: bundles of reference pictures
 EVENTS_PATH = CACHE / "events.ndjson"
 JOBS_PATH = CACHE / "jobs"

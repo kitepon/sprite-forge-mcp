@@ -107,24 +107,53 @@ def possessive_pronoun(char_desc: str) -> str:
     return "their"
 
 
-def style_clause(image_count: int) -> str:
-    """The rendering style is never written into the product: it is copied from the reference
-    images themselves. The source picture the owner brings is the first style reference; extra
-    ``style_refs`` widen the set. ``image_count`` is the total number of JoyAI reference images."""
-    if image_count <= 0:
+def _span(first: int, last: int) -> str:
+    return f"image {first}" if first == last else f"images {first}-{last}"
+
+
+def copy_style(first: int, last: int) -> str:
+    """The rendering style is never written into the product: it is copied from reference
+    pictures. This names which JoyAI reference images carry the look."""
+    if first < 1 or last < first:
         raise ValueError("a style clause needs at least one reference image")
-    span = "image 1" if image_count == 1 else f"images 1-{image_count}"
-    return (f" Render it in exactly the drawing style of {span}: copy their shading, line work, "
-            "lighting, eye rendering and level of detail")
+    return (f" Render it in exactly the drawing style of {_span(first, last)}: copy their shading, "
+            "line work, lighting, eye rendering and level of detail")
 
 
-def instruction(panel: Panel, possessive: str, image_count: int = 2) -> str:
-    """Instruction that references the MASTER SHEET (image 1) and asks for a single isolated
-    panel of that same character; the look is copied from all reference images (master, source,
-    extra style refs)."""
-    head = "Using the exact character shown in the character reference sheet in image 1,"
+def master_prompt(style_count: int = 0) -> str:
+    """References: image 1 = the owner's source picture, images 2.. = extra style pictures.
+    Without extras the source's own look is the style (usage 1); with extras the design comes
+    from image 1 and the look from the extras (usage 2)."""
+    if style_count:
+        return MASTER_PROMPT + " Take the character design only from image 1." + copy_style(2, 1 + style_count) + "."
+    return MASTER_PROMPT + copy_style(1, 1) + "."
+
+
+NEG_IMAGE = "text, watermark, lowres, collage, grid, reference sheet, multiple views"
+
+
+def from_bible_prompt(prompt: str, style_count: int = 0) -> str:
+    """References: image 1 = master sheet, image 2 = source picture, images 3.. = extra style."""
+    body = (f"Draw the exact character shown in images 1-2 (the character reference sheet and the "
+            f"original picture): {prompt}. Keep that character's face, hair, outfit and colors")
+    style = copy_style(3, 2 + style_count) if style_count else copy_style(1, 2)
+    return body + style + "."
+
+
+def image_prompt(prompt: str, style_count: int) -> str:
+    """References: only style pictures. A brand-new picture that borrows nothing but the look."""
+    body = (f"Draw a completely new picture: {prompt}. Do not copy the subjects, characters, poses "
+            "or composition of the reference images")
+    return body + copy_style(1, style_count) + "."
+
+
+def instruction(panel: Panel, possessive: str, style_count: int = 0) -> str:
+    """References: image 1 = master sheet (or the front figure for items), image 2 = the owner's
+    source picture, images 3.. = extra style pictures. The character comes from images 1-2; the
+    look from the extras when present, otherwise from images 1-2 themselves."""
+    head = "Using the exact character shown in the character reference sheet in image 1 (the same person as image 2),"
     suffix = panel.suffix.format(p=possessive)
-    style = style_clause(image_count)
+    style = copy_style(3, 2 + style_count) if style_count else copy_style(1, 2)
     if panel.kind == "face":
         body = (f"{head} draw a close-up headshot of ONLY that character's face with {suffix}, "
                 "single face, head and shoulders, plain white background")

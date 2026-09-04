@@ -1206,6 +1206,7 @@ dependencies = [
     { name = "fastmcp" },
     { name = "httpx" },
     { name = "pillow" },
+    { name = "python-multipart" },
     { name = "uvicorn" },
 ]
 
@@ -1220,6 +1221,7 @@ requires-dist = [
     { name = "fastmcp", specifier = ">=4.0,<5" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "pillow", specifier = ">=12.3.0" },
+    { name = "python-multipart", specifier = ">=0.0.20" },
     { name = "uvicorn", specifier = ">=0.34" },
 ]
 

@@ -7,12 +7,13 @@ from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastmcp import FastMCP
 from fastmcp.utilities.lifespan import combine_lifespans
 
+from .config import CACHE
 from .services import Services
 
 services = Services()
@@ -32,6 +33,11 @@ for name, function in (
     ("generate_variant", services.generate_variant),
     ("make_transparent", services.make_transparent),
     ("pixelize", services.pixelize),
+    ("generate_from_bible", services.generate_from_bible),
+    ("generate_image", services.generate_image),
+    ("save_style_preset", services.save_style_preset),
+    ("list_style_presets", services.list_style_presets),
+    ("delete_style_preset", services.delete_style_preset),
     ("job_status", services.status),
     ("list_jobs", services.list_jobs),
 ):
@@ -62,10 +68,30 @@ for path, methods, function in (
     ("/api/variant", ["POST"], services.generate_variant),
     ("/api/transparent", ["POST"], services.make_transparent),
     ("/api/pixelize", ["POST"], services.pixelize),
+    ("/api/from-bible", ["POST"], services.generate_from_bible),
+    ("/api/image", ["POST"], services.generate_image),
+    ("/api/presets", ["GET"], services.list_style_presets),
+    ("/api/presets", ["POST"], services.save_style_preset),
+    ("/api/presets/{name}", ["DELETE"], services.delete_style_preset),
     ("/api/jobs", ["GET"], services.list_jobs),
     ("/api/jobs/{job_id}", ["GET"], services.status),
 ):
     app.add_api_route(path, function, methods=methods)
+
+
+@app.post("/api/upload")
+async def rest_upload(files: list[UploadFile]) -> list[dict[str, str]]:
+    """Bring pictures in from the browser; each is stored as PNG under .cache/uploads."""
+    return [{"name": file.filename or "", "path": str(services.save_upload(await file.read(), file.filename))} for file in files]
+
+
+@app.get("/api/file")
+async def rest_file(path: str) -> FileResponse:
+    """Serve a picture from the cache so the WebUI can show what it made."""
+    target = Path(path)
+    if not target.is_absolute():
+        target = CACHE / target
+    return FileResponse(target)
 
 
 async def _event_stream(since: str | None = None) -> AsyncIterator[str]:

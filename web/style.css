@@ -11,3 +11,6 @@ button { background: #27a6a0; border: 0; border-radius: .4rem; color: #061417; c
 .actions, .chips { align-items: center; display: flex; flex-wrap: wrap; gap: .6rem; }.chips label { align-items: center; display: flex; flex-direction: row; font-size: .9rem; }.chips input { width: auto; }.measurements { display: grid; grid-template-columns: max-content 1fr; gap: .35rem .8rem; margin: 1.2rem 0 0; }.measurements dt { color: #8da1bc; }.measurements dd { margin: 0; }
 .event-log { max-height: 18rem; overflow: auto; padding-left: 1.4rem; }.event-log li { padding: .3rem 0; }.records { display: grid; gap: .7rem; }.records article { border-left: 3px solid #27a6a0; display: grid; gap: .2rem; padding-left: .7rem; }.records small { color: #8da1bc; } #notice { bottom: 1rem; color: #aee8db; left: 5vw; position: fixed; }.error { color: #ffb4b4 !important; }
 @media (max-width: 600px) { .topbar { padding: 0 1rem; }.brand small { display: none; } nav, main { padding-left: 1rem; padding-right: 1rem; } }
+
+.preview { max-width: 100%; max-height: 480px; display: block; border-radius: 6px; background: #fff; }
+select { padding: .4rem; }
