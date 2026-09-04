@@ -19,9 +19,12 @@ Krea 2 の musubi と Mage-Flow 専用学習器は fox では未検証である�
 
 ### 採用
 
-**素体生成の勝者は Mage-Flow とする。** 3候補中で平均生成時間が最短であり、4 枚すべてで
-JRPG 用の人物サイズ・指定色・全身輪郭を安定して保った。透過・編集へ渡す素体として、
-再生成率を最も低くできるためである。
+初回比較では Mage-Flow が最良だったが、2026-09-04 に配布元 Microsoft が
+Mage-Flow（Base / RL / Turbo / Edit）を Hugging Face から公式に取り下げ、
+ログイン済みでも 404 となった。従って比較値は履歴として残すが、Mage-Flow は採用対象から
+除外する。**以後の素体生成は Anima Base v1.0 を採用し、量産は Anima Turbo v1.1 を使う。**
+Anima Base は p0-trainer の `anima_train_network.py` で LoRA 学習を実走済みであり、
+本書の p1-lora でも同じ経路を受入した。
 
 ## 編集・設定画（Phase 1 / p1-edit）
 
@@ -70,9 +73,9 @@ JRPG 用の人物サイズ・指定色・全身輪郭を安定して保った。
 
 ### 採用
 
-**Mage-Flow-Edit を採用する。** 同一人物性と後ろ姿は両者で受入可能だったが、
-Mage-Flow-Edit は JoyAI より約5.8倍高速で、常駐VRAMも約11.7 GiB小さい。
-設定画を反復生成する用途では、この差が直接的な優位になる。
+初回比較では Mage-Flow-Edit が速度・VRAMで優勢だったが、素体と同じ公式取り下げにより
+利用不能となった。**JoyAI-Image-Edit-Plus を編集・設定画の採用器とする。** 12/12 の
+出力成功と人物特徴の維持は確認済みであり、p1-lora の教材にもこの JoyAI 出力を使用した。
 
 ## 透過（Phase 1 / p1-matte）
 
@@ -120,7 +123,7 @@ hard mask より自然に残した。SAM 3.1 は文字・点プロンプトに�
 
 ## ダメージ版（Phase 1 / p1-damage）
 
-Mage-Flow-Edit を p1-edit の勝者として使い、SAM 3.1 のテキストマスクで火の魔術師の
+初回検証では Mage-Flow-Edit を用い、SAM 3.1 のテキストマスクで火の魔術師の
 衣装だけを編集し、元画像をマスク外へ戻す経路を fox の ComfyUI 0.34.0（RTX 5090）で確認した。
 
 ### 条件
@@ -129,7 +132,7 @@ Mage-Flow-Edit を p1-edit の勝者として使い、SAM 3.1 のテキストマ
   `f6be351a437fce9aa6bd3d47e10596f7b94658159e67fa986f6bc3fdc884aaf3`）。
 - SAM 3.1 Multiplex: `character`（threshold 0.50）で主体 alpha、`red robe clothing`
   （threshold 0.45）で衣装マスクを作った。どちらも refine iterations 2。
-- 編集: `mage_flow_edit_int8_convrot.safetensors`、Qwen3-VL 4B、Mage VAE、seed 41002、
+- 編集（履歴検証）: `mage_flow_edit_int8_convrot.safetensors`、Qwen3-VL 4B、Mage VAE、seed 41002、
   30 steps、CFG 5、Euler/simple。顔・髪・王冠・手・杖・ポーズ・canvas を維持し、赤い
   ローブと袖だけを torn / scorched / battle-damaged にする指示を与えた。
 - 復元: `ImageCompositeMasked(destination=base, source=edited, mask=clothing)` の後、
@@ -157,39 +160,31 @@ raw は `firemage-damaged-raw_00001_.png`、SAM マスク確認は
 
 ## ポーズ指定（Phase 1 / p1-pose）
 
-素体比較の勝者 Mage-Flow を人物参照に、編集比較の勝者 Mage-Flow-Edit へ黒い棒人間の
-キャスティング・ランジ骨格を第2参照として渡した。Anima-Control-Pose preview-2 は
-Anima 素体を前提とする候補であり、p1-base の勝者が Mage-Flow だったため、この比較には
-適用しない。
+初回の Mage-Flow-Edit 第2参照方式は、骨格線が画像へ混入しポーズ追従も不十分だった。
+その後、Microsoft の Mage-Flow 公式取り下げにより前提そのものが失効したため、
+Anima Base を素体とする `Anima-Control-Pose preview-2` に切り替えた。
 
-### 条件
+### 条件と結果
 
-- 人物参照: `output/p1-base/mage-flow/2026090401_00001_.png` を input の
-  `p1_pose_mage_base.png` として使用（1024×1024、SHA-256
-  `200b1d8c2fc0402c08ede170a1b85985724f56670f6a9a80b5af7b4ba2b801f1`）。
-- 骨格参照: 左手を上げた杖、右腕を前へ伸ばす、両脚を開いたランジを示す
-  `p1_pose_casting_skeleton.png`（1024×1024、SHA-256
+- 教材由来の Anima LoRA: `anima_joy_sprite_lora.safetensors`（rank 16 / alpha 16、
+  JoyAI-Image-Edit-Plus の12枚で12 step学習）。
+- 骨格参照: `p1_pose_casting_skeleton.png`（1024×1024、SHA-256
   `b1bdc60e93e059d163dbc097cc14ea16450416786d5e7f09b15b210ed8706cef`）。
-- 編集器: `mage_flow_edit_int8_convrot.safetensors`、Qwen3-VL 4B、Mage VAE、seed
-  `2026090405`、30 steps、CFG 5、Euler/simple。人物参照を `image_1`、骨格を
-  `image_2` として `TextEncodeMageFlowEdit` へ接続した。
-
-### 結果
-
-ComfyUI workflow `44fb4042-e642-4e80-9f53-ddbbec5dc620` は成功し、14.513 秒で
-`ComfyUI/output/p1-pose/mage-flow-edit-skeleton_00001_.png` を出力した
-（1024×1024、SHA-256
-`eb22bf6a50ba5291024cc710f03b6eaf15675c8d1addbbd55c009a711a96d987`）。
+- Anima Base → pose adapter LoRA 1.0 → 学習済み LoRA 0.8 →
+  `AnimaPoseControl`（R0_thin）→ `AnimaControlApply`（strength 1.0）→
+  Euler/simple 28 steps、CFG 4 で実行した。
+- ComfyUI prompt `de4b679c-05ef-492f-8b5e-7a409fc10d2e` は成功し、18.111 秒で
+  `ComfyUI/output/p1-lora/anima_joy_control_pose_00001_.png` を出力した
+  （1024×1024、SHA-256
+  `51f2a8fab512d87fd376b58c7931c91004582a10284237cc97a35c33f3cfe29d`）。
 
 | 判定 | 観測 |
 | --- | --- |
-| 同一性 | 銀髪、teal/navy の外套、ブーツ、顔、金の杖は人物参照と同じまま残った。 |
-| ポーズ追従 | 右腕と両脚は骨格方向へ伸びたが、杖は縦のままで、人物自体はランジへ再構成されなかった。 |
-| 出力品質 | 黒/青の棒人間線と関節が人物の上にそのまま描かれ、通常のキャラクター画像として使えない。 |
+| 同一性 | 赤いツインテール、王冠、炎の衣装、杖を保った。 |
+| ポーズ追従 | 大きく開いた両脚、前方へ伸ばした腕、杖を上げた詠唱ポーズを生成した。 |
+| 出力品質 | 骨格線は描画として残らず、1024px のキャラクター画像として利用できる。 |
 
 ### 採用
 
-**骨格画像を Mage-Flow-Edit の第2参照へそのまま渡す方式は不採用とする。** 人物同一性は
-残る一方、骨格が制御信号ではなく描画要素として混入し、ポーズと杖の追従も不十分だった。
-Mage-Flow を素体とする現構成では、Anima-Control-Pose と同条件の比較対象はなく、今回の
-参照方式だけでは任意ポーズの受入経路を満たさない。
+**Anima Base + 学習済み LoRA + Anima-Control-Pose を任意ポーズの受入経路として採用する。**
+Mage-Flow 系の比較結果は公式取り下げ前の履歴であり、後続工程の前提にはしない。

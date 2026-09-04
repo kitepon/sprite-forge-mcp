@@ -14,10 +14,6 @@ SDXL ControlNet、rembg は配置しない。
 | Anima text encoder | `text_encoders/` | `qwen_3_06b_base.safetensors` | `circlestone-labs/Anima` |
 | Anima / Krea VAE | `vae/` | `qwen_image_vae.safetensors` | `circlestone-labs/Anima` |
 | Anima Control-Pose preview-2 | `loras/` | `anima_pose_preview2.safetensors` | `Claquasse/Anima-Control-Pose` |
-| Mage-Flow | `diffusion_models/` | `mage_flow_bf16.safetensors`, `mage_flow_int8_convrot.safetensors` | `Comfy-Org/Mage-Flow` |
-| Mage-Flow-Edit | `diffusion_models/` | `mage_flow_edit_bf16.safetensors`, `mage_flow_edit_int8_convrot.safetensors` | `Comfy-Org/Mage-Flow` |
-| Mage text encoder | `text_encoders/` | `qwen3vl_4b_bf16.safetensors` | `Comfy-Org/Mage-Flow` |
-| Mage VAE | `vae/` | `mage_flow_vae_bf16.safetensors` | `Comfy-Org/Mage-Flow` |
 | JoyAI-Image-Edit-Plus | `diffusion_models/` | `joyai_image_edit_plus_int8_convrot.safetensors` | `jdopensource/JoyAI-Image-Edit-Plus-ComfyUI` |
 | JoyAI text encoder | `text_encoders/` | `qwen3vl_8b_joyimage_edit_plus_int8_convrot.safetensors` | `jdopensource/JoyAI-Image-Edit-Plus-ComfyUI` |
 | JoyAI VAE | `vae/` | `wan_2.1_vae.safetensors` | `jdopensource/JoyAI-Image-Edit-Plus-ComfyUI` |
@@ -35,5 +31,23 @@ ComfyUI-RMBG は `RMBG/BiRefNet/` を読む。SAM 3.1 は ComfyUI ネイティ�
 - Anima と Anima Control-Pose は非商用モデルライセンスである。生成物は商用利用できる。
   LoRA は配布しない前提で扱い、モデルや LoRA の配布・販売が必要になった時だけ
   Circlestone へ商用ライセンスを確認する。
-- Mage-Flow / Mage-Flow-Edit は MIT、JoyAI-Image-Edit-Plus は Apache-2.0、
-  ToonOut は各配布元の条件、SAM 3.1 は SAM License に従う。
+- JoyAI-Image-Edit-Plus は Apache-2.0、ToonOut は各配布元の条件、SAM 3.1 は
+  SAM License に従う。Mage-Flow 系は 2026-09-04 の公式取り下げにより採用対象から
+  除外した。
+
+## LoRA 学習器
+
+Anima Base v1.0 のキャラクター LoRA は fox の Python 3.13 仮想環境
+`C:\\sf\\venv` と、p0-trainer が導入した sd-scripts
+`C:\\sd-scripts\\anima_train_network.py` を使う。入口は `C:\\sf\\train.py` であり、
+Anima DiT、`qwen_3_06b_base.safetensors`、`qwen_image_vae.safetensors` と dataset TOML を
+渡して `accelerate launch` を起動する。
+
+- 学習精度は `bf16`、LoRA rank / alpha はともに 16、学習率の初期値は `1e-4` とする。
+- p1-lora では JoyAI-Image-Edit-Plus の設定画12枚と caption を教材に 12 step を完走し、
+  `C:\\sf\\output\\anima_joy_sprite_lora\\anima_joy_sprite_lora.safetensors`
+  （66,232,904 bytes）を得た。
+- 推論では Anima Base → `anima_pose_preview2.safetensors` → 学習済み LoRA の順に
+  `LoraLoaderModelOnly` を接続し、`AnimaControlApply` に同 pose adapter を指定する。
+  任意ポーズには `AnimaPoseControl` を使う。量産は Anima Turbo v1.1、編集・設定画は
+  JoyAI-Image-Edit-Plus とする。
