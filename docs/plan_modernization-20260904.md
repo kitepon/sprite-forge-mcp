@@ -120,3 +120,9 @@ GPU 側の画像処理は全部 ComfyUI のワークフローに収める。メ�
 - オーナーが Bell の設定画（18 枚が全部同じ絵）を「絶望的」と却下。原因は二つ: ①b3 が 6月に検証済みのマスターシート錨の設計（`bible.py` 旧版）を捨てて「素体 1 枚＋短い指示 × 18」に縮め、受入を「出た」で通した ②`workflows.joy_edit` が JoyAI の参照画像を autogrow の入れ子辞書で渡していて黙って捨てられ、参照なしで描いていた（同一性は VAEEncode の潜在漏れ）。
 - 是正: 旧設計を JoyAI 版で復元（マスターシート → 種別ごとの指示・否定語で 23 パネル → 節構成の PNG と HTML）、autogrow は `images.image0` … の平坦キーで渡す。FORMAL・ちび・装備は JoyAI で通る文面へ（装備は正面 1 体を参照）。Bell で実走し、方向・体型・表情・アクション・衣装 3 種・ちび・装備が全部違う絵になったことを bell が目視で受入。
 - Qwen-Image-Edit-2511 へ戻す判断は保留（JoyAI で 6月水準に戻ったため不要）。
+
+## 事後裁定 2026-09-04 夜（絵柄は LoRA、3 段で止まる）
+
+- オーナー: JoyAI の設定画（下描き・描き直し含む）は「ありえない」、Grok 画像 4 枚で学習した LoRA だけの Anima txt2img が「明確に」良い。質感のハードコードは却下、質感は画像から決める。全部できてからの修正は遅い——サンプル収集後・学習後の 1 枚・シート完成後、それぞれで直す機会が要る。
+- 製品: キャラクター台帳（サンプル／キャプション／LoRA／設定画／パネル修正）と画風台帳（画像 → 画風 LoRA）。①create_character / add_samples / set_caption ②train_character_lora（頼んだ時だけ）／preview_character ③generate_character_bible／redraw_panel（修正は台帳に残る）。使い方 2 = set_character_style で画風 LoRA を重ねる、4 = 画風台帳、5 = generate_image(prompt, style)。JoyAI は make_mask → generate_variant にだけ残す。
+- fox の学習: worker 0・latent cache・num_repeats で 1200 step ≈ 16 分。進捗は \r 区切りの tqdm を拾う。
