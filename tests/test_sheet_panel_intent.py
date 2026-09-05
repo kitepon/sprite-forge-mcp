@@ -111,6 +111,28 @@ def test_legacy_content_is_unchanged_and_mixing_requires_targeted_confirmation()
     assert "sitting" in result["prompt"] and "a person sitting in a room" not in result["prompt"]
 
 
+def test_static_face_and_common_outfit_leave_expression_and_temporary_scope_separate():
+    from backend.panel_intent import resolve_panel, saved_corrections
+    panels = {p.key: p for p in bible.PANELS}
+    common = {"outfit": change("outfit", "red cape, blue tunic", "persistent")}
+    changes = [change("face", "blue eyes, small nose"),
+               change("outfit", "red cape, blue tunic", "panel", "turn_front"),
+               change("outfit", "green cape, blue tunic", panel="turn_front")]
+    before = deepcopy((common, changes))
+    for key in ("ex_smile", "ex_surp"):
+        result = resolve_panel(panels[key], "fixture", "he/him", common, changes, {})
+        assert "open mouth" in result["prompt"] and "closed mouth" not in result["prompt"]
+        assert "blue eyes, small nose" in result["prompt"]
+        assert result["conditions"]["expression"] == panels[key].conditions["expression"]
+    front = resolve_panel(panels["turn_front"], "fixture", "he/him", common, changes, {})
+    saved = saved_corrections({}, {}, changes, {"turn_front": 12}, "test")
+    assert "green cape" in front["prompt"]
+    assert saved["turn_front"]["conditions"]["outfit"]["description_en"] == "red cape, blue tunic"
+    next_side = resolve_panel(panels["turn_side"], "fixture", "he/him", common, [], {})
+    assert "red cape" in next_side["prompt"] and "green cape" not in next_side["prompt"]
+    assert (common, changes) == before
+
+
 async def setup(service, tmp_path):
     source = tmp_path / "reference.png"
     source.write_bytes(png())
