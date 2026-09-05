@@ -20,6 +20,33 @@ async def setup(service, tmp_path):
     return await service.add_samples("probe", str(picture), "画像についての注文")
 
 
+def test_feature_references_survive_sample_adoption_and_next_generation(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+
+    async def scenario():
+        picture = tmp_path / "four.png"
+        picture.write_bytes(png())
+        await service.create_character("probe", "人物", lora_name="character.safetensors")
+        await service.add_samples("probe", ",".join([str(picture)] * 4),
+                                  "|顔立ちを強く採用して||体格と服装を強く採用して")
+        job = await service.save_comment(IntentRequest(name="probe", stage="samples", comment=""))
+        proposed = {"observations": [], "questions": [], "changes": []}
+        for feature, index, value in [("face", 1, "oval face"), ("subject", 3, "slender adult figure"),
+                                       ("outfit", 3, "cropped top and skirt")]:
+            proposed["changes"] += proposal(job["references"][index], feature=feature, text=value)["changes"]
+        job.update(status="awaiting_confirmation", proposal=proposed)
+        service.events.save_job(job)
+        await service.confirm_comment_intent(job["job_id"], Proposal.model_validate(proposed))
+        future = await service.save_comment(IntentRequest(name="probe", stage="drawing", comment="白背景"))
+        assert future["base_conditions"]["face"]["reference"] == job["references"][1]
+        assert future["base_conditions"]["outfit"]["reference"] == job["references"][3]
+        generated = await service.generate_from_bible("probe", "")
+        assert generated["intent_conditions"] == future["base_conditions"]
+        assert all(text in generated["prompt"] for text in ("oval face", "slender adult figure", "cropped top and skirt"))
+
+    asyncio.run(scenario())
+
+
 def test_original_survives_model_failure(tmp_path, monkeypatch):
     service, _ = make(tmp_path, monkeypatch)
 

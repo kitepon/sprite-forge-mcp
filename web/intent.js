@@ -36,6 +36,8 @@ export async function commentEditor(target, { name, kind, stage, panel = '', int
     if (!proposal) return;
     if (proposal.questions.length) output.append(h('div', { class: 'callout stack' }, h('strong', {}, 'ここを教えてください'), proposal.questions.map(question => h('p', {}, question)), h('p', { class: 'muted small' }, '上の注文へ回答を書き足して、もう一度解釈してください。')));
     for (const change of proposal.changes) {
+      const sourceIndex = change.reference ? job.references.findIndex(ref => ref.record_key === change.reference.record_key && ref.sample_index === change.reference.sample_index && ref.path === change.reference.path) : -1;
+      const source = sourceIndex >= 0 ? [h('p', {class:'muted small'}, `${features[change.feature]}の参照元：画像 ${sourceIndex + 1}`)] : [];
       if (change.feature === 'style') {
         const disabled = job.status === 'confirmed';
         const scope = h('select', { disabled, 'aria-label': '画風の適用範囲', onchange: e => {
@@ -54,7 +56,7 @@ export async function commentEditor(target, { name, kind, stage, panel = '', int
           paint({proposal, observations});
         } });
         output.append(h('article', {class:'intent-change stack'}, h('div', {class:'section-heading'}, h('strong', {}, '画風'), scope),
-          h('p', {}, change.reason_ja), field('シート全体に使う画風', selected, '一つのシートの画風は統一します。'),
+          ...source, h('p', {}, change.reason_ja), field('シート全体に使う画風', selected, '一つのシートの画風は統一します。'),
           ...(stage === 'panel' ? [h('p', {class:'muted small'}, '部分描き直しは元のシートの画風を維持します。画風を変える時は、設定画全体の注文から指定してください。')] : []),
           ...(kind === 'style' ? [h('p', {class:'muted small'}, 'この画風自体を変える希望は、素材と学習の工程で確認してください。')] : []),
           h('label', { class: 'intent-defer' }, defer, h('span', {}, '画風の希望は保留して、ほかの注文を採用する')),
@@ -78,7 +80,7 @@ export async function commentEditor(target, { name, kind, stage, panel = '', int
       const positive = h('textarea', { rows: 2, disabled: job.status === 'confirmed', 'aria-label': `${features[change.feature]}の生成文`, oninput: e => { change.description_en = e.target.value; } }, change.description_en);
       const negative = h('input', { value: change.avoid_en, disabled: job.status === 'confirmed', 'aria-label': `${features[change.feature]}で避ける内容`, oninput: e => { change.avoid_en = e.target.value; } });
       const negativeJa = h('input', { value: change.avoid_ja || '', disabled: job.status === 'confirmed', 'aria-label': `${features[change.feature]}で避ける内容の日本語`, oninput: e => { change.avoid_ja = e.target.value; } });
-      output.append(h('article', { class: 'intent-change stack' }, h('div', { class: 'section-heading' }, h('strong', {}, features[change.feature]), scope), ...(stage === 'sheet' ? [field('対象', targetPanel)] : []), h('p', {}, change.reason_ja), field('避ける内容（日本語）', negativeJa, '除外するものがなければ空欄。訂正は上の注文へ書き足して再解釈できます。'), h('details', {}, h('summary', {}, '生成へ渡す言葉を確認・編集'), field('採用する内容（英語）', positive), field('避ける内容（英語）', negative))));
+      output.append(h('article', { class: 'intent-change stack' }, h('div', { class: 'section-heading' }, h('strong', {}, features[change.feature]), scope), ...source, ...(stage === 'sheet' ? [field('対象', targetPanel)] : []), h('p', {}, change.reason_ja), field('避ける内容（日本語）', negativeJa, '除外するものがなければ空欄。訂正は上の注文へ書き足して再解釈できます。'), h('details', {}, h('summary', {}, '生成へ渡す言葉を確認・編集'), field('採用する内容（英語）', positive), field('避ける内容（英語）', negative))));
     }
     const observations = structuredClone(job.accepted_observations || edits?.observations || proposal.observations);
     if (['samples', 'training'].includes(stage) && observations.length) {

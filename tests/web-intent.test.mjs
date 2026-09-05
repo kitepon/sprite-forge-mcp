@@ -51,6 +51,19 @@ test('コメント反映に研究中の表示と画像確認の説明がある',
   assert.ok(texts.some(text => text.includes('十分に反映されない場合')));
 });
 
+test('特徴ごとの参照画像を、文章の説明に依存せず表示する', async () => {
+  const refs = [0, 1, 2, 3].map(i => ({record_key:'probe',sample_index:i,path:`${i}.png`}));
+  API.commentIntents = async () => [{job_id:'refs',stage:'samples',panel:'',status:'awaiting_confirmation',references:refs,
+    original_comment:'',proposal:{observations:[],questions:[],changes:[
+      {feature:'face',scope:'persistent',panel_key:null,reference:refs[1],description_en:'oval face',avoid_en:'',avoid_ja:'',reason_ja:'顔'},
+      {feature:'outfit',scope:'persistent',panel_key:null,reference:refs[3],description_en:'separate top and skirt',avoid_en:'',avoid_ja:'',reason_ja:'服'}]}}];
+  const root = new FakeNode('root');
+  await commentEditor(root, {name:'確認用',kind:'character',stage:'samples'});
+  const texts = all(root).flatMap(n => n.children.filter(c => typeof c === 'string'));
+  assert.ok(texts.includes('顔の参照元：画像 2'));
+  assert.ok(texts.includes('衣装の参照元：画像 4'));
+});
+
 test('画風は全体の選択として表示し、明示保留でも衣装の訂正を採用できる', async t => {
   t.mock.method(globalThis, 'setTimeout', () => 0);
   let saved = {job_id:'style-order',status:'awaiting_confirmation',stage:'sheet',panel:'',original_comment:'画風と衣装の注文',references:[],
