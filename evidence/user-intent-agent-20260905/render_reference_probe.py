@@ -3,6 +3,7 @@ import argparse
 import base64
 from copy import deepcopy
 from html import escape
+import hashlib
 import json
 from pathlib import Path
 
@@ -70,8 +71,24 @@ def main():
             html.append('</ul><h3>現在の処理で組み立てた生成文（GPU未実行）</h3>')
             for request in requests:
                 html.append(f'<details><summary>{escape(request["label"])}</summary><pre>{escape(json.dumps(request, ensure_ascii=False, indent=2))}</pre></details>')
+        if generation := case.get("generation"):
+            cache = root / generation["cache"]
+            generated = json.loads((cache / "jobs" / f"{generation['job_id']}.json").read_text())
+            verification = json.loads((cache / "verification.json").read_text())
+            proofs = {p["panel"]: p for p in verification["panels"]}
+            keys = [p["key"] for p in generated["layout"]]
+            assert generated["status"] == "completed" and verification["job_id"] == generated["job_id"]
+            assert set(keys) == set(generation["observations"]) == set(proofs)
+            html.append('<h3>アプリで構成を確定して生成した画像</h3><p>実エージェントの保存済み応答を隔離台帳へ移し、アプリから確定・生成しました。解釈を再実行した結果ではありません。</p>')
+            for panel, request, image_path in zip(generated["layout"], generated["panel_requests"], generated["panels"], strict=True):
+                key = panel["key"]
+                data = (cache / Path(image_path).relative_to(generation["remote_cache"])).read_bytes()
+                assert hashlib.sha256(data).hexdigest() == proofs[key]["image_sha256"]
+                encoded = base64.b64encode(data).decode("ascii")
+                html.append(f'<h4>{escape(panel["label"])}</h4><p>{escape(generation["observations"][key])}</p><img style="width:100%;height:640px" src="data:image/png;base64,{encoded}" alt="生成した{escape(panel["label"])}"><details><summary>実際の生成条件</summary><pre>{escape(json.dumps(request, ensure_ascii=False, indent=2))}</pre></details>')
+            html.append('<details><summary>実グラフ・保存画像・本番台帳の照合</summary><pre>' + escape(json.dumps(verification, ensure_ascii=False, indent=2)) + '</pre></details>')
         html.append('<details><summary>画像参照・全解釈・元構成</summary><pre>' + escape(json.dumps(job, ensure_ascii=False, indent=2)) + '</pre></details></article>')
-    html.append('<p>すべて隔離台帳による試験です。構成を実験へ入力した操作以外は未採用で、画像生成・学習・本番機能配備は行っていません。解釈案だけの成功を、生成画像の成功には数えません。</p></html>')
+    html.append('<p>すべて隔離台帳による試験です。画像生成を行ったケースは生成画像欄に明記しています。解釈案だけの成功を、生成画像の成功には数えません。再学習・本番機能配備は行っていません。</p></html>')
     args.output.write_text(''.join(html))
 
 
