@@ -130,8 +130,7 @@ class Services:
     def _save_style(self, record: dict[str, Any]) -> dict[str, Any]:
         return self._save_record(self._style_dir(record["name"]), record, "style")
 
-    async def _add_pictures(self, record: dict[str, Any], root: Path, images: str, captions: str) -> None:
-        paths = [await self._resolve_image(ref.strip()) for ref in images.split(",") if ref.strip()]
+    def _add_pictures(self, record: dict[str, Any], root: Path, paths: list[Path], captions: str) -> None:
         texts = ([captions] if len(paths) == 1 else [c.strip() for c in captions.split("|")]) if captions else []
         root.mkdir(parents=True, exist_ok=True)
         for offset, path in enumerate(paths):
@@ -169,8 +168,11 @@ class Services:
     async def add_samples(self, name: str, images: str, captions: str = "") -> dict[str, Any]:
         """Add pictures (comma-separated paths / URLs / data URLs) with optional '|'-separated
         captions (what is in each picture, e.g. the outfit). Returns the record with samples.png."""
+        self._load_character(name)
+        paths = [await self._resolve_image(ref.strip()) for ref in images.split(",") if ref.strip()]
+        # 画像取得中に保存されたコメントも含め、最新の台帳へ追加する。
         record = self._load_character(name)
-        await self._add_pictures(record, self._character_dir(name) / "samples", images, captions)
+        self._add_pictures(record, self._character_dir(name) / "samples", paths, captions)
         self._record_call("add_samples", None, {"name": name, "images": len(record["samples"])})
         return self._save_character(record)
 
@@ -193,8 +195,10 @@ class Services:
         return self._save_style(record)
 
     async def add_style_samples(self, name: str, images: str, captions: str = "") -> dict[str, Any]:
+        self._load_style(name)
+        paths = [await self._resolve_image(ref.strip()) for ref in images.split(",") if ref.strip()]
         record = self._load_style(name)
-        await self._add_pictures(record, self._style_dir(name) / "samples", images, captions)
+        self._add_pictures(record, self._style_dir(name) / "samples", paths, captions)
         self._record_call("add_style_samples", None, {"name": name, "images": len(record["samples"])})
         return self._save_style(record)
 
@@ -238,6 +242,8 @@ class Services:
             raise ValueError(f"style {name!r} has no samples: add_style_samples first")
         job = await self._train_lora(record, self._style_dir(name), f"style_{record['key']}", "train_style_lora", steps)
         with self._job_errors(job):
+            record = self._load_style(name)
+            record.update(lora_name=job["lora_name"], train_job=job["job_id"], steps=job["steps"])
             self._save_style(record)
         return job
 
@@ -359,6 +365,7 @@ class Services:
             anchor = Path(record.get("samples_sheet") or panel_root / "turn_front.png")
             sheet = bible.compose_model_sheet(name, attr, panels, anchor, self.generated_root / f"bible_{key}_{job_id}.png")
             html = bible.write_html(name, attr, panels, anchor, self.generated_root / f"bible_{key}_{job_id}.html")
+            record = self._load_character(name)
             record["bible"] = {"job_id": job_id, "sheet_path": str(sheet), "html_path": str(html), "panels_dir": str(panel_root),
                                "attr": attr, "seed": seed, "style": job["style"], "at": datetime.now(UTC).isoformat().replace("+00:00", "Z")}
             self._save_character(record)
@@ -458,8 +465,12 @@ class Services:
             anchor = Path(info["source"])
             sheet = bible.compose_model_sheet(name, info.get("attr", ""), panels, anchor, Path(record["bible"]["sheet_path"]))
             html = bible.write_html(name, info.get("attr", ""), panels, anchor, Path(record["bible"]["html_path"]))
+            source_bible_id = record["bible"]["job_id"]
+            record = self._load_character(name)
             record.setdefault("panel_overrides", {})[panel] = {"tags": tags, "avoid": avoid, "seed": seed}
-            record["bible"]["at"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+            # 古い設定画の描き直しで、途中に完成した別の設定画の日時を変えない。
+            if record["bible"]["job_id"] == source_bible_id:
+                record["bible"]["at"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
             self._save_character(record)
             job.update(status="completed", path=str(panel_path), previous=str(previous) if previous.exists() else None,
                        sheet_path=str(sheet), html_path=str(html), elapsed_s=elapsed)
@@ -501,12 +512,13 @@ class Services:
             raise ValueError(f"{name!r} has no samples: add_samples first")
         job = await self._train_lora(record, self._character_dir(name), f"dataset_{record['key']}", "train_character_lora", steps)
         with self._job_errors(job):
+            record = self._load_character(name)
+            record.update(lora_name=job["lora_name"], train_job=job["job_id"], steps=job["steps"])
             self._save_character(record)
         return job
 
     async def _train_lora(self, record: dict[str, Any], root: Path, dataset_name: str, tool: str, steps: int = 1200) -> dict[str, Any]:
-        """Shared trainer: copy the record's samples with '<trigger>, <caption>' captions to fox and
-        run sd-scripts. Updates record[lora_name / train_job / steps]."""
+        """開始時の画像と説明で学習する。最新台帳への結果保存は呼出し側が担う。"""
         trigger = record["trigger"]
         panels = root / dataset_name
         if panels.exists():
@@ -524,9 +536,9 @@ class Services:
         self.events.save_job(job); self._record_call(tool, job_id, {"name": record["name"], "steps": steps})
         self.events.append(job_id, "queued", {"name": record["name"], "steps": steps})
         with self._job_errors(job):
-            return await self._execute_training(record, job, panels, stem, remote_root, steps)
+            return await self._execute_training(job, panels, stem, remote_root, steps)
 
-    async def _execute_training(self, record: dict[str, Any], job: dict[str, Any], panels: Path,
+    async def _execute_training(self, job: dict[str, Any], panels: Path,
                                 stem: str, remote_root: str, steps: int) -> dict[str, Any]:
         job_id = job["job_id"]
         code, output = await box.copy_tree_to_box(panels, remote_root, ssh=BOX_SSH)
@@ -556,7 +568,6 @@ class Services:
                     self.events.save_job(job); self.events.append(job_id, "progress", job["progress"])
         job.update(status="completed", progress={"step": steps, "total": steps})
         self.events.save_job(job); self.events.append(job_id, "completed", {"lora_name": job["lora_name"]})
-        record["lora_name"], record["train_job"], record["steps"] = job["lora_name"], job_id, steps
         return job
 
     async def refine_image(self, image: str, prompt: str, lora_name: str, denoise: float = 0.45,
