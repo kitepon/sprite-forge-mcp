@@ -25,7 +25,8 @@ def main():
     results = [result for root in args.probe for result in read(root / "results.json")]
     roots = {result["key"]: root for root in args.probe for result in read(root / "results.json")}
     notes = read(args.observations)
-    job = read(args.source / "changed.json")
+    needs_baseline = any(item["source"] == "baseline" for group in notes["groups"] for item in group["cases"])
+    job = read(args.source / "changed.json") if needs_baseline else None
     assert [r["key"] for r in results] == [c["key"] for c in cases], "実行結果と比較条件の対応が不一致"
     verified = []
     for case, result in zip(cases, results, strict=True):
@@ -50,6 +51,9 @@ def main():
                 remote = next(Path(p) for p in job["panels"] if Path(p).stem == group["panel"])
                 path = args.source / remote.relative_to("/results/run1")
                 condition = f"seed {request['seed']}・前回の画像を再利用"
+            elif item["source"] == "file":
+                path = args.source / item["image"]
+                condition = item["condition"]
             else:
                 result = next(r for r in results if r["key"] == item["key"])
                 path = roots[item["key"]] / result["image"]

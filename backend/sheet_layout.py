@@ -78,7 +78,9 @@ def validate_layout_proposal(proposal, job):
 
 def legacy_layout():
     return [{"key": p.key, "section": p.section, "label": p.label, "kind": p.kind,
-             "parts": [{"feature": f, "description_en": text, "avoid_en": ""} for f, text in p.parts],
+             "parts": [{"feature": f, "description_en": text,
+                        "avoid_en": p.conditions[f]["avoid_en"] if f not in dict(p.parts[:index]) else ""}
+                       for index, (f, text) in enumerate(p.parts)],
              "role_features": sorted(role_conditions(p)),
              "inherited_features": sorted(inherited(p, {key: {} for key in get_args(Feature)})),
              "seed_offset": index} for index, p in enumerate(bible.PANELS)]

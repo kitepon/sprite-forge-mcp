@@ -31,9 +31,10 @@ def resolve_panel(panel, trigger, char_desc, common, changes, saved, intent_job_
     legacy = saved.get("tags") or saved.get("avoid")
     if legacy and not targeted and (shared or temporary):
         raise ValueError(f"{panel.label}の保存済み英語修正を、対象パネルの注文に取り込んで解釈・採用してください。")
-    if not shared and not temporary and not targeted and not saved.get("conditions") and (legacy or not any(text for _, text in panel.negative_parts)):
+    if not shared and not temporary and not targeted and not saved.get("conditions"):
+        _, negative = prompt_parts(panel.conditions)
         return {"prompt": bible.panel_prompt(panel, trigger, char_desc, saved.get("tags", "")),
-                "negative": ", ".join(p for p in (bible.NEGATIVE, saved.get("avoid", "")) if p),
+                "negative": ", ".join(p for p in (bible.QUALITY_NEGATIVE, negative, saved.get("avoid", "")) if p),
                 "conditions": {}}
     conditions = {"background": {"description_en": bible.COMMON, "avoid_en": ""}}
     if panel.kind != "item":
@@ -50,7 +51,7 @@ def resolve_panel(panel, trigger, char_desc, common, changes, saved, intent_job_
     conditions["background"] = background
     positive, negative = prompt_parts(conditions)
     return {"prompt": ", ".join(p for p in (trigger, positive) if p),
-            "negative": ", ".join(p for p in (bible.NEGATIVE, negative) if p), "conditions": conditions}
+            "negative": ", ".join(p for p in (bible.QUALITY_NEGATIVE, negative) if p), "conditions": conditions}
 
 
 def saved_corrections(current, previous, changes, seeds, job_id):

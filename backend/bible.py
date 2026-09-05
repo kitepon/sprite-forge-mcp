@@ -17,6 +17,9 @@ from typing import NamedTuple
 
 from PIL import Image, ImageChops, ImageDraw, ImageFont
 
+QUALITY_NEGATIVE = "lowres, bad anatomy, bad hands, text, watermark"
+SINGLE_VIEW_NEGATIVE = "multiple views, reference sheet, collage"
+
 
 class Panel(NamedTuple):
     key: str
@@ -24,7 +27,7 @@ class Panel(NamedTuple):
     label: str
     kind: str      # full | face | item | chibi  (drives the canvas size)
     parts: tuple[tuple[str, str], ...]  # 特徴名と内容文。並びは従来の生成文を保つ。
-    negative_parts: tuple[tuple[str, str], ...] = ()
+    negative_parts: tuple[tuple[str, str], ...] = (("composition", SINGLE_VIEW_NEGATIVE),)
     role_features: tuple[str, ...] | None = None
     inherited_features: tuple[str, ...] | None = None
 
@@ -42,8 +45,8 @@ class Panel(NamedTuple):
         for feature, text in self.negative_parts:
             if text:
                 negative.setdefault(feature, []).append(text)
-        return {feature: {"description_en": ", ".join(parts), "avoid_en": ", ".join(negative.get(feature, []))}
-                for feature, parts in grouped.items()}
+        return {feature: {"description_en": ", ".join(grouped.get(feature, [])), "avoid_en": ", ".join(negative.get(feature, []))}
+                for feature in dict.fromkeys([*grouped, *negative])}
 
 
 PANELS: tuple[Panel, ...] = (
@@ -72,7 +75,7 @@ PANELS: tuple[Panel, ...] = (
     Panel("item_shoes", "WARDROBE / ITEMS", "FOOTWEAR", "item", (("subject", "no humans"), ("outfit", "shoes, boots, footwear"), ("composition", "still life, object focus"))),
 )
 COMMON = "simple background, white background"
-NEGATIVE = "lowres, bad anatomy, bad hands, text, watermark, multiple views, reference sheet, collage"
+NEGATIVE = f"{QUALITY_NEGATIVE}, {SINGLE_VIEW_NEGATIVE}"
 SIZES = {"full": (832, 1216), "face": (1024, 1024), "item": (1024, 1024), "chibi": (1024, 1024)}
 
 SECTIONS = (
@@ -110,8 +113,9 @@ def subject_tag(char_desc: str) -> str:
 
 def panel_prompt(panel: Panel, trigger: str, char_desc: str, tags: str = "") -> str:
     """trigger + subject + the panel's content tags. Item panels carry no subject."""
-    subject = "" if panel.kind == "item" else subject_tag(char_desc)
-    return ", ".join(part for part in (trigger, subject, tags or panel.tags, COMMON) if part)
+    subject = "" if panel.kind == "item" or (not tags and "subject" in panel.conditions) else subject_tag(char_desc)
+    background = "" if not tags and "background" in panel.conditions else COMMON
+    return ", ".join(part for part in (trigger, subject, tags or panel.tags, background) if part)
 
 
 def size(panel: Panel) -> tuple[int, int]:

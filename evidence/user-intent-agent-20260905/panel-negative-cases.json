@@ -1,0 +1,50 @@
+[
+  {
+    "key": "front-explicit-negative",
+    "panel": "front",
+    "graph": "sheet-single-view-v1/front-single-view-workflow.json",
+    "factor": "node_inputs",
+    "changes": [
+      {
+        "node": "21",
+        "input": "text",
+        "before": "lowres, bad anatomy, bad hands, text, watermark, multiple views, reference sheet, collage",
+        "after": "lowres, bad anatomy, bad hands, text, watermark"
+      }
+    ]
+  },
+  {
+    "key": "side-explicit-negative",
+    "panel": "side",
+    "graph": "sheet-single-view-v1/side-single-view-workflow.json",
+    "factor": "node_inputs",
+    "changes": [
+      {
+        "node": "21",
+        "input": "text",
+        "before": "lowres, bad anatomy, bad hands, text, watermark, multiple views, reference sheet, collage",
+        "after": "lowres, bad anatomy, bad hands, text, watermark"
+      }
+    ]
+  },
+  {
+    "key": "requested-two-views",
+    "panel": "comparison",
+    "graph": "sheet-single-view-v1/front-single-view-workflow.json",
+    "factor": "node_inputs",
+    "changes": [
+      {
+        "node": "20",
+        "input": "text",
+        "before": "ndac1de01, young woman, solo, one person, full body, single view, standing, front view, looking at viewer, arms relaxed at sides, large violet eyes, small nose, pale blonde twin ponytails with pink gradient tips, straight bangs, blue cropped top with white fur collar and fur cuffs, gold trim and gold diamond ornaments, layered ruffled white mini skirt, white knee-high boots with white fur cuffs, gold trim, gold diamond ornaments, low brown heels, gold star hair ornaments, gold star pendant, simple background, white background",
+        "after": "ndac1de01, young woman, two full-body views of the same character side by side, front view on the left and back view on the right, both figures standing with arms relaxed at sides, large violet eyes, small nose, pale blonde twin ponytails with pink gradient tips, straight bangs, blue cropped top with white fur collar and fur cuffs, gold trim and gold diamond ornaments, layered ruffled white mini skirt, white knee-high boots with white fur cuffs, gold trim, gold diamond ornaments, low brown heels, gold star hair ornaments, gold star pendant, simple background, white background"
+      },
+      {
+        "node": "21",
+        "input": "text",
+        "before": "lowres, bad anatomy, bad hands, text, watermark, multiple views, reference sheet, collage",
+        "after": "lowres, bad anatomy, bad hands, text, watermark"
+      }
+    ]
+  }
+]

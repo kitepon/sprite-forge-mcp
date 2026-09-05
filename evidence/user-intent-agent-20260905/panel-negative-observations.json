@@ -1,0 +1,26 @@
+{
+  "summary": "構図の除外指定を各パネルへ移した。従来23項目の生成文と除外文は維持し、利用者が構図を変えたときは、その構図の除外も置き換わる。今回の3画像では単独の正面・側面を維持し、指定した正面・背面の比較図も描けた。本番機能はまだ更新していない。",
+  "limits": "正面・側面は同じseedと肯定文で、共通の構図除外を外した一要因比較。比較図は別の注文として肯定文と否定文の両方を変えた。全てAnima Base 1.0、同じLoRA 0.8、28step、CFG 4。各1seedの確認であり、全キャラクターの画質保証ではない。実験の英語句は親が作り、エージェントの新しい実応答ではない。",
+  "groups": [
+    {
+      "label": "単独の正面を維持できるか",
+      "cases": [
+        {"key": "before-front", "source": "file", "image": "sheet-single-view-v1/front-single-view.png", "label": "比較元：構図除外あり", "condition": "seed 1・前回の画像を再利用", "observation": "一人の正面。紫の目、桃色の毛先、青と白金の衣装。"},
+        {"key": "front-explicit-negative", "source": "probe", "label": "構図除外を外した条件", "observation": "一人の正面を維持。顔髪・衣装の大きな構造・塗りは保たれる。装飾や裾の細部は変わり、トップの袖と前面に白が残る。"}
+      ]
+    },
+    {
+      "label": "単独の側面を維持できるか",
+      "cases": [
+        {"key": "before-side", "source": "file", "image": "sheet-single-view-v1/side-single-view.png", "label": "比較元：構図除外あり", "condition": "seed 3・前回の画像を再利用", "observation": "一人の左向き。右向きの指定に従わない問題は既存。"},
+        {"key": "side-explicit-negative", "source": "probe", "label": "構図除外を外した条件", "observation": "一人の側面と本人の特徴を維持。左向きのままで、トップの袖と前面も白い。人数の悪化は今回の画像では見られなかった。"}
+      ]
+    },
+    {
+      "label": "正面と背面を同じ枠へ描く注文",
+      "cases": [
+        {"key": "requested-two-views", "source": "probe", "label": "左に正面、右に背面", "observation": "指定どおり同じ枠に正面と背面を配置。紫の目・桃色の毛先・白金のスカートと靴、青い身頃を保持。トップの前面と袖には白が残り、肩の形も単独正面とは異なる。"}
+      ]
+    }
+  ]
+}

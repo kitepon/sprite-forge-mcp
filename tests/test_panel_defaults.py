@@ -20,7 +20,9 @@ def test_conditions_keep_each_feature_and_collect_nonadjacent_parts():
     panels = {p.key: p for p in bible.PANELS}
     for panel in panels.values():
         assert set(panel.conditions) <= set(get_args(Feature))
-        assert all(value["description_en"] and value["avoid_en"] == "" for value in panel.conditions.values())
+        assert all(value["description_en"] for value in panel.conditions.values())
+        assert {feature: value["avoid_en"] for feature, value in panel.conditions.items() if value["avoid_en"]} == {
+            "composition": "multiple views, reference sheet, collage"}
     assert panels["body_front"].conditions["pose"]["description_en"] == "standing, front view, arms slightly out"
     assert panels["body_front"].conditions["outfit"]["description_en"] == "plain white leotard, bodysuit, bare legs, barefoot"
     assert panels["ex_shy"].conditions["expression"]["description_en"] == "embarrassed, blush, nervous"
