@@ -6,7 +6,7 @@ from pathlib import Path
 import uuid
 
 from . import bible
-from .intent import IntentRequest, Proposal, effective_conditions, prompt_parts, validate_proposal
+from .intent import IntentRequest, Proposal, PREVIEW_CONDITIONS, effective_conditions, prompt_parts, validate_proposal
 
 
 class IntentServices:
@@ -57,6 +57,7 @@ class IntentServices:
                "existing_settings": {key: deepcopy(record[key]) for key in ("char_desc", "attr", "style", "style_strength", "panel_overrides") if key in record},
                "references": [{"record_key": record["key"], "sample_index": s["index"], "path": s["path"]} for s in selected],
                "image_comments": [s.get("caption", "") for s in selected],
+               "stage_conditions": deepcopy(PREVIEW_CONDITIONS) if request.kind == "character" and request.stage == "preview" else {},
                "base_conditions": deepcopy(record.get("intent_conditions", {}))}
         self.events.save_job(job)
         return job

@@ -206,6 +206,32 @@ def test_preview_replaces_only_owned_defaults():
         preview_content("custom pose", conditions)
 
 
+def test_preview_interpretation_receives_stage_defaults_without_persisting_them(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+
+    async def interpret(job, images):
+        assert job["stage_conditions"]["pose"]["description_en"] == "standing, front view, looking at viewer"
+        assert job["stage_conditions"]["composition"]["description_en"] == "full body"
+        return proposal(scope="this_run", feature="pose", text="standing, side view")
+
+    service.intent_interpreter = interpret
+
+    async def scenario():
+        await setup(service, tmp_path)
+        job = await service.interpret_comment(IntentRequest(name="probe", stage="preview", comment="今回は横向き"))
+        await service.confirm_comment_intent(job["job_id"], Proposal.model_validate(job["proposal"]))
+        rec = await service.character_info("probe")
+        assert rec["intent_conditions"] == {}
+        assert service.events.load_job(job["job_id"])["stage_conditions"] == job["stage_conditions"]
+        other = await service.save_comment(IntentRequest(name="probe", stage="samples", comment="参考画像"))
+        assert other["stage_conditions"] == {}
+        await service.create_style("paint")
+        style = await service.save_comment(IntentRequest(name="paint", kind="style", stage="preview", comment="画風を確認"))
+        assert style["stage_conditions"] == {}
+
+    asyncio.run(scenario())
+
+
 def test_unconnected_style_change_is_not_persisted(tmp_path, monkeypatch):
     service, _ = make(tmp_path, monkeypatch)
 

@@ -10,7 +10,7 @@ from pathlib import Path
 from PIL import Image
 
 
-def build(root, cases):
+def build(root, cases, output_prefix="p3-expanded", title="注文の反映・追加比較", summary="服の変更は反映されたが、横向きの精度と髪の維持に不足が見つかった。"):
     sections, metrics, baseline_pixels, normalized = [], [], [], []
     for case in cases:
         key = case["key"]
@@ -53,9 +53,12 @@ def build(root, cases):
     assert all(pixels == baseline_pixels[0] for pixels in baseline_pixels)
     report = {"cases": metrics, "total_images": 6 * len(cases), "normalized_graphs_equal": True,
               "baseline_pixels_equal_across_cases": True}
-    (root / "p3-expanded-metrics.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    (root / f"{output_prefix}-metrics.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     body = '<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>注文の反映・追加比較</title><style>body{max-width:1100px;margin:24px auto;padding:20px;background:#f4f3ee;color:#183c32;font:16px/1.65 system-ui}section{background:white;padding:24px;border-radius:20px;margin:20px 0}h1{font-size:28px}h2{font-size:22px}summary{cursor:pointer;color:#075f47;font-weight:600}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}figure{margin:0}img{width:100%;border-radius:14px}figcaption{padding:12px 0}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f3ee;padding:16px;border-radius:12px}blockquote{border-left:3px solid #a8c9bb;padding-left:16px;margin-left:0}@media(max-width:500px){body{padding:10px}section{padding:16px}.grid{gap:8px}figcaption{font-size:12px}}</style><h1>注文の反映・追加比較</h1><p>4種類・新旧24枚の生成完了。服の変更は反映されたが、横向きの精度と髪の維持に不足が見つかった。</p><p>同じ既存LoRA・強度0.8・Anima Base・832×1216・28 steps・CFG 4。各条件でSeed 1〜3。再学習なし、本番の登録データ変更なし。「今回だけ」の条件は次の生成条件へ残っていない。</p>' + ''.join(sections) + '<p>画像の観察は開発担当によるもの。自動の採用判定ではありません。改善前の結果も全件表示しています。</p></html>'
-    output = root / "p3-expanded-comparison.html"
+    body = body.replace("注文の反映・追加比較", html.escape(title)).replace(
+        "4種類・新旧24枚の生成完了。服の変更は反映されたが、横向きの精度と髪の維持に不足が見つかった。",
+        f"{len(cases)}種類・新旧{len(cases) * 6}枚の生成完了。{html.escape(summary)}")
+    output = root / f"{output_prefix}-comparison.html"
     output.write_text(body, encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False, indent=2))
     print(output)
@@ -65,5 +68,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--observations", type=Path, required=True)
+    parser.add_argument("--output-prefix", default="p3-expanded")
+    parser.add_argument("--title", default="注文の反映・追加比較")
+    parser.add_argument("--summary", default="服の変更は反映されたが、横向きの精度と髪の維持に不足が見つかった。")
     args = parser.parse_args()
-    build(args.root, json.loads(args.observations.read_text()))
+    build(args.root, json.loads(args.observations.read_text()), args.output_prefix, args.title, args.summary)

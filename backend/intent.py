@@ -10,6 +10,10 @@ RecordKind = Literal["character", "style"]
 Stage = Literal["samples", "training", "preview", "sheet", "panel", "drawing"]
 Feature = Literal["face", "hair", "outfit", "style", "expression", "pose", "accessory", "background", "subject", "composition", "lighting"]
 PREVIEW_TAGS = "full body, standing, front view, looking at viewer"
+PREVIEW_CONDITIONS = {
+    "composition": {"description_en": "full body", "avoid_en": ""},
+    "pose": {"description_en": "standing, front view, looking at viewer", "avoid_en": ""},
+}
 
 
 class StrictModel(BaseModel):
@@ -100,6 +104,4 @@ def preview_content(tags: str, conditions: dict) -> str:
         return tags
     if tags and tags != PREVIEW_TAGS:
         raise ValueError("英語の自由入力と解釈した注文は同時に使えません。自由入力の内容を制作への注文に含めて解釈してください。")
-    defaults = {"composition": {"description_en": "full body", "avoid_en": ""},
-                "pose": {"description_en": "standing, front view, looking at viewer", "avoid_en": ""}}
-    return prompt_parts({**defaults, **conditions})[0]
+    return prompt_parts({**PREVIEW_CONDITIONS, **conditions})[0]
