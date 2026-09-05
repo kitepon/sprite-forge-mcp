@@ -41,9 +41,30 @@ uvicorn backend.app:app --host 127.0.0.1 --port 8765
 | 機能 | 要るもの |
 |---|---|
 | **SAM2 自動マスク** | `python3.12 -m venv .venv-sam2 && .venv-sam2/bin/pip install ultralytics`（任意・未導入でも手描きマスク可） |
-| **AIプロンプト生成** | あなた自身の `claude`（or `codex`）CLI が PATH＋ログイン済み（Anthropic APIキー不要） |
+| **コメント解釈** | ChatGPT契約でログイン済みの公式 `codex` CLI。下記の接続設定を使う。APIキーは不要 |
 | **キャラ/画風 LoRA 学習** | GPU box に kohya **sd-scripts** ＋ accelerate/torch-CUDA。**※下記の制約参照** |
 | **claude.ai/design 共有** | operator の claude.ai ログイン（任意・本体機能ではない） |
+
+## コメント解釈の接続
+
+バックエンドと同じ環境に公式Codex CLIとChatGPT契約のログインがあれば、接続用の環境変数は不要です。Dockerで動かす場合は、ログイン済みのサーバー本体へSSHで解釈を依頼できます。認証ファイルをコンテナへコピーする必要はありません。
+
+サーバー本体にこのリポジトリと `uv` を配置し、`codex login status` が `Logged in using ChatGPT` を返すことを確認します。アプリが使うSSH公開鍵を指定して、サーバー本体で次を実行します。
+
+```bash
+python3 scripts/configure_intent_host.py \
+  --root /absolute/path/to/sprite-forge-mcp \
+  --public-key /absolute/path/to/app-key.pub \
+  --authorized-keys /absolute/path/to/.ssh/authorized_keys
+```
+
+この処理は依存を導入し、既存のSSH登録を保存してから、指定鍵をコメント解釈コマンドに限定して登録します。同じ鍵が別用途で登録済みなら変更せず停止します。バックアップは指定したリポジトリ内の `.intent-setup-backups/` に保存します。
+
+アプリの `.env` に `SPRITEFORGE_INTENT_SSH=user@cli-host` と `SPRITEFORGE_INTENT_HOST_ROOT=/absolute/path/to/sprite-forge-mcp` を設定します。SSH接続先と既知ホストは、コンテナへ渡す既存のSSH設定で管理します。配備後はWebUIから新しい注文を解釈し、確認案が返ることまで確かめてください。
+
+試験用ディレクトリから本番へ切り替える時は、環境変数の変更に加えて、上のコマンドを本番の `--root` で再実行します。SSHで実行される配置はサーバーの鍵登録に固定されるためです。接続を撤回する時は、`authorized_keys` の末尾が `sprite-forge-intent` の登録行を取り除きます。他の登録を巻き戻さないよう、全体のバックアップ復元はその後の変更がない場合だけにします。
+
+解釈処理はChatGPT契約ログインを指定し、APIキーの環境変数を除外します。認証失敗や利用上限はエラーで返し、別の課金経路へ切り替えません。
 
 ## 「何が無いと何が動くか」
 | やりたいこと | 必須 |

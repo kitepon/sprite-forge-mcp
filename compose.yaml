@@ -7,6 +7,8 @@ services:
       SPRITEFORGE_CACHE: /app/.cache
       SPRITEFORGE_COMFY_URL: ${SPRITEFORGE_COMFY_URL:-http://192.168.1.11:8188}
       SPRITEFORGE_BOX_SSH: ${SPRITEFORGE_BOX_SSH:-fox}
+      SPRITEFORGE_INTENT_SSH: ${SPRITEFORGE_INTENT_SSH:-}
+      SPRITEFORGE_INTENT_HOST_ROOT: ${SPRITEFORGE_INTENT_HOST_ROOT:-}
     volumes:
       - ./.cache:/app/.cache
       - ${SPRITEFORGE_SSH_DIR:-/home/kite/.ssh}:/run/ssh:ro

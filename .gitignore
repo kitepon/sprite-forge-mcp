@@ -42,6 +42,7 @@ sam2_t.pt
 
 # Local config: your real box/host/account values (see .env.example). NEVER publish.
 .env
+.intent-setup-backups/
 
 # Internal handoff notes (machine/box admin detail) — kept local, not for the public repo.
 HANDOFF.md

@@ -89,3 +89,35 @@ def test_nonzero_cli_exposes_structured_error_before_generic_stderr(monkeypatch)
         returncode=1, stdout='{"type":"error","message":"Invalid schema: caption_en must be required"}', stderr="Reading prompt from stdin..."))
     with pytest.raises(RuntimeError, match="Invalid schema"):
         run({"input": {}, "images": []})
+
+
+@pytest.mark.parametrize("returncode", [0, 255])
+def test_app_runner_ssh_transfers_images_and_exposes_connection_failure(monkeypatch, returncode):
+    from backend.intent_runner import interpret
+
+    monkeypatch.setenv("SPRITEFORGE_INTENT_SSH", "app@cli-host")
+    monkeypatch.setenv("SPRITEFORGE_INTENT_HOST_ROOT", "/project with space")
+    job = {"original_comment": "参照画像の衣装", "record_description": "", "existing_settings": {},
+           "references": [], "image_comments": [], "base_conditions": {}, "stage": "samples",
+           "panel": "", "record_kind": "character"}
+
+    async def communicate(raw):
+        packet = json.loads(raw)
+        assert packet["input"]["original_comment"] == "参照画像の衣装"
+        assert base64.b64decode(packet["images"][0]) == b"reference"
+        return json.dumps({"proposal": {"observations": [], "changes": [], "questions": []},
+                           "model": "fixture", "elapsed_seconds": 1.5, "auth": "chatgpt"}).encode(), b"Permission denied (publickey)."
+
+    async def start(*args, **kwargs):
+        assert args == ("ssh", "-T", "-o", "BatchMode=yes", "app@cli-host",
+                        "cd '/project with space' && uv run --no-sync python -m backend.intent_cli")
+        return SimpleNamespace(returncode=returncode, communicate=communicate)
+
+    monkeypatch.setattr("backend.intent_runner.asyncio.create_subprocess_exec", start)
+    if returncode:
+        with pytest.raises(RuntimeError, match="Permission denied"):
+            asyncio.run(interpret(job, [b"reference"]))
+        assert "interpreter" not in job
+    else:
+        assert asyncio.run(interpret(job, [b"reference"]))["questions"] == []
+        assert job["interpreter"] == {"model": "fixture", "elapsed_seconds": 1.5, "auth": "chatgpt"}
