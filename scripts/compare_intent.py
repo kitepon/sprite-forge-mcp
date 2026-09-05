@@ -2,7 +2,6 @@
 import argparse
 import asyncio
 import base64
-from copy import deepcopy
 import html
 import json
 import os
@@ -10,6 +9,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 import httpx
+from scripts.check_intent import apply_retained
 
 
 async def main(args):
@@ -18,7 +18,6 @@ async def main(args):
     os.environ["SPRITEFORGE_CACHE"] = str(root)
     from backend.comfy import Comfy
     from backend.services import Services
-    from backend.intent import IntentRequest, Proposal
 
     def save(name, value):
         (root / name).write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -53,35 +52,28 @@ async def main(args):
             rec = service._load_character(args.name)
             rec.update(style=original["style"], style_strength=original.get("style_strength", 0.7))
             service._save_character(rec)
-        baseline = await service.preview_character(args.name, seed=1, count=2)
+        if args.base_interpretation:
+            await apply_retained(service, args.name, json.loads(args.base_interpretation.read_text()))
+        before_conditions = json.loads(json.dumps(service._load_character(args.name).get("intent_conditions", {})))
+        baseline = await service.preview_character(args.name, seed=1, count=args.count)
         save("baseline.json", baseline)
-        print("従来の条件: 2枚完了", flush=True)
-
-        async def retained_proposal(job, images):
-            result = deepcopy(native["proposal"])
-            references = {ref["sample_index"]: job["references"][i] for i, ref in enumerate(native["references"])}
-            for item in [*result["observations"], *result["changes"]]:
-                if item["reference"] is not None:
-                    item["reference"] = references[item["reference"]["sample_index"]]
-            job["interpreter"] = native["interpreter"]
-            return result
-
-        # 開発実験で確認した既存応答を使う。ここでモデルを再度呼ばない。
-        service.intent_interpreter = retained_proposal
-        job = await service.interpret_comment(IntentRequest(name=args.name, stage="preview", comment=native["original_comment"]))
-        await service.confirm_comment_intent(job["job_id"], Proposal.model_validate(job["proposal"]))
-        changed = await service.preview_character(args.name, seed=1, count=2, intent_job_id=job["job_id"])
+        print(f"従来の条件: {args.count}枚完了", flush=True)
+        job = await apply_retained(service, args.name, native)
+        changed = await service.preview_character(args.name, seed=1, count=args.count, intent_job_id=job["job_id"])
         save("changed.json", changed)
+        save("scope.json", {"before": before_conditions, "after": service._load_character(args.name).get("intent_conditions", {}),
+                            "next_run": service._generation_intent(service._load_character(args.name), "character", "preview")})
         await comfy.close()
-        print("解釈した条件: 2枚完了", flush=True)
+        print(f"解釈した条件: {args.count}枚完了", flush=True)
 
     cards = []
-    for i in range(2):
+    for i in range(args.count):
         for label, result in (("従来", baseline), ("解釈を反映", changed)):
             picture = result["pictures"][i]
             url = "data:image/png;base64," + base64.b64encode(Path(picture["path"]).read_bytes()).decode()
             cards.append(f'<figure><figcaption>{label} · Seed {picture["seed"]} · {picture["elapsed_s"]:.1f}秒</figcaption><img src="{html.escape(url)}"></figure>')
     content = '<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>衣装の注文・新旧比較</title><style>body{max-width:1100px;margin:24px auto;padding:20px;background:#f4f3ee;color:#183c32;font:16px system-ui}h1{font-size:26px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}figure{margin:0}img{width:100%;border-radius:16px}figcaption{padding:12px}pre{white-space:pre-wrap;background:white;padding:20px;border-radius:16px}</style><h1>衣装の注文・新旧比較</h1><p>完了：同じLoRA・強度・Seed 1 / 2。再学習なし。左が従来、右が解釈を反映。</p><p>' + html.escape(native["original_comment"]) + '</p><div class="grid">' + ''.join(cards) + '</div><h2>生成へ渡した変更</h2><pre>' + html.escape(changed["intent_positive"]) + '</pre><p>観察結果と画像の好みは別です。この比較は自動採用しません。</p></html>'
+    content = content.replace("衣装の注文・新旧比較", html.escape(args.title)).replace("Seed 1 / 2", f"Seed 1〜{args.count}")
     (root / "comparison.html").write_text(content, encoding="utf-8")
     print(root / "comparison.html", flush=True)
 
@@ -93,4 +85,7 @@ if __name__ == "__main__":
     parser.add_argument("--source", required=True)
     parser.add_argument("--name", required=True)
     parser.add_argument("--reference", type=Path, action="append", required=True)
+    parser.add_argument("--base-interpretation", type=Path)
+    parser.add_argument("--count", type=int, choices=(2, 3), default=2)
+    parser.add_argument("--title", default="衣装の注文・新旧比較")
     asyncio.run(main(parser.parse_args()))
