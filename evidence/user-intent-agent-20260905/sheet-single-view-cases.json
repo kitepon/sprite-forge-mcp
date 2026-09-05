@@ -1,0 +1,18 @@
+[
+  {
+    "key": "front-single-view",
+    "panel": "front",
+    "graph": "workflow-e3f4978d-5804-4ee3-bbdc-7fdb093e9877-3.json",
+    "factor": "positive_phrase",
+    "old": "full body, character reference, ",
+    "new": "solo, one person, full body, single view, "
+  },
+  {
+    "key": "side-single-view",
+    "panel": "side",
+    "graph": "workflow-e3f4978d-5804-4ee3-bbdc-7fdb093e9877-4.json",
+    "factor": "positive_phrase",
+    "old": "full body, character reference, ",
+    "new": "solo, one person, full body, single view, "
+  }
+]

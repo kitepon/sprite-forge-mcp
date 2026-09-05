@@ -1,0 +1,28 @@
+[
+  {
+    "key": "side-without-reference-or-lora",
+    "panel": "side",
+    "graph": "workflow-e3f4978d-5804-4ee3-bbdc-7fdb093e9877-4.json",
+    "factor": "node_inputs",
+    "changes": [
+      {
+        "node": "20",
+        "input": "text",
+        "before": "ndac1de01, young woman, full body, character reference, standing, side view, profile, facing right, arms relaxed at sides, large violet eye in profile, small nose, pale blonde twin ponytails with pink gradient tips, straight bangs, blue cropped top with white fur collar and fur cuffs, gold trim and gold diamond ornaments, layered ruffled white mini skirt, white knee-high boots with white fur cuffs, gold trim, gold diamond ornaments, low brown heels, gold star hair ornaments, gold star pendant, simple background, white background",
+        "after": "ndac1de01, young woman, full body, standing, side view, profile, facing right, arms relaxed at sides, large violet eye in profile, small nose, pale blonde twin ponytails with pink gradient tips, straight bangs, blue cropped top with white fur collar and fur cuffs, gold trim and gold diamond ornaments, layered ruffled white mini skirt, white knee-high boots with white fur cuffs, gold trim, gold diamond ornaments, low brown heels, gold star hair ornaments, gold star pendant, simple background, white background"
+      },
+      {
+        "node": "4",
+        "input": "strength_model",
+        "before": 0.8,
+        "after": 0
+      },
+      {
+        "node": "4",
+        "input": "strength_clip",
+        "before": 0.8,
+        "after": 0
+      }
+    ]
+  }
+]

@@ -15,26 +15,32 @@ def read(path):
 
 def main():
     parser = argparse.ArgumentParser()
-    for name in ("source", "probe", "cases", "observations", "output"):
+    for name in ("source", "observations", "output"):
         parser.add_argument("--" + name, type=Path, required=True)
+    for name in ("probe", "cases"):
+        parser.add_argument("--" + name, type=Path, action="append", required=True)
+    parser.add_argument("--interpretation", type=Path, action="append", default=[])
     args = parser.parse_args()
-    cases = read(args.cases)
-    results = read(args.probe / "results.json")
+    cases = [case for path in args.cases for case in read(path)]
+    results = [result for root in args.probe for result in read(root / "results.json")]
+    roots = {result["key"]: root for root in args.probe for result in read(root / "results.json")}
     notes = read(args.observations)
     job = read(args.source / "changed.json")
     assert [r["key"] for r in results] == [c["key"] for c in cases], "実行結果と比較条件の対応が不一致"
     verified = []
     for case, result in zip(cases, results, strict=True):
         source = args.source / case["graph"]
-        actual = args.probe / (case["key"] + "-workflow.json")
+        root = roots[case["key"]]
+        actual = root / (case["key"] + "-workflow.json")
         assert read(actual) == perturb(read(source), case), case["key"]
         assert result["seed"] == read(actual)["23"]["inputs"]["seed"], case["key"]
         assert all(result[k] == v for k, v in case.items()), case["key"]
         verified.append({"key": case["key"], "seed": result["seed"], "elapsed_s": result["elapsed_s"],
                          "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
                          "workflow_sha256": hashlib.sha256(actual.read_bytes()).hexdigest(),
-                         "image_sha256": hashlib.sha256((args.probe / result["image"]).read_bytes()).hexdigest()})
+                         "image_sha256": hashlib.sha256((root / result["image"]).read_bytes()).hexdigest()})
     shown = []
+    image_count = 0
     sections = []
     for group in notes["groups"]:
         cards = []
@@ -46,12 +52,13 @@ def main():
                 condition = f"seed {request['seed']}・前回の画像を再利用"
             else:
                 result = next(r for r in results if r["key"] == item["key"])
-                path = args.probe / result["image"]
+                path = roots[item["key"]] / result["image"]
                 condition = f"seed {result['seed']}・{result['elapsed_s']}秒"
                 shown.append(item["key"])
             data = base64.b64encode(path.read_bytes()).decode("ascii")
+            image_count += 1
             cards.append(f'<article><h3>{escape(item["label"])}</h3><p class="meta">{escape(condition)}</p>'
-                         f'<a href="data:image/png;base64,{data}" target="_blank"><img alt="{escape(group["label"] + item["label"])}" src="data:image/png;base64,{data}"></a>'
+                         f'<img alt="{escape(group["label"] + item["label"])}" src="data:image/png;base64,{data}">'
                          f'<p>{escape(item["observation"])}</p></article>')
         sections.append(f'<section><h2>{escape(group["label"])}</h2><div class="cards">' + ''.join(cards) + '</div></section>')
     assert sorted(shown) == sorted(r["key"] for r in results), "未掲載または重複掲載の実験画像があります"
@@ -62,10 +69,15 @@ def main():
     document += '<aside><p>' + escape(notes["summary"]) + '</p></aside><p>' + escape(notes["limits"]) + '</p>'
     document += '<p>人間の顔・髪・衣装・画風の維持を主な受入条件とし、人外の事例は追加の検証に使う。LoRAを外す比較は原因調査に限定する。</p>'
     document += ''.join(sections)
-    document += '<details><summary>変更条件と実グラフの照合結果（全5件一致）</summary><pre>' + escape(json.dumps({"cases": cases, "verified": verified}, ensure_ascii=False, indent=2)) + '</pre></details></main></html>'
+    if notes.get("native_observations"):
+        document += '<section><h2>構成エージェントの確認</h2><ul>' + ''.join('<li>' + escape(note) + '</li>' for note in notes["native_observations"]) + '</ul></section>'
+    document += f'<details><summary>変更条件と実グラフの照合結果（全{len(verified)}件一致）</summary><pre>' + escape(json.dumps({"cases": cases, "verified": verified}, ensure_ascii=False, indent=2)) + '</pre></details>'
+    for path in args.interpretation:
+        document += '<details><summary>構成エージェントの実応答：' + escape(path.parent.name) + '</summary><pre>' + escape(json.dumps(read(path), ensure_ascii=False, indent=2)) + '</pre></details>'
+    document += '</main></html>'
     args.output.write_text(document, encoding="utf-8")
-    (args.probe / "verification.json").write_text(json.dumps(verified, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"実グラフ{len(verified)}件一致、全8画像を掲載: {args.output}")
+    args.output.with_suffix(".verification.json").write_text(json.dumps(verified, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"実グラフ{len(verified)}件一致、全{image_count}画像を掲載: {args.output}")
 
 
 if __name__ == "__main__":

@@ -90,10 +90,34 @@ def test_layout_cli_has_its_own_strict_schema_and_subscription_command(monkeypat
                 assert set(value["required"]) == set(value["properties"])
         assert 'forced_login_method="chatgpt"' in args
         assert "汎用キャラクターシート" in input
+        assert "一枠に実際に描く被写体数・視点・範囲" in input
+        assert "その数量と構図を維持" in input
+        assert "表情で変わる内容はexpressionへ分けます" in input
+        assert "そのpartのavoid_enへ対象を列挙" in input
+        assert "共通条件に値が存在しない特徴" in input
         (cwd / "result.json").write_text(json.dumps(proposed))
         return SimpleNamespace(returncode=0, stdout='{"type":"turn.completed"}', stderr="")
     monkeypatch.setattr("backend.intent_cli.subprocess.run", execute)
     assert run({"input": {"stage": "layout", "sheet_layout": legacy_layout()}, "images": []})["proposal"] == proposed
+
+
+def test_adopted_features_and_requested_view_count_reach_prompt_without_common_settings():
+    from backend.panel_intent import resolve_panel
+    from backend.sheet_layout import panel_from
+    design = {"key": "comparison", "section": "比較", "label": "同一人物の二方向", "kind": "full",
+              "parts": [{"feature": "subject", "description_en": "same adult man", "avoid_en": ""},
+                        {"feature": "face", "description_en": "blue eyes", "avoid_en": ""},
+                        {"feature": "composition", "description_en": "two full-body views, front and back", "avoid_en": ""}],
+              "role_features": ["composition"], "inherited_features": ["face", "background"], "seed_offset": 0}
+    result = resolve_panel(panel_from(design), "person", "he/him", {}, [], {})
+    assert "blue eyes" in result["prompt"]
+    assert "two full-body views, front and back" in result["prompt"]
+    item = {**design, "key": "boots", "kind": "item", "role_features": ["subject"],
+            "inherited_features": ["background"], "parts": [
+                {"feature": "subject", "description_en": "one pair of brown boots", "avoid_en": "humans, legs, feet"}]}
+    result = resolve_panel(panel_from(item), "person", "he/him", {}, [], {})
+    assert "one pair of brown boots" in result["prompt"]
+    assert "humans" not in result["prompt"] and "humans, legs, feet" in result["negative"]
 
 
 @pytest.mark.parametrize("boundary", ["interpret", "confirm"])
