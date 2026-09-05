@@ -152,7 +152,7 @@ def test_runner_transfers_working_layout_and_not_a_new_current_record(monkeypatc
     from backend.intent_runner import interpret
     before = legacy_layout()
     working = deepcopy(before[:1])
-    job = dict(original_comment="一枚", record_description="", existing_settings={}, references=[], image_comments=[], base_conditions={}, stage="layout", panel="", sheet_layout=before, working_layout=working)
+    job = dict(original_comment="一枚", record_kind="character", record_description="", existing_settings={}, references=[], image_comments=[], base_conditions={}, stage="layout", panel="", sheet_layout=before, working_layout=working)
     class Process:
         returncode = 0
         async def communicate(self, raw):

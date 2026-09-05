@@ -114,6 +114,7 @@ def test_redraw_keeps_edits_saved_during_generation(tmp_path, monkeypatch, repla
     panel_root.mkdir()
     (panel_root / "turn_front.png").write_bytes(png())
     initial_bible = {"job_id": "original", "panels_dir": str(panel_root),
+                     "loras": [["fixture.safetensors", 0.8]], "trigger": "probe",
                      "sheet_path": str(tmp_path / "sheet.png"), "html_path": str(tmp_path / "sheet.html"),
                      "at": "before redraw"}
     replacement_bible = {"job_id": "newer", "panels_dir": str(tmp_path / "new-panels"),

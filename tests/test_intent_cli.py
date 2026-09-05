@@ -61,9 +61,10 @@ def test_app_runner_transfers_recorded_stage_conditions(monkeypatch, has_snapsho
 
     recorded = {"pose": {"description_en": "standing, front view", "avoid_en": ""}}
     job = {"original_comment": "横向き", "record_description": "", "existing_settings": {},
-           "references": [], "image_comments": [], "base_conditions": {}, "stage": "preview", "panel": ""}
+           "references": [], "image_comments": [], "base_conditions": {}, "stage": "preview", "panel": "", "record_kind": "character"}
     if has_snapshot:
         job["stage_conditions"] = recorded
+        job["available_styles"] = [{"name": "確認用", "note": "登録された画風", "lora_name": "look.safetensors"}]
 
     class Process:
         returncode = 0
@@ -71,6 +72,8 @@ def test_app_runner_transfers_recorded_stage_conditions(monkeypatch, has_snapsho
         async def communicate(self, raw):
             packet = json.loads(raw)
             assert packet["input"]["stage_conditions"] == (recorded if has_snapshot else {})
+            assert packet["input"]["record_kind"] == "character"
+            assert packet["input"]["available_styles"] == job.get("available_styles", [])
             return json.dumps({"proposal": {"observations": [], "changes": [], "questions": []},
                                "model": "fixture", "elapsed_seconds": 0, "auth": "chatgpt"}).encode(), b""
 

@@ -143,6 +143,7 @@ async def setup(service, tmp_path):
     for panel in bible.PANELS:
         (root / f"{panel.key}.png").write_bytes(png())
     record["bible"] = {"job_id": "initial", "panels_dir": str(root),
+                       "loras": [["person.safetensors", 0.8]], "trigger": record["trigger"],
                        "sheet_path": str(tmp_path / "sheet.png"), "html_path": str(tmp_path / "sheet.html")}
     service._save_character(record)
 

@@ -55,6 +55,8 @@ class Change(StrictModel):
     avoid_en: str
     avoid_ja: str
     reason_ja: str
+    style_name: str | None = None
+    style_deferred: bool = False
 
 
 class Proposal(StrictModel):
@@ -71,6 +73,13 @@ def validate_proposal(proposal: Proposal, job: dict) -> None:
             raise ValueError("解釈案が、渡していない参考画像を参照しています。")
     targets = set()
     for change in proposal.changes:
+        if change.feature == "style":
+            if change.scope == "panel" or change.panel_key is not None:
+                raise ValueError("画風はシート全体で統一します。パネルごとには指定できません。")
+            if change.style_deferred and change.style_name is not None:
+                raise ValueError("画風の採用と保留は同時に選べません。")
+        elif change.style_name is not None or change.style_deferred:
+            raise ValueError("画風の選択・保留は画風の注文だけで指定してください。")
         if bool(change.avoid_en.strip()) != bool(change.avoid_ja.strip()):
             raise ValueError("避ける内容には、日本語と英語の両方の説明が必要です。")
         if job["record_kind"] == "style" and change.scope == "persistent" and change.feature != "style":
@@ -94,7 +103,7 @@ def effective_conditions(common: dict, changes: list[Change]) -> dict:
     # 今回／パネルの条件を、その呼出しでは共通条件より優先する。
     for scope in ("persistent", "this_run", "panel"):
         for change in changes:
-            if change.scope == scope:
+            if change.scope == scope and change.feature != "style":
                 result[change.feature] = change.model_dump()
     return result
 

@@ -32,13 +32,26 @@ class IntentServices:
         positive, negative = prompt_parts(conditions)
         result = {"intent_job_id": job_id or None, "intent_conditions": conditions,
                   "intent_positive": positive, "intent_negative": negative}
+        if job_id:
+            selected = [c for c in job["accepted"]["changes"]
+                        if c["feature"] == "style" and not c.get("style_deferred", False)]
+            if selected:
+                result["intent_style"] = next((c for c in selected if c["scope"] == "this_run"), selected[0])["style_name"]
         if stage in ("sheet", "panel"):
-            result["intent_changes"] = deepcopy(job["accepted"]["changes"]) if job_id else []
+            result["intent_changes"] = [deepcopy(c) for c in job["accepted"]["changes"] if c["feature"] != "style"] if job_id else []
             if stage == "panel":
                 for change in result["intent_changes"]:
                     if change["scope"] == "this_run" and change["panel_key"] is None:
                         change["panel_key"] = panel
         return result
+
+    def _generation_loras(self, record: dict, style: str, intent: dict):
+        """確定した画風と手動選択を照合し、空文字の明示解除も保持する。"""
+        selected = intent.get("intent_style", style or record.get("style", ""))
+        if style and "intent_style" in intent and style != selected:
+            raise ValueError("採用した画風と手動選択が異なります。手動選択を解除するか、注文を訂正してください。")
+        chain, word = self._loras({**record, "style": selected})
+        return chain, word, selected
 
     def _intent_record(self, name: str, kind: str):
         return self._load_character(name) if kind == "character" else self._load_style(name)
@@ -90,6 +103,10 @@ class IntentServices:
                "training_captions": [deepcopy(s.get("training_caption")) for s in selected],
                "stage_conditions": {},
                "base_conditions": deepcopy(record.get("intent_conditions", {}))}
+        job["available_styles"] = [{key: item[key] for key in ("name", "note", "lora_name")}
+                                   for item in await self.list_styles() if item.get("lora_name")]
+        if request.stage == "panel":
+            job["existing_settings"]["sheet_style"] = (record.get("bible") or {}).get("style", "")
         if request.kind == "character" and request.stage == "preview":
             job["stage_conditions"] = {**deepcopy(PREVIEW_CONDITIONS),
                                        "subject": {"description_en": bible.subject_tag(record["char_desc"]), "avoid_en": ""},
@@ -138,6 +155,8 @@ class IntentServices:
             else:
                 proposal = Proposal.model_validate(result)
                 validate_proposal(proposal, job)
+                if any(c.style_deferred for c in proposal.changes):
+                    raise ValueError("画風を保留するかどうかは、利用者が確認画面で選択してください。")
             job.update(status="awaiting_confirmation", proposal=proposal.model_dump())
             self.events.save_job(job)
             self.events.append(job["job_id"], "interpretation_ready", {})
@@ -199,8 +218,6 @@ class IntentServices:
         validate_proposal(proposal, job)
         if proposal.questions:
             raise ValueError("確認事項に答えてから、注文を読み直してください。")
-        if any(change.feature == "style" for change in proposal.changes):
-            raise ValueError("画風の解釈は学習・選択への接続が未完了です。画風LoRAを選んでください。この提案はまだ採用していません。")
         record = self._intent_record(job["name"], job["record_kind"])
         if record["created"] != job["record_created"]:
             raise ValueError("対象が作り直されています。注文を読み直してください。")
@@ -210,13 +227,32 @@ class IntentServices:
         for item in [*proposal.observations, *proposal.changes]:
             if item.reference is not None and item.reference.model_dump() not in current_refs:
                 raise ValueError("参照画像が外されています。注文を読み直してください。")
+        styles = [c for c in proposal.changes if c.feature == "style" and not c.style_deferred]
+        for change in styles:
+            if change.style_name is None:
+                raise ValueError("画風が未解決です。学習済みの画風を選ぶか、画風を保留して他の注文を採用すると明示してください。")
+            if job["record_kind"] != "character":
+                raise ValueError("画風そのものの変更は教材と学習で扱います。ここでは希望を保留してください。")
+            if change.style_name:
+                if change.style_name not in {s["name"] for s in job.get("available_styles", [])}:
+                    raise ValueError("注文時の候補にない画風です。注文を読み直してください。")
+                if not self._load_style(change.style_name).get("lora_name"):
+                    raise ValueError("選んだ画風は未学習です。画風の学習を確認してください。")
+            if job["stage"] == "panel" and change.style_name != record["bible"].get("style", ""):
+                raise ValueError("部分描き直しでは元のシートの画風を維持します。画風変更は設定画全体の注文で指定してください。")
+            if change.scope == "persistent" and record.get("style", "") != job["existing_settings"].get("style", ""):
+                raise ValueError("画風設定が更新されています。注文を読み直してください。")
         common = record.setdefault("intent_conditions", {})
-        for change in proposal.changes:
+        content_changes = [c for c in proposal.changes if c.feature != "style"]
+        for change in content_changes:
             if common.get(change.feature) != job["base_conditions"].get(change.feature):
                 raise ValueError("同じ特徴の条件が更新されています。注文を読み直してください。")
-        for change in proposal.changes:
+        for change in content_changes:
             if change.scope == "persistent":
                 common[change.feature] = change.model_dump()
+        for change in styles:
+            if change.scope == "persistent":
+                record["style"] = change.style_name
         self._save_intent_record(record, job["record_kind"])
         job.update(status="confirmed", accepted=proposal.model_dump(),
                    common_conditions=deepcopy(common),

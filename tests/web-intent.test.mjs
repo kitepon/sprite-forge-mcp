@@ -20,6 +20,34 @@ const {previewIntentJob, drawingInput} = await import('../web/flows.js?v=studio-
 const all = root => [root, ...root.children.filter(x => x instanceof FakeNode).flatMap(all)];
 const next = () => new Promise(resolve => setImmediate(resolve));
 
+test('画風は全体の選択として表示し、明示保留でも衣装の訂正を採用できる', async t => {
+  t.mock.method(globalThis, 'setTimeout', () => 0);
+  let saved = {job_id:'style-order',status:'awaiting_confirmation',stage:'sheet',panel:'',original_comment:'画風と衣装の注文',references:[],
+    available_styles:[{name:'水彩',note:'登録済み',lora_name:'water.safetensors'}],
+    panel_specs:[{key:'turn_front',section:'向き',label:'正面'}],
+    proposal:{questions:[],observations:[],changes:[
+      {feature:'style',scope:'this_run',panel_key:null,reference:null,description_en:'',avoid_en:'',avoid_ja:'',reason_ja:'画風は未解決',style_name:null,style_deferred:false},
+      {feature:'outfit',scope:'this_run',panel_key:null,reference:null,description_en:'blue coat',avoid_en:'',avoid_ja:'',reason_ja:'衣装'}]}};
+  API.commentIntents = async()=>[structuredClone(saved)];
+  API.confirmComment = async(_id, proposal)=>{ saved={...saved,status:'confirmed',accepted:structuredClone(proposal)}; return structuredClone(saved); };
+  const root = new FakeNode('root');
+  await commentEditor(root,{name:'確認用',kind:'character',stage:'sheet'});
+  const nodes=all(root);
+  assert.ok(nodes.find(n=>n.attrs['aria-label']==='採用する画風'));
+  assert.ok(nodes.some(n=>n.tag==='option' && n.attrs.value==='""' && n.children.includes('追加の画風を使わない（キャラクターLoRAのみ）')));
+  assert.ok(!nodes.find(n=>n.attrs['aria-label']==='描き方の対象パネル'));
+  assert.ok(!nodes.find(n=>n.attrs['aria-label']==='描き方の生成文'));
+  const scope=nodes.find(n=>n.attrs['aria-label']==='画風の適用範囲');
+  assert.ok(!scope.children.some(n=>n.attrs?.value==='panel'));
+  nodes.find(n=>n.attrs['aria-label']==='衣装の生成文').events.input({target:{value:'navy coat'}});
+  nodes.find(n=>n.attrs['aria-label']==='画風の希望を保留する').events.change({target:{checked:true}});
+  const button=all(root).find(n=>n.tag==='button'&&n.children.includes('この内容を採用'));
+  await button.events.click({currentTarget:button});
+  assert.equal(saved.accepted.changes[0].style_deferred,true);
+  assert.equal(saved.accepted.changes[1].description_en,'navy coat');
+  assert.ok(all(root).some(n=>n.textContent === '採用済みです。画風の希望は保留中です'));
+});
+
 test('保存応答が逆転しても、新しい原文と解釈対象を維持する', async () => {
   API.commentIntents = async () => [];
   API.character = async () => ({samples: []});

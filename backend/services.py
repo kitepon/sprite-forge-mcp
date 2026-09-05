@@ -321,8 +321,8 @@ class Services(IntentServices, LayoutServices):
         record = self._load_character(name)
         if not record.get("lora_name"):
             raise ValueError(f"{name!r} has no LoRA yet: train_character_lora first")
-        chain, style_word = self._loras(record, style)
         intent = self._generation_intent(record, "character", "preview", intent_job_id)
+        chain, style_word, style = self._generation_loras(record, style, intent)
         job_id = str(uuid.uuid4())
         content = preview_content(tags, intent["intent_conditions"])
         subject = "" if "subject" in intent["intent_conditions"] else bible.subject_tag(record["char_desc"])
@@ -351,11 +351,11 @@ class Services(IntentServices, LayoutServices):
         record = self._load_character(name)
         if not record.get("lora_name"):
             raise ValueError(f"{name!r} has no LoRA yet: train_character_lora first")
-        chain, style_word = self._loras(record, style)
+        intent = self._generation_intent(record, "character", "sheet", intent_job_id)
+        chain, style_word, style = self._generation_loras(record, style, intent)
         trigger = ", ".join(t for t in (record["trigger"], style_word) if t)
         char_desc, lora_name = record["char_desc"], record["lora_name"]
         attr = attr or record.get("attr", "")
-        intent = self._generation_intent(record, "character", "sheet", intent_job_id)
         layout = layout_for(record)
         specs = [panel_from(value) for value in layout]
         overrides = deepcopy(record.get("panel_overrides", {}))
@@ -367,7 +367,7 @@ class Services(IntentServices, LayoutServices):
         key = record["key"]
         panel_root = self._character_dir(name) / "bible" / job_id / "panels"
         job = {"job_id": job_id, "kind": "character_bible", "status": "queued", "name": name, "trigger": trigger,
-               "lora_name": lora_name, "loras": chain, "style": style or record.get("style", ""), "panels_dir": str(panel_root),
+               "lora_name": lora_name, "loras": chain, "style": style, "panels_dir": str(panel_root),
                "total_panels": len(specs), "completed_panels": 0, "panels": [], "layout": layout,
                "panel_requests": requests, "panel_overrides_before": overrides, **intent}
         self.events.save_job(job)
@@ -402,7 +402,7 @@ class Services(IntentServices, LayoutServices):
             artifact_overrides = saved_corrections(overrides, overrides, intent["intent_changes"],
                                                    {r["panel"]: r["seed"] for r in requests}, intent_job_id)
             record["bible"] = {"job_id": job_id, "sheet_path": str(sheet), "html_path": str(html), "panels_dir": str(panel_root),
-                               "layout": layout, "panel_overrides": artifact_overrides,
+                               "layout": layout, "panel_overrides": artifact_overrides, "loras": chain, "trigger": trigger,
                                "attr": attr, "seed": seed, "style": job["style"], "at": datetime.now(UTC).isoformat().replace("+00:00", "Z")}
             self._save_character(record)
             job.update(status="completed", completed_panels=len(panels), panels=[str(path) for _, path in panels],
@@ -444,8 +444,8 @@ class Services(IntentServices, LayoutServices):
         record = self._load_character(name)
         if not record.get("lora_name"):
             raise ValueError(f"{name!r} has no LoRA yet: train_character_lora first")
-        chain, style_word = self._loras(record, style)
         intent = self._generation_intent(record, "character", "drawing", intent_job_id)
+        chain, style_word, style = self._generation_loras(record, style, intent)
         content = drawing_content(prompt, intent["intent_conditions"], intent_job_id)
         full_prompt = ", ".join(part for part in (record["trigger"], style_word, content) if part)
         negative = generation_negative(intent["intent_conditions"])
@@ -479,9 +479,16 @@ class Services(IntentServices, LayoutServices):
             raise ValueError(f"{name!r} has no bible yet: generate_character_bible first")
         layout = layout_for(record, generated=True)
         specs = [panel_from(value) for value in layout]
-        chain, style_word = self._loras(record, record["bible"].get("style", ""))
-        info = {"trigger": ", ".join(t for t in (record["trigger"], style_word) if t), "char_desc": record["char_desc"],
-                "lora_name": record["lora_name"], "panels_dir": record["bible"]["panels_dir"], "attr": record["bible"].get("attr", ""),
+        if "loras" in record["bible"]:
+            chain, trigger = record["bible"]["loras"], record["bible"]["trigger"]
+        else:
+            # 旧シートの生成条件は当時のジョブに保存されている。
+            source_job = self.events.load_job(record["bible"]["job_id"])
+            if not source_job or "loras" not in source_job or "trigger" not in source_job:
+                raise ValueError("元の設定画の生成条件が見つかりません。設定画全体を生成し直してから部分描き直しを行ってください。")
+            chain, trigger = source_job["loras"], source_job["trigger"]
+        info = {"trigger": trigger, "char_desc": record["char_desc"],
+                "lora_name": chain[0][0], "panels_dir": record["bible"]["panels_dir"], "attr": record["bible"].get("attr", ""),
                 "sheet_path": record["bible"]["sheet_path"], "html_path": record["bible"]["html_path"],
                 "source": record.get("samples_sheet") or str(Path(record["bible"]["panels_dir"]) / f"{specs[0].key}.png")}
         spec = next((p for p in specs if p.key == panel), None)
