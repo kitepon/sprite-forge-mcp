@@ -368,10 +368,9 @@ class Services(IntentServices):
                 self.events.save_job(job)
                 width, height = bible.size(panel)
                 fix = overrides.get(panel.key, {})  # a correction made with redraw_panel sticks for the next sheet
-                spec = panel._replace(tags=fix["tags"]) if fix.get("tags") else panel
                 negative = ", ".join(part for part in (bible.NEGATIVE, fix.get("avoid", "")) if part)
                 content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
-                    bible.panel_prompt(spec, trigger, char_desc), fix.get("seed", seed + index), turbo=turbo, loras=chain,
+                    bible.panel_prompt(panel, trigger, char_desc, fix.get("tags", "")), fix.get("seed", seed + index), turbo=turbo, loras=chain,
                     negative=negative, width=width, height=height))
                 panel_path = panel_root / f"{panel.key}.png"
                 panel_path.parent.mkdir(parents=True, exist_ok=True)
@@ -466,7 +465,7 @@ class Services(IntentServices):
         if spec is None:
             raise ValueError(f"unknown panel {panel!r}; see list_bible_panels")
         job_id = str(uuid.uuid4())
-        prompt = bible.panel_prompt(spec._replace(tags=tags) if tags else spec, info.get("trigger", ""), info.get("char_desc", ""))
+        prompt = bible.panel_prompt(spec, info.get("trigger", ""), info.get("char_desc", ""), tags)
         negative = ", ".join(part for part in (bible.NEGATIVE, avoid.strip()) if part)
         job = {"job_id": job_id, "kind": "redraw_panel", "status": "queued", "name": name, "panel": panel,
                "prompt": prompt, "negative": negative, "seed": seed, "lora_name": info["lora_name"]}

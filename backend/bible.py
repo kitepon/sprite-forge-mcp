@@ -21,33 +21,46 @@ class Panel(NamedTuple):
     section: str
     label: str
     kind: str      # full | face | item | chibi  (drives the canvas size)
-    tags: str      # Danbooru-style content tags for Anima; no style words
+    parts: tuple[tuple[str, str], ...]  # 特徴名と内容文。並びは従来の生成文を保つ。
+
+    @property
+    def tags(self) -> str:
+        return ", ".join(text for _, text in self.parts)
+
+    @property
+    def conditions(self) -> dict[str, dict[str, str]]:
+        """同じ特徴の断片をまとめる。生成順と、特徴別の参照を分ける。"""
+        grouped: dict[str, list[str]] = {}
+        for feature, text in self.parts:
+            grouped.setdefault(feature, []).append(text)
+        return {feature: {"description_en": ", ".join(parts), "avoid_en": ""}
+                for feature, parts in grouped.items()}
 
 
 PANELS: tuple[Panel, ...] = (
-    Panel("turn_front", "TURNAROUND", "FRONT", "full", "full body, standing, front view, looking at viewer, arms at sides"),
-    Panel("turn_34", "TURNAROUND", "3/4", "full", "full body, standing, three-quarter view, looking at viewer"),
-    Panel("turn_side", "TURNAROUND", "SIDE", "full", "full body, standing, from side, profile, facing to the side"),
-    Panel("turn_back", "TURNAROUND", "BACK", "full", "full body, standing, from behind, back view, facing away, back of head"),
-    Panel("body_front", "BODY REFERENCE", "FRONT (leotard)", "full", "full body, standing, front view, plain white leotard, bodysuit, arms slightly out, bare legs, barefoot"),
-    Panel("body_back", "BODY REFERENCE", "BACK (leotard)", "full", "full body, standing, from behind, plain white leotard, bodysuit, facing away, bare legs, barefoot"),
-    Panel("ex_neutral", "EXPRESSIONS", "NEUTRAL", "face", "portrait, close-up, face, looking at viewer, expressionless, closed mouth"),
-    Panel("ex_smile", "EXPRESSIONS", "SMILE", "face", "portrait, close-up, face, looking at viewer, smile, open mouth, happy, blush"),
-    Panel("ex_angry", "EXPRESSIONS", "ANGRY", "face", "portrait, close-up, face, looking at viewer, angry, pout, anger vein, furrowed brow, puffed cheeks"),
-    Panel("ex_sad", "EXPRESSIONS", "SAD", "face", "portrait, close-up, face, looking at viewer, sad, tears, crying, wavy mouth"),
-    Panel("ex_surp", "EXPRESSIONS", "SURPRISE", "face", "portrait, close-up, face, looking at viewer, surprised, wide eyes, open mouth"),
-    Panel("ex_shy", "EXPRESSIONS", "SHY", "face", "portrait, close-up, face, embarrassed, blush, looking away, nervous"),
-    Panel("act_cast", "ACTION POSES", "CAST", "full", "full body, dynamic pose, casting spell, magic, outstretched arm, action"),
-    Panel("act_run", "ACTION POSES", "RUN", "full", "full body, running, dynamic pose, motion"),
-    Panel("act_jump", "ACTION POSES", "JUMP", "full", "full body, jumping, midair, dynamic pose"),
-    Panel("cos_casual", "ALTERNATE COSTUMES", "CASUAL", "full", "full body, standing, front view, hoodie, denim shorts, sneakers, casual clothes"),
-    Panel("cos_armor", "ALTERNATE COSTUMES", "ARMOR", "full", "full body, standing, front view, plate armor, knight, breastplate, pauldrons, gauntlets"),
-    Panel("cos_dress", "ALTERNATE COSTUMES", "FORMAL", "full", "full body, standing, front view, ball gown, evening dress, long dress, elbow gloves"),
-    Panel("chibi_big", "CHIBI / SD", "CHIBI", "chibi", "chibi, super deformed, full body, standing, looking at viewer, big head"),
-    Panel("chibi_multi", "CHIBI / SD", "POSES", "chibi", "chibi, super deformed, full body, jumping, waving, happy"),
-    Panel("item_head", "WARDROBE / ITEMS", "HEADWEAR", "item", "no humans, hair ornament, headwear, still life, object focus, close-up"),
-    Panel("item_outfit", "WARDROBE / ITEMS", "OUTFIT", "item", "no humans, clothes, outfit, flat lay, still life, object focus"),
-    Panel("item_shoes", "WARDROBE / ITEMS", "FOOTWEAR", "item", "no humans, shoes, boots, footwear, still life, object focus"),
+    Panel("turn_front", "TURNAROUND", "FRONT", "full", (("composition", "full body"), ("pose", "standing, front view, looking at viewer, arms at sides"))),
+    Panel("turn_34", "TURNAROUND", "3/4", "full", (("composition", "full body"), ("pose", "standing, three-quarter view, looking at viewer"))),
+    Panel("turn_side", "TURNAROUND", "SIDE", "full", (("composition", "full body"), ("pose", "standing, from side, profile, facing to the side"))),
+    Panel("turn_back", "TURNAROUND", "BACK", "full", (("composition", "full body"), ("pose", "standing, from behind, back view, facing away, back of head"))),
+    Panel("body_front", "BODY REFERENCE", "FRONT (leotard)", "full", (("composition", "full body"), ("pose", "standing, front view"), ("outfit", "plain white leotard, bodysuit"), ("pose", "arms slightly out"), ("outfit", "bare legs, barefoot"))),
+    Panel("body_back", "BODY REFERENCE", "BACK (leotard)", "full", (("composition", "full body"), ("pose", "standing, from behind"), ("outfit", "plain white leotard, bodysuit"), ("pose", "facing away"), ("outfit", "bare legs, barefoot"))),
+    Panel("ex_neutral", "EXPRESSIONS", "NEUTRAL", "face", (("composition", "portrait, close-up, face"), ("pose", "looking at viewer"), ("expression", "expressionless, closed mouth"))),
+    Panel("ex_smile", "EXPRESSIONS", "SMILE", "face", (("composition", "portrait, close-up, face"), ("pose", "looking at viewer"), ("expression", "smile, open mouth, happy, blush"))),
+    Panel("ex_angry", "EXPRESSIONS", "ANGRY", "face", (("composition", "portrait, close-up, face"), ("pose", "looking at viewer"), ("expression", "angry, pout, anger vein, furrowed brow, puffed cheeks"))),
+    Panel("ex_sad", "EXPRESSIONS", "SAD", "face", (("composition", "portrait, close-up, face"), ("pose", "looking at viewer"), ("expression", "sad, tears, crying, wavy mouth"))),
+    Panel("ex_surp", "EXPRESSIONS", "SURPRISE", "face", (("composition", "portrait, close-up, face"), ("pose", "looking at viewer"), ("expression", "surprised, wide eyes, open mouth"))),
+    Panel("ex_shy", "EXPRESSIONS", "SHY", "face", (("composition", "portrait, close-up, face"), ("expression", "embarrassed, blush"), ("pose", "looking away"), ("expression", "nervous"))),
+    Panel("act_cast", "ACTION POSES", "CAST", "full", (("composition", "full body"), ("pose", "dynamic pose, casting spell, magic, outstretched arm, action"))),
+    Panel("act_run", "ACTION POSES", "RUN", "full", (("composition", "full body"), ("pose", "running, dynamic pose, motion"))),
+    Panel("act_jump", "ACTION POSES", "JUMP", "full", (("composition", "full body"), ("pose", "jumping, midair, dynamic pose"))),
+    Panel("cos_casual", "ALTERNATE COSTUMES", "CASUAL", "full", (("composition", "full body"), ("pose", "standing, front view"), ("outfit", "hoodie, denim shorts, sneakers, casual clothes"))),
+    Panel("cos_armor", "ALTERNATE COSTUMES", "ARMOR", "full", (("composition", "full body"), ("pose", "standing, front view"), ("outfit", "plate armor, knight, breastplate, pauldrons, gauntlets"))),
+    Panel("cos_dress", "ALTERNATE COSTUMES", "FORMAL", "full", (("composition", "full body"), ("pose", "standing, front view"), ("outfit", "ball gown, evening dress, long dress, elbow gloves"))),
+    Panel("chibi_big", "CHIBI / SD", "CHIBI", "chibi", (("composition", "chibi, super deformed, full body"), ("pose", "standing, looking at viewer"), ("composition", "big head"))),
+    Panel("chibi_multi", "CHIBI / SD", "POSES", "chibi", (("composition", "chibi, super deformed, full body"), ("pose", "jumping, waving"), ("expression", "happy"))),
+    Panel("item_head", "WARDROBE / ITEMS", "HEADWEAR", "item", (("subject", "no humans"), ("accessory", "hair ornament, headwear"), ("composition", "still life, object focus, close-up"))),
+    Panel("item_outfit", "WARDROBE / ITEMS", "OUTFIT", "item", (("subject", "no humans"), ("outfit", "clothes, outfit"), ("composition", "flat lay, still life, object focus"))),
+    Panel("item_shoes", "WARDROBE / ITEMS", "FOOTWEAR", "item", (("subject", "no humans"), ("outfit", "shoes, boots, footwear"), ("composition", "still life, object focus"))),
 )
 COMMON = "simple background, white background"
 NEGATIVE = "lowres, bad anatomy, bad hands, text, watermark, multiple views, reference sheet, collage"
@@ -86,10 +99,10 @@ def subject_tag(char_desc: str) -> str:
     return "1other"
 
 
-def panel_prompt(panel: Panel, trigger: str, char_desc: str) -> str:
+def panel_prompt(panel: Panel, trigger: str, char_desc: str, tags: str = "") -> str:
     """trigger + subject + the panel's content tags. Item panels carry no subject."""
     subject = "" if panel.kind == "item" else subject_tag(char_desc)
-    return ", ".join(part for part in (trigger, subject, panel.tags, COMMON) if part)
+    return ", ".join(part for part in (trigger, subject, tags or panel.tags, COMMON) if part)
 
 
 def size(panel: Panel) -> tuple[int, int]:
