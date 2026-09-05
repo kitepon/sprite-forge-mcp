@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 
 
-async def apply_retained(service, name, native):
+async def apply_retained(service, name, native, *, stage="preview"):
     """親が確認済みの既存応答を、同じ画像順の隔離台帳へ適用する。"""
     from backend.intent import IntentRequest, Proposal
 
@@ -24,7 +24,7 @@ async def apply_retained(service, name, native):
     original_interpreter = service.intent_interpreter
     service.intent_interpreter = retained
     try:
-        job = await service.interpret_comment(IntentRequest(name=name, stage="preview", comment=native["original_comment"]))
+        job = await service.interpret_comment(IntentRequest(name=name, stage=stage, comment=native["original_comment"]))
         return await service.confirm_comment_intent(job["job_id"], Proposal.model_validate(job["proposal"]))
     finally:
         service.intent_interpreter = original_interpreter
