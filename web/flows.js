@@ -3,6 +3,7 @@ import { state } from './state.js?v=studio-2';
 import { h, icon, field, button, link, picture, empty, notice, action, pageHead, errorState, confirmAction } from './ui.js?v=studio-2';
 import { taskPanel } from './jobs.js?v=studio-2';
 import { draft, saveDraft, clearDraft, pendingFiles } from './drafts.js?v=studio-2';
+import { commentEditor, flushCaptions } from './intent.js?v=studio-2';
 
 export const FLOWS = [
   { id: 'sheet', title: 'キャラクターを育てる', desc: '参考画像から、その子らしい設定画へ。', icon: 'layers', steps: ['キャラクター', '参考画像', '学習', 'プレビュー', '設定画'] },
@@ -27,6 +28,7 @@ function advanced(...children) { return h('details', { class: 'advanced' }, h('s
 function seedControl(key) { return input(`${key}:seed`, '1', { type: 'number', min: 0, step: 1 }); }
 function requireText(control, label) { if (!control.value.trim()) { control.focus(); throw new Error(`${label}を入力してください。`); } return control.value.trim(); }
 function number(control) { if (!control.reportValidity()) throw new Error('数値の入力を確認してください。'); return Number(control.value); }
+export function previewIntentJob(editor, content) { return content === 'full body, standing, front view, looking at viewer' ? editor.confirmedJob() : ''; }
 
 async function choose(target, kind, ctx, createAllowed, changed) {
   const isChar = kind === 'character'; const noun = isChar ? 'キャラクター' : '画風';
@@ -121,14 +123,18 @@ async function samples(target, kind, name, cleanup, changed) {
   const onPending = () => { if (pending.latest && pending.latest !== lastRecord) { lastRecord = pending.latest; paint(pending.latest); } renderPending(); };
   pending.listeners.add(onPending); cleanup.push(() => pending.listeners.delete(onPending));
   renderPending(); target.append(h('div', { class: 'upload-section stack' }, drop, label, tray, h('div', { class: 'actions' }, add)), h('p', { class: 'muted small' }, '説明の下書きはこの端末に保存します。選択中のファイルは、ページを再読み込みすると選び直しになります。'));
+  const editor = await commentEditor(target, { name, kind, stage: 'samples', interpretEnabled: kind === 'character' });
+  return editor.save;
 }
 
 async function training(target, kind, name, cleanup) {
   const rec = await (kind === 'character' ? API.character(name) : API.style(name));
+  const editor = await commentEditor(target, { name, kind, stage: 'training', interpretEnabled: false });
   const steps = input(`${kind}:${name}:steps`, '1200', { type: 'number', min: 1, step: 1 });
   target.append(h('div', { class: 'training-summary' }, h('div', { class: 'mini-stack' }, rec.samples.slice(0, 3).map(s => picture(s.path, '学習用の参考画像', { plain: true }))), h('div', {}, h('h3', {}, `${rec.samples.length} 枚から、${name}を覚えます`), h('p', { class: 'muted' }, rec.lora_name ? '学習済みです。参考画像や説明を変えたら、ここで学習し直せます。' : '学習には時間がかかります。開始すると実際の学習ステップを表示します。'))),
     advanced(field('学習ステップ', steps, 'まずは 1200。画像を追加しただけでは学習は始まりません。')),
-    taskPanel({ kind: 'lora_train', name, tool: kind === 'character' ? 'train_character_lora' : 'train_style_lora' }, '学習', rec.lora_name ? 'この内容で学習し直す' : 'この内容で学習する', () => (kind === 'character' ? API.train : API.trainStyle)(name, number(steps)), cleanup));
+    taskPanel({ kind: 'lora_train', name, tool: kind === 'character' ? 'train_character_lora' : 'train_style_lora' }, '学習', rec.lora_name ? 'この内容で学習し直す' : 'この内容で学習する', async () => { await editor.save(); await flushCaptions(kind, name); return (kind === 'character' ? API.train : API.trainStyle)(name, number(steps)); }, cleanup));
+  return editor.save;
 }
 async function styleSelect(ctx, key) {
   const styles = await API.styles();
@@ -137,32 +143,40 @@ async function styleSelect(ctx, key) {
 }
 async function previewStep(target, ctx, styled, cleanup) {
   const name = ctx.character, style = styled ? ctx.style : ''; const key = `preview:${name}:${style}`;
+  const editor = await commentEditor(target, { name, kind: 'character', stage: 'preview' });
   const tags = input(`${key}:tags`, 'full body, standing, front view, looking at viewer', { multiline: true, rows: 3 }); const seed = seedControl(key);
-  target.append(field('どんな姿で確かめますか？', tags, '本人らしさ、衣装、顔を見比べましょう。内容を英語で指定できます。'), advanced(field('Seed', seed, '同じ数値で構図を比較できます。')),
-    taskPanel({ kind: 'preview', name, style }, 'プレビュー', '2 枚で確かめる', () => API.previewCharacter(name, requireText(tags, '内容'), number(seed), 2, style), cleanup));
+  target.append(advanced(field('英語の自由入力（解釈した注文を使わない場合）', tags, '注文を解釈して使う場合は既定値のままにします。姿勢などは上の制作への注文へ書いてください。'), field('Seed', seed, '同じ数値で構図を比較できます。')),
+    taskPanel({ kind: 'preview', name, style }, 'プレビュー', '2 枚で確かめる', async () => { await editor.save(); const content = requireText(tags, '内容'); return API.previewCharacter(name, content, number(seed), 2, style, previewIntentJob(editor, content)); }, cleanup));
   if (styled) {
     const strength = input(`${key}:strength`, '0.7', { type: 'number', min: 0.1, max: 2, step: 0.1 });
     target.append(h('div', { class: 'callout stack' }, h('h3', {}, 'この組み合わせを、今後も使う'), h('p', { class: 'muted' }, 'プレビューは保存済みの強さ（未設定なら 0.7）で生成します。ここで変えた強さは、保存後の生成から反映されます。'), field('画風の強さ', strength), button('キャラクターの画風として保存', e => action(e.currentTarget, async () => { await API.setCharacterStyle(name, style, number(strength)); notice('今後使う画風を保存しました'); }), 'quiet')));
   }
+  return editor.save;
 }
 async function drawing(target, ctx, kind, cleanup) {
   const name = kind === 'character' ? ctx.character : ctx.style; const key = `draw:${kind}:${name}`;
+  const editor = await commentEditor(target, { name, kind, stage: 'drawing', interpretEnabled: false });
   const prompt = input(`${key}:prompt`, '', { multiline: true, rows: 5, placeholder: '例：standing by the window, morning light, holding a cup' });
   const seed = seedControl(key); const style = kind === 'character' ? await styleSelect(ctx, key) : null;
-  target.append(field('次は、どんな一枚に？', prompt, '場所、ポーズ、衣装、構図など。絵柄は学習した画像から引き継ぎます。'), style ? field('合わせる画風', style) : null, advanced(field('Seed', seed)), taskPanel(kind === 'character' ? { kind: 'from_bible', name } : { kind: 'image', style: name }, '新しい一枚', 'この内容で描く', () => kind === 'character' ? API.fromBible(name, requireText(prompt, '描きたい内容'), number(seed), style.value) : API.image(requireText(prompt, '描きたい内容'), name, number(seed)), cleanup));
+  target.append(field('次は、どんな一枚に？', prompt, '場所、ポーズ、衣装、構図など。絵柄は学習した画像から引き継ぎます。'), style ? field('合わせる画風', style) : null, advanced(field('Seed', seed)), taskPanel(kind === 'character' ? { kind: 'from_bible', name } : { kind: 'image', style: name }, '新しい一枚', 'この内容で描く', async () => { await editor.save(); return kind === 'character' ? API.fromBible(name, requireText(prompt, '描きたい内容'), number(seed), style.value) : API.image(requireText(prompt, '描きたい内容'), name, number(seed)); }, cleanup));
+  return editor.save;
 }
 async function sheet(target, ctx, styled, cleanup) {
   const name = ctx.character; const rec = await API.character(name); const seed = seedControl(`sheet:${name}`);
+  const editor = await commentEditor(target, { name, kind: 'character', stage: 'sheet', interpretEnabled: false });
   const existing = h('div', { class: 'stack' }); const edit = h('div', { class: 'stack' }); let editingReady = false; let refreshEditor;
   const showExisting = record => { if (record.bible?.sheet_path) existing.replaceChildren(h('h3', {}, '保存してある設定画'), picture(record.bible.sheet_path, `${name}の設定画`, { version: record.bible.at })); };
   showExisting(rec);
   const update = async () => { const fresh = await API.character(name); if (!target.isConnected) return; showExisting(fresh); if (fresh.bible && !editingReady) { editingReady = true; refreshEditor = await redraw(edit, name, fresh, cleanup, showExisting); } else refreshEditor?.(fresh); };
-  target.append(h('p', { class: 'muted' }, '23 パネルを順に描き、設定画にまとめます。前の設定画は、新しい一枚が完成するまで残ります。'), advanced(field('Seed', seed)), taskPanel({ kind: 'character_bible', name }, '設定画', rec.bible ? '新しい設定画を作る' : '設定画を作る', () => API.bible(name, number(seed), styled ? ctx.style : ''), cleanup, () => update().catch(error => notice(error.message, true)), { hideCompletedImages: true }), existing, edit);
+  target.append(h('p', { class: 'muted' }, '23 パネルを順に描き、設定画にまとめます。前の設定画は、新しい一枚が完成するまで残ります。'), advanced(field('Seed', seed)), taskPanel({ kind: 'character_bible', name }, '設定画', rec.bible ? '新しい設定画を作る' : '設定画を作る', async () => { await editor.save(); return API.bible(name, number(seed), styled ? ctx.style : ''); }, cleanup, () => update().catch(error => notice(error.message, true)), { hideCompletedImages: true }), existing, edit);
   if (rec.bible) { editingReady = true; refreshEditor = await redraw(edit, name, rec, cleanup, showExisting); }
+  return async () => { await editor.save(); await refreshEditor?.save(); };
 }
 async function redraw(target, name, rec, cleanup, updated) {
   const panels = await API.panels(); const key = `redraw:${name}`; let selected = panels.find(p => p.key === draft(`${key}:panel`)) || panels[0];
   const picker = h('div', { class: 'panel-picker' }); const selectedTitle = h('h3');
+  const commentBox = h('div'); let panelEditor, changing = false;
+  const loadComment = async () => { commentBox.replaceChildren(); panelEditor = await commentEditor(commentBox, { name, kind: 'character', stage: 'panel', panel: selected.key, interpretEnabled: false }); };
   const tags = h('textarea', { rows: 3, oninput: e => saveDraft(`${key}:${selected.key}:tags`, e.target.value) });
   const avoid = h('input', { placeholder: '例：frills, boots', oninput: e => saveDraft(`${key}:${selected.key}:avoid`, e.target.value) }); const seed = seedControl(key);
   const paint = () => {
@@ -170,20 +184,23 @@ async function redraw(target, name, rec, cleanup, updated) {
     selectedTitle.textContent = `${selected.section} · ${selected.label}`; tags.value = draft(`${key}:${selected.key}:tags`, override.tags || ''); tags.placeholder = selected.tags; avoid.value = draft(`${key}:${selected.key}:avoid`, override.avoid || '');
     picker.replaceChildren(...panels.map(panel => {
       const path = rec.bible?.panels_dir ? `${rec.bible.panels_dir}/${panel.key}.png` : '';
-      const tile = button([path ? picture(path, panel.label, { plain: true, version: rec.bible?.at }) : icon('image'), h('span', {}, panel.label)], () => { selected = panel; paint(); }, `panel-tile ${selected.key === panel.key ? 'selected' : ''}`); tile.setAttribute('aria-pressed', String(selected.key === panel.key)); return tile;
+      const tile = button([path ? picture(path, panel.label, { plain: true, version: rec.bible?.at }) : icon('image'), h('span', {}, panel.label)], e => action(e.currentTarget, async () => { if (changing) return; changing = true; try { await panelEditor.save(); selected = panel; paint(); await loadComment(); } finally { changing = false; paint(); } }), `panel-tile ${selected.key === panel.key ? 'selected' : ''}`); tile.disabled = changing; tile.setAttribute('aria-pressed', String(selected.key === panel.key)); return tile;
     }));
   }; paint();
-  target.append(h('details', { class: 'redraw-editor' }, h('summary', {}, icon('tool'), '気になるところを描き直す'), h('div', { class: 'stack' }, h('p', { class: 'muted' }, '画像から直すパネルを選んでください。指定した内容は、次の設定画にも引き継がれます。'), picker, selectedTitle, field('どう直しますか？', tags, '空欄なら、このパネルの既定の内容で描き直します。'), field('避けたいもの', avoid), advanced(field('Seed', seed)), taskPanel({ kind: 'redraw_panel', name }, 'パネルの描き直し', '選んだパネルを描き直す', () => API.redraw(name, selected.key, tags.value, number(seed), avoid.value), cleanup, job => {
+  await loadComment();
+  target.append(h('details', { class: 'redraw-editor' }, h('summary', {}, icon('tool'), '気になるところを描き直す'), h('div', { class: 'stack' }, h('p', { class: 'muted' }, '画像から直すパネルを選んでください。指定した内容は、次の設定画にも引き継がれます。'), picker, selectedTitle, commentBox, field('どう直しますか？', tags, '空欄なら、このパネルの既定の内容で描き直します。'), field('避けたいもの', avoid), advanced(field('Seed', seed)), taskPanel({ kind: 'redraw_panel', name }, 'パネルの描き直し', '選んだパネルを描き直す', async () => { await panelEditor.save(); return API.redraw(name, selected.key, tags.value, number(seed), avoid.value); }, cleanup, job => {
     // The old picture remains visible in the result for side-by-side comparison.
     if (job.previous) { const previous = h('div', { class: 'comparison' }, h('h3', {}, '描き直す前'), picture(job.previous, '描き直す前')); const old = target.querySelector('.comparison'); old?.remove(); target.append(previous); }
     API.character(name).then(fresh => { if (!target.isConnected) return; rec = fresh; paint(); updated(fresh); }).catch(error => notice(error.message, true));
   }))));
-  return fresh => { rec = fresh; paint(); };
+  const refresh = fresh => { rec = fresh; paint(); };
+  refresh.save = () => panelEditor.save();
+  return refresh;
 }
 
 export function flow(root, id) {
   const spec = FLOWS.find(item => item.id === id); if (!spec) { location.hash = '#/'; return () => {}; }
-  const ctx = state.flow; let index = Math.min(ctx.step?.[id] || 0, spec.steps.length - 1); let version = 0; let cleanup = []; let disposed = false;
+  const ctx = state.flow; let index = Math.min(ctx.step?.[id] || 0, spec.steps.length - 1); let version = 0; let cleanup = []; let disposed = false; let saveStep = async () => {};
   const crumbs = h('ol', { class: 'steps', 'aria-label': '制作の工程' }); const body = h('section', { class: 'step-body stack' }); const aside = h('aside', { class: 'context-card' }); const nav = h('footer', { class: 'step-navigation' });
   const isStyle = ['style', 'styleonly'].includes(id);
   const keyKind = isStyle ? 'style' : 'character';
@@ -207,9 +224,10 @@ export function flow(root, id) {
     if (id === 'restyle' && destination >= 2) { if (!ctx.style || !(await API.style(ctx.style)).lora_name) throw new Error('学習済みの画風を選んでください。'); }
     return true;
   };
-  const move = async destination => { try { await valid(destination); if (disposed) return; index = destination; await render(); body.focus({ preventScroll: true }); body.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (error) { notice(error.message, true); } };
+  const move = async destination => { try { await saveStep(); await valid(destination); if (disposed) return; index = destination; await render(); body.focus({ preventScroll: true }); body.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (error) { notice(error.message, true); } };
   async function render() {
     const current = ++version; cleanup.forEach(fn => fn()); const ownedCleanup = []; cleanup = ownedCleanup;
+    saveStep = async () => {};
     ctx.step = { ...ctx.step, [id]: index }; state.saveFlow();
     crumbs.replaceChildren(...spec.steps.map((title, step) => h('li', {}, h('button', { type: 'button', class: `step ${step === index ? 'active' : step < index ? 'past' : ''}`, 'aria-current': step === index ? 'step' : null, onclick: () => move(step) }, h('span', { class: 'step-number' }, step < index ? icon('check', 14) : step + 1), h('span', {}, title)))));
     body.replaceChildren(h('div', { class: 'step-heading' }, h('p', { class: 'eyebrow' }, `STEP ${String(index + 1).padStart(2, '0')} / ${String(spec.steps.length).padStart(2, '0')}`), h('h2', {}, spec.steps[index]), h('p', { class: 'muted' }, hints[id][index])));
@@ -217,18 +235,30 @@ export function flow(root, id) {
     nav.replaceChildren(index > 0 ? button('← 前の工程', () => move(index - 1), 'quiet') : link('スタジオへ', '#/', 'text-link'), h('span', { class: 'muted small' }, `${index + 1} / ${spec.steps.length}`), index < spec.steps.length - 1 ? button([`次へ：${spec.steps[index + 1]}`, icon('arrow', 18)], () => move(index + 1)) : link(['作品を見る', icon('arrow')], '#/library'));
     try {
       await refreshContext(); if (disposed || current !== version) return;
+      let nextSave = async () => {};
       if (index === 0) await choose(content, keyKind, ctx, ['sheet', 'style'].includes(id), () => refreshContext().catch(error => notice(error.message, true)));
       else if (id === 'restyle' && index === 1) await choose(content, 'style', ctx, false, () => {});
-      else if (['sheet', 'style'].includes(id) && index === 1) await samples(content, keyKind, ctx[keyKind], ownedCleanup, rec => refreshContext(rec).catch(error => notice(error.message, true)));
-      else if (['sheet', 'style'].includes(id) && index === 2) await training(content, keyKind, ctx[keyKind], ownedCleanup);
-      else if (id === 'sheet' && index === 3 || id === 'restyle' && index === 2) await previewStep(content, ctx, id === 'restyle', ownedCleanup);
-      else if (id === 'sheet' && index === 4 || id === 'restyle' && index === 3) await sheet(content, ctx, id === 'restyle', ownedCleanup);
-      else await drawing(content, ctx, keyKind, ownedCleanup);
+      else if (['sheet', 'style'].includes(id) && index === 1) nextSave = await samples(content, keyKind, ctx[keyKind], ownedCleanup, rec => refreshContext(rec).catch(error => notice(error.message, true)));
+      else if (['sheet', 'style'].includes(id) && index === 2) nextSave = await training(content, keyKind, ctx[keyKind], ownedCleanup);
+      else if (id === 'sheet' && index === 3 || id === 'restyle' && index === 2) nextSave = await previewStep(content, ctx, id === 'restyle', ownedCleanup);
+      else if (id === 'sheet' && index === 4 || id === 'restyle' && index === 3) nextSave = await sheet(content, ctx, id === 'restyle', ownedCleanup);
+      else nextSave = await drawing(content, ctx, keyKind, ownedCleanup);
+      if (!disposed && current === version) saveStep = nextSave;
     } catch (error) { if (current === version && !disposed) errorState(content, error); }
     finally { if (disposed || current !== version) ownedCleanup.forEach(fn => fn()); }
   }
   body.tabIndex = -1;
+  const leave = async event => {
+    const anchor = event.target.closest('a[href^="#/"]');
+    if (!anchor || event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const destination = anchor.getAttribute('href');
+    if (destination === location.hash) return;
+    event.preventDefault();
+    try { await saveStep(); if (!disposed) location.hash = destination; }
+    catch (error) { notice(error.message, true); }
+  };
+  document.addEventListener('click', leave);
   root.replaceChildren(pageHead('CREATIVE WORKFLOW', spec.title, spec.desc, link('すべてのコース', '#/', 'text-link')), crumbs, h('div', { class: 'flow-layout' }, h('div', { class: 'flow-main' }, body, nav), aside));
   valid(index).catch(() => { index = 0; }).then(() => { if (!disposed) render(); });
-  return () => { disposed = true; version++; cleanup.forEach(fn => fn()); };
+  return () => { disposed = true; version++; document.removeEventListener('click', leave); cleanup.forEach(fn => fn()); };
 }

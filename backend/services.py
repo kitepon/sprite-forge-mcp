@@ -26,9 +26,12 @@ from .config import BOX_LORAS, BOX_SSH
 from .comfy import Comfy
 from .config import CACHE, CHARACTERS, STYLES, UPLOADS
 from .events import EventStore
+from .intent_service import IntentServices
+from .intent_runner import interpret
+from .intent import PREVIEW_TAGS, preview_content
 
 
-class Services:
+class Services(IntentServices):
     def __init__(self, comfy: Comfy | None = None, events: EventStore | None = None,
                  generated_root: Path | None = None, uploads_root: Path | None = None,
                  characters_root: Path | None = None, styles_root: Path | None = None):
@@ -37,6 +40,7 @@ class Services:
         self.uploads_root = uploads_root or UPLOADS
         self.characters_root = characters_root or CHARACTERS
         self.styles_root = styles_root or STYLES
+        self.intent_interpreter = interpret
 
     async def gpu_status(self) -> dict[str, Any]:
         self._record_call("gpu_status")
@@ -103,11 +107,15 @@ class Services:
         meta = root / f"{kind}.json"
         if not meta.is_file():
             raise FileNotFoundError(f"no {kind} named {name!r}: create_{kind} first")
-        return json.loads(meta.read_text(encoding="utf-8"))
+        record = json.loads(meta.read_text(encoding="utf-8"))
+        # 旧台帳の採番は読取り時に補い、削除前の最大値を保持する。
+        record.setdefault("next_sample_index", max((s["index"] for s in record["samples"]), default=-1) + 1)
+        return record
 
     @staticmethod
     def _save_record(root: Path, record: dict[str, Any], kind: str) -> dict[str, Any]:
         root.mkdir(parents=True, exist_ok=True)
+        record.setdefault("next_sample_index", max((s["index"] for s in record["samples"]), default=-1) + 1)
         samples = [Path(sample["path"]) for sample in record["samples"] if Path(sample["path"]).is_file()]
         if samples:
             strip = root / "samples.png"
@@ -134,10 +142,11 @@ class Services:
         texts = ([captions] if len(paths) == 1 else [c.strip() for c in captions.split("|")]) if captions else []
         root.mkdir(parents=True, exist_ok=True)
         for offset, path in enumerate(paths):
-            index = max((sample["index"] for sample in record["samples"]), default=-1) + 1
+            index = record["next_sample_index"]
             target = root / f"{index:03d}.png"
             target.write_bytes(bible.on_white(path.read_bytes()))
             record["samples"].append({"index": index, "path": str(target), "caption": texts[offset] if offset < len(texts) else "", "origin": str(path)})
+            record["next_sample_index"] = index + 1
 
     def _loras(self, record: dict[str, Any], style: str = "", style_strength: float = 0.0) -> tuple[list[tuple[str, float]], str]:
         """The LoRA chain for a character: its own LoRA, then a style LoRA (the one named now, or
@@ -296,24 +305,28 @@ class Services:
             return []
         return [json.loads(m.read_text(encoding="utf-8")) for m in sorted(self.characters_root.glob("*/character.json"))]
 
-    async def preview_character(self, name: str, tags: str = "full body, standing, front view, looking at viewer",
-                                seed: int = 1, count: int = 1, style: str = "", turbo: bool = False) -> dict[str, Any]:
+    async def preview_character(self, name: str, tags: str = PREVIEW_TAGS,
+                                seed: int = 1, count: int = 1, style: str = "", turbo: bool = False,
+                                intent_job_id: str = "") -> dict[str, Any]:
         """Stage 2 check: a few seconds per picture with the trained LoRA. Look, then decide whether
         to retrain (fix samples / captions / steps) or go on to the bible."""
         record = self._load_character(name)
         if not record.get("lora_name"):
             raise ValueError(f"{name!r} has no LoRA yet: train_character_lora first")
         chain, style_word = self._loras(record, style)
+        intent = self._generation_intent(record, "character", "preview", intent_job_id)
         job_id = str(uuid.uuid4())
-        prompt = ", ".join(part for part in (record["trigger"], style_word, bible.subject_tag(record["char_desc"]), tags, bible.COMMON) if part)
+        content = preview_content(tags, intent["intent_conditions"])
+        prompt = ", ".join(part for part in (record["trigger"], style_word, bible.subject_tag(record["char_desc"]), content, bible.COMMON) if part)
+        negative = ", ".join(part for part in (bible.NEGATIVE, intent["intent_negative"]) if part)
         job = {"job_id": job_id, "kind": "preview", "status": "queued", "name": name, "prompt": prompt, "seed": seed, "loras": chain,
-               "style": style, "total_images": max(1, count), "pictures": []}
+               "style": style, "total_images": max(1, count), "pictures": [], "negative": negative, **intent}
         self.events.save_job(job); self._record_call("preview_character", job_id, {"name": name, "seed": seed, "count": count})
         with self._job_errors(job):
             pictures = []
             for offset in range(max(1, count)):
                 content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
-                    prompt, seed + offset, turbo=turbo, loras=chain, negative=bible.NEGATIVE, width=832, height=1216))
+                    prompt, seed + offset, turbo=turbo, loras=chain, negative=negative, width=832, height=1216))
                 path = self._write_generated(f"{job_id}-preview-{offset}.png", content)
                 pictures.append({"path": str(path), "seed": seed + offset, "elapsed_s": elapsed})
                 job.update(status="running", pictures=list(pictures))

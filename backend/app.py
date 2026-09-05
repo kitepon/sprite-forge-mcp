@@ -56,6 +56,11 @@ for name, function in (
     ("train_style_lora", services.train_style_lora),
     ("job_status", services.status),
     ("list_jobs", services.list_jobs),
+    ("interpret_comment", services.interpret_comment),
+    ("save_comment", services.save_comment),
+    ("interpret_saved_comment", services.interpret_saved_comment),
+    ("confirm_comment_intent", services.confirm_comment_intent),
+    ("list_comment_intents", services.list_comment_intents),
 ):
     mcp.tool(function, name=name)
 
@@ -114,6 +119,11 @@ for path, methods, function in (
     ("/api/styles/{name}/train", ["POST"], services.train_style_lora),
     ("/api/jobs", ["GET"], services.list_jobs),
     ("/api/jobs/{job_id}", ["GET"], services.status),
+    ("/api/intents", ["POST"], services.interpret_comment),
+    ("/api/intents/drafts", ["POST"], services.save_comment),
+    ("/api/intents/{job_id}/interpret", ["POST"], services.interpret_saved_comment),
+    ("/api/intents", ["GET"], services.list_comment_intents),
+    ("/api/intents/{job_id}/confirm", ["POST"], services.confirm_comment_intent),
 ):
     app.add_api_route(path, function, methods=methods)
 

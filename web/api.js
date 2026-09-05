@@ -6,6 +6,10 @@ export async function api(path, options = {}) {
 }
 
 export const API = {
+  commentIntents: (name, kind) => api(`/api/intents?${new URLSearchParams({ name, kind })}`),
+  saveComment: request => api('/api/intents/drafts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) }),
+  interpretComment: jobId => api(`/api/intents/${encodeURIComponent(jobId)}/interpret`, { method: 'POST' }),
+  confirmComment: (jobId, proposal) => api(`/api/intents/${encodeURIComponent(jobId)}/confirm`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(proposal) }),
   gpu: () => api("/api/gpu"),
   sprite: (prompt, seed) => api(`/api/generate?${new URLSearchParams({ prompt, seed, count: 1 })}`, { method: "POST" }),
   characters: () => api("/api/characters"),
@@ -15,7 +19,7 @@ export const API = {
   removeSample: (name, index) => api(`/api/characters/${encodeURIComponent(name)}/samples/${index}`, { method: "DELETE" }),
   setCaption: (name, index, caption) => api(`/api/characters/${encodeURIComponent(name)}/samples/${index}/caption?${new URLSearchParams({ caption })}`, { method: "POST" }),
   train: (name, steps = 1200) => api(`/api/lora?${new URLSearchParams({ name, steps })}`, { method: "POST" }),
-  previewCharacter: (name, tags, seed = 1, count = 1, style = "") => api(`/api/characters/${encodeURIComponent(name)}/preview?${new URLSearchParams({ tags, seed, count, style })}`, { method: "POST" }),
+  previewCharacter: (name, tags, seed = 1, count = 1, style = "", intent_job_id = "") => api(`/api/characters/${encodeURIComponent(name)}/preview?${new URLSearchParams({ tags, seed, count, style, intent_job_id })}`, { method: "POST" }),
   bible: (name, seed = 1, style = "") => api(`/api/bible?${new URLSearchParams({ name, seed, style })}`, { method: "POST" }),
   panels: () => api("/api/panels"),
   redraw: (name, panel, tags = "", seed = 1, avoid = "") => api(`/api/panel?${new URLSearchParams({ name, panel, tags, seed, avoid })}`, { method: "POST" }),

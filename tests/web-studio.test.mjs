@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 const storage = new Map();
 globalThis.localStorage = { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) };
-const { progress, imagePaths, discoverJob, operationKey, terminal } = await import('../web/jobs.js?v=studio-2');
+const { progress, imagePaths, discoverJob, operationKey, terminal, intentCaption, kindLabel } = await import('../web/jobs.js?v=studio-2');
 const { draft, saveDraft, clearDraft } = await import('../web/drafts.js?v=studio-2');
 const { element, action } = await import('../web/ui.js?v=studio-2');
 
@@ -23,6 +23,15 @@ test('a previous or ambiguous job is never claimed by a new request', () => {
   assert.equal(discoverJob([recent,{...recent,job_id:'another'}],spec,['old']),null);
   assert.equal(discoverJob([{...recent,style:'other'}],spec,['old']),null);
   assert.equal(operationKey(spec),operationKey({style:'',name:'Bell',kind:'preview'}));
+});
+test('解釈の確認待ちと採用済みを処理中として数えない', () => {
+  for (const status of ['draft', 'awaiting_confirmation', 'confirmed']) {
+    assert.equal(terminal({kind:'intent',status}),true);
+    assert.ok(intentCaption({kind:'intent',status}));
+  }
+  assert.equal(terminal({kind:'intent',status:'running'}),false);
+  assert.equal(terminal({kind:'preview',status:'draft'}),false);
+  assert.equal(kindLabel('intent'),'注文の解釈');
 });
 test('all final pictures are collected without duplicated sheets', () => {
   assert.deepEqual(imagePaths({sheet_path:'sheet',path:'sheet',pictures:[{path:'a'}],candidates:[{path:'b'}]}),['sheet','a','b']);

@@ -1,8 +1,9 @@
 import { API } from './api.js?v=studio-2';
 import { h, icon, picture, notice, link, dateText } from './ui.js?v=studio-2';
 
-export const terminal = job => ['completed', 'success', 'failed', 'error'].includes(job?.status);
-export const kindLabel = kind => ({ character_bible: '設定画', preview: 'プレビュー', lora_train: '学習', from_bible: 'キャラクターの一枚', image: '画風の一枚', redraw_panel: 'パネルの描き直し', sprite: 'スプライト', transparent: '背景を透過', pixelize: 'ドットに整える', refine: '描き直し', variant: 'バリエーション' }[kind] || '画像の処理');
+export const intentCaption = job => job?.kind === 'intent' ? ({ draft: '原文を保存済み・未解釈', awaiting_confirmation: '解釈案の確認待ち', confirmed: '確認した条件を採用済み' }[job.status] || '') : '';
+export const terminal = job => ['completed', 'success', 'failed', 'error'].includes(job?.status) || !!intentCaption(job);
+export const kindLabel = kind => ({ intent: '注文の解釈', character_bible: '設定画', preview: 'プレビュー', lora_train: '学習', from_bible: 'キャラクターの一枚', image: '画風の一枚', redraw_panel: 'パネルの描き直し', sprite: 'スプライト', transparent: '背景を透過', pixelize: 'ドットに整える', refine: '描き直し', variant: 'バリエーション' }[kind] || '画像の処理');
 export function imagePaths(job = {}) {
   const paths = [job.sheet_path, job.path, ...(job.pictures || []).map(p => typeof p === 'string' ? p : p.path), ...(job.candidates || []).map(p => p.path)];
   return [...new Set(paths.filter(Boolean))];
@@ -69,14 +70,14 @@ export async function runJob(spec, title, request) {
 }
 export function jobView(job, { title, startedAt, error, requesting, notStarted, hideImages } = {}) {
   const failed = ['failed', 'error'].includes(job?.status);
-  const done = ['completed','success'].includes(job?.status); const p = progress(job);
-  const caption = done ? 'できました' : failed ? '処理に失敗しました' : notStarted ? '入力を確認してください' : job?.status === 'queued' ? '準備・GPU の処理待ち' : job ? '最後の報告：処理中' : requesting ? '開始の応答を待っています' : '応答を確認してください';
+  const done = ['completed','success'].includes(job?.status) || !!intentCaption(job); const p = progress(job);
+  const caption = intentCaption(job) || (done ? 'できました' : failed ? '処理に失敗しました' : notStarted ? '入力を確認してください' : job?.kind === 'intent' ? '画像と注文を解釈しています' : job?.status === 'queued' ? '準備・GPU の処理待ち' : job ? '最後の報告：処理中' : requesting ? '開始の応答を待っています' : '応答を確認してください');
   const elapsed = startedAt && !done && !failed && !notStarted ? h('span', { class: 'elapsed', 'data-started': startedAt }) : null;
   const view = h('section', { class: `job-view ${failed ? 'failed' : done ? 'completed' : ''}` },
     h('div', { class: 'job-heading' }, h('span', { class: `job-symbol ${done || failed ? '' : 'working'}` }, icon(done ? 'check' : failed ? 'activity' : 'spark', 24)), h('div', {}, h('strong', {}, title || `${job?.name || job?.style || ''} ${kindLabel(job?.kind)}`), h('p', { class: 'muted', role: 'status' }, caption)), elapsed),
     p ? h('div', { class: 'progress-wrap' }, h('progress', { max: p.total, value: p.value, 'aria-label': '制作の進捗' }), h('span', {}, `${p.value} / ${p.total} ${p.unit}`)) : !done && !failed && !notStarted ? h('div', { class: 'indeterminate', 'aria-label': '処理待ち。進捗率は未取得' }, h('span')) : null,
     failed || notStarted ? h('p', { class: 'error-text' }, job?.error || error || '詳しいエラーは記録されていません。') : error ? h('p', { class: 'error-text' }, `通信の応答を確認できません: ${error}。生成の失敗とは限りません。`) : null,
-    !done && !failed && !notStarted ? h('p', { class: 'muted small' }, job?.kind === 'lora_train' ? '学習出力の実測値を表示します。この画面を離れても「制作状況」で確認できます。' : 'できた画像からここに並びます。画面を移動しても「制作状況」で確認できます。') : null,
+    !done && !failed && !notStarted ? h('p', { class: 'muted small' }, job?.kind === 'intent' ? '原文は保存されています。解釈案ができたら、注文を入力した工程で確認できます。' : job?.kind === 'lora_train' ? '学習出力の実測値を表示します。この画面を離れても「制作状況」で確認できます。' : 'できた画像からここに並びます。画面を移動しても「制作状況」で確認できます。') : null,
     job?.updated_at ? h('p', { class: 'muted small' }, `最終更新 ${dateText(job.updated_at)}`) : job ? h('p', { class: 'muted small' }, '過去の記録には更新日時がありません。表示は最後に保存された状態です。') : null);
   const paths = hideImages ? [] : imagePaths(job || {});
   if (paths.length) view.append(h('div', { class: `result-grid ${job?.sheet_path ? 'with-sheet' : ''}` }, paths.map((path, index) =>

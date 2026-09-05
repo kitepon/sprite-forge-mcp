@@ -247,3 +247,12 @@
   @media(max-width:380px) { .page { padding-inline: 14px; } .hero-copy { padding-left: 16px; } .hero .eyebrow { font-size: 6px; letter-spacing: 1px; } .hero h1 { font-size: 24px; } .hero-description { font-size: 9px; } .hero-cta { padding-inline: 9px; font-size: 9px; } .sample-grid { grid-template-columns: 1fr; } .sample-card > .picture { aspect-ratio: 1.3; } .sample-content .actions { flex-direction: row; } .sample-content .small-button { width: auto; } .context-card { grid-template-columns: 60px 1fr; } .context-card .picture { width: 60px; height: 65px; } }
   @media(prefers-reduced-motion:reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
 }
+:root { --intent-accent: #7659d8; }
+.intent-editor { border: 1px solid var(--intent-accent); border-radius: 20px; padding: clamp(18px, 3vw, 28px); background: color-mix(in srgb, var(--intent-accent) 5%, transparent); }
+.intent-editor h3 { margin: 0; }
+.intent-references { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+.intent-references figure { flex: 0 0 105px; margin: 0; }
+.intent-references img { width: 105px; height: 90px; object-fit: contain; border-radius: 10px; }
+.intent-references figcaption { font-size: 12px; margin-top: 6px; }
+.intent-change { padding: 16px; border: 1px solid color-mix(in srgb, var(--intent-accent) 24%, transparent); border-radius: 14px; }
+.intent-change select { width: auto; max-width: 60%; }
