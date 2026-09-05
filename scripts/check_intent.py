@@ -37,7 +37,7 @@ async def main(args):
     from backend.intent import IntentRequest
 
     service = Services()
-    await service.create_character("解釈検証", "she/her")
+    await service.create_character("解釈検証", args.description)
     for path in args.reference:
         await service.add_samples("解釈検証", str(path.resolve()))
     if args.base_interpretation:
@@ -52,6 +52,7 @@ if __name__ == "__main__":
     parser.add_argument("--cache", type=Path, required=True)
     parser.add_argument("--reference", type=Path, action="append", required=True)
     parser.add_argument("--comment", required=True)
+    parser.add_argument("--description", default="she/her")
     parser.add_argument("--stage", choices=("preview", "samples", "training", "sheet", "panel", "drawing"), default="preview")
     parser.add_argument("--panel", default="")
     parser.add_argument("--base-interpretation", type=Path)

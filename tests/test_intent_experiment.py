@@ -1,10 +1,39 @@
 """比較実験の既存応答を、モデルの再実行なしで引き継ぐ。"""
 import asyncio
 from copy import deepcopy
+import json
+from types import SimpleNamespace
+
+import pytest
 
 from scripts.check_intent import apply_retained
 from tests.test_intent import proposal, setup
 from tests.test_style import make
+
+
+@pytest.mark.parametrize("description", ["he/him", "an orc", "a quadrupedal dragon", "a limbless slime creature"])
+def test_probe_passes_the_given_character_description(tmp_path, monkeypatch, description):
+    from backend import services
+    from scripts.check_intent import main
+    from tests.test_style import png
+
+    service, _ = make(tmp_path, monkeypatch)
+    monkeypatch.setattr(services, "Services", lambda: service)
+    monkeypatch.setenv("SPRITEFORGE_CACHE", "")
+    source = tmp_path / "source.png"
+    source.write_bytes(png())
+
+    async def interpret(job, images):
+        assert job["record_description"] == description
+        assert len(images) == 1
+        return proposal(job["references"][0])
+
+    service.intent_interpreter = interpret
+    args = SimpleNamespace(cache=tmp_path / "probe", reference=[source], description=description,
+                           base_interpretation=None, stage="sheet", panel="", comment="参照の姿を今後も使う")
+    asyncio.run(main(args))
+    job = json.loads((args.cache / "interpretation.json").read_text())
+    assert job["record_description"] == description and job["status"] == "awaiting_confirmation"
 
 
 def test_retained_response_rebinds_only_isolated_references(tmp_path, monkeypatch):

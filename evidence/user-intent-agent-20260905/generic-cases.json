@@ -1,0 +1,43 @@
+[
+  {
+    "id": "human",
+    "description": "he/him",
+    "stage": "sheet",
+    "panel": "",
+    "references": [
+      "hero-battle.png",
+      "hero-relax.png"
+    ],
+    "comment": "2枚目の服装を今後の基本にして。マントの色は今回だけ緑にしてほしい。顔と髪は2枚目のまま。正面・側面・背面や各表情はそれぞれのパネルの役割を維持して。"
+  },
+  {
+    "id": "orc",
+    "description": "an orc",
+    "stage": "sheet",
+    "panel": "",
+    "references": [
+      "orc.png"
+    ],
+    "comment": "1枚目のオークの幅広く厚い体形、顔、髪と装備を今後の基本にして。今回は肩当てだけ金色にしたい。斧や腰まわり、ブーツはそのまま。各パネルの向きと表情は役割を維持して。"
+  },
+  {
+    "id": "dragon",
+    "description": "a quadrupedal dragon",
+    "stage": "panel",
+    "panel": "turn_side",
+    "references": [
+      "dragon.png"
+    ],
+    "comment": "この側面パネルは1枚目の四足のドラゴンにして。翼の膜だけ今回は青にし、次回へ残すのは元の赤い翼にしたい。胴体、四本の脚、角と尾は1枚目のまま。人間や人間用の衣装を足さないで。"
+  },
+  {
+    "id": "slime",
+    "description": "a limbless slime creature",
+    "stage": "sheet",
+    "panel": "",
+    "references": [
+      "slime.png"
+    ],
+    "comment": "1枚目の手足のないスライムの形と顔を今後の基本にして。今回は体の色だけ緑にしたい。手足、髪、衣装や靴は追加しないで。向きと表情は各パネルの役割に合わせて。"
+  }
+]
