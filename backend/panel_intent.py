@@ -6,6 +6,8 @@ from .intent import prompt_parts
 
 
 def inherited(panel, conditions):
+    if panel.inherited_features is not None:
+        return {key: deepcopy(value) for key, value in conditions.items() if key in panel.inherited_features}
     if panel.kind != "item":
         return deepcopy(conditions)
     features = {"background", "lighting"}
@@ -15,6 +17,8 @@ def inherited(panel, conditions):
 
 
 def role_conditions(panel):
+    if panel.role_features is not None:
+        return {key: value for key, value in panel.conditions.items() if key in panel.role_features}
     return {key: value for key, value in panel.conditions.items()
             if not (panel.key == "item_outfit" and key == "outfit")}
 
@@ -27,7 +31,7 @@ def resolve_panel(panel, trigger, char_desc, common, changes, saved, intent_job_
     legacy = saved.get("tags") or saved.get("avoid")
     if legacy and not targeted and (shared or temporary):
         raise ValueError(f"{panel.label}の保存済み英語修正を、対象パネルの注文に取り込んで解釈・採用してください。")
-    if not shared and not temporary and not targeted and not saved.get("conditions"):
+    if not shared and not temporary and not targeted and not saved.get("conditions") and (legacy or not any(text for _, text in panel.negative_parts)):
         return {"prompt": bible.panel_prompt(panel, trigger, char_desc, saved.get("tags", "")),
                 "negative": ", ".join(p for p in (bible.NEGATIVE, saved.get("avoid", "")) if p),
                 "conditions": {}}
@@ -38,7 +42,7 @@ def resolve_panel(panel, trigger, char_desc, common, changes, saved, intent_job_
     conditions.update(shared)
     conditions.update(role_conditions(panel))
     conditions.update(deepcopy(saved.get("conditions", {})))
-    conditions.update(temporary)
+    conditions.update({key: value for key, value in temporary.items() if key not in role_conditions(panel)})
     for scope in ("panel", "this_run"):
         conditions.update({c["feature"]: deepcopy(c) for c in targeted if c["scope"] == scope})
     # 背景は従来同様に末尾へ置く。各特徴の肯定・否定を同じ条件から作る。

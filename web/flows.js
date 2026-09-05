@@ -192,13 +192,13 @@ async function sheet(target, ctx, styled, cleanup) {
   const existing = h('div', { class: 'stack' }); const edit = h('div', { class: 'stack' }); let editingReady = false; let refreshEditor;
   const showExisting = record => { if (record.bible?.sheet_path) existing.replaceChildren(h('h3', {}, '保存してある設定画'), picture(record.bible.sheet_path, `${name}の設定画`, { version: record.bible.at })); };
   showExisting(rec);
-  const update = async () => { const fresh = await API.character(name); if (!target.isConnected) return; showExisting(fresh); if (fresh.bible && !editingReady) { editingReady = true; refreshEditor = await redraw(edit, name, fresh, cleanup, showExisting); } else refreshEditor?.(fresh); };
-  target.append(h('p', { class: 'muted' }, '23 パネルを順に描き、設定画にまとめます。前の設定画は、新しい一枚が完成するまで残ります。'), advanced(field('Seed', seed)), taskPanel({ kind: 'character_bible', name }, '設定画', rec.bible ? '新しい設定画を作る' : '設定画を作る', async () => { await editor.save(); return API.bible(name, number(seed), styled ? ctx.style : '', editor.confirmedJob()); }, cleanup, () => update().catch(error => notice(error.message, true)), { hideCompletedImages: true }), existing, edit);
+  const update = async () => { const fresh = await API.character(name); if (!target.isConnected) return; showExisting(fresh); if (fresh.bible && !editingReady) { editingReady = true; refreshEditor = await redraw(edit, name, fresh, cleanup, showExisting); } else await refreshEditor?.(fresh); };
+  target.append(h('p', { class: 'muted' }, '保存した構成の項目を順に描き、設定画にまとめます。前の設定画は、新しい一枚が完成するまで残ります。'), advanced(field('Seed', seed)), taskPanel({ kind: 'character_bible', name }, '設定画', rec.bible ? '新しい設定画を作る' : '設定画を作る', async () => { await editor.save(); return API.bible(name, number(seed), styled ? ctx.style : '', editor.confirmedJob()); }, cleanup, () => update().catch(error => notice(error.message, true)), { hideCompletedImages: true }), existing, edit);
   if (rec.bible) { editingReady = true; refreshEditor = await redraw(edit, name, rec, cleanup, showExisting); }
   return async () => { await editor.save(); await refreshEditor?.save(); };
 }
 async function redraw(target, name, rec, cleanup, updated) {
-  const panels = await API.panels(); const key = `redraw:${name}`; let selected = panels.find(p => p.key === draft(`${key}:panel`)) || panels[0];
+  let panels = await API.panels(name, true); const key = `redraw:${name}`; let selected = panels.find(p => p.key === draft(`${key}:panel`)) || panels[0];
   const picker = h('div', { class: 'panel-picker' }); const selectedTitle = h('h3');
   const commentBox = h('div'); let panelEditor, changing = false;
   const loadComment = async () => { commentBox.replaceChildren(); panelEditor = await commentEditor(commentBox, { name, kind: 'character', stage: 'panel', panel: selected.key }); };
@@ -217,9 +217,16 @@ async function redraw(target, name, rec, cleanup, updated) {
 target.append(h('details', { class: 'redraw-editor' }, h('summary', {}, icon('tool'), '気になるところを描き直す'), h('div', { class: 'stack' }, h('p', { class: 'muted' }, '画像から直すパネルを選んでください。「このパネルに残す」は生成が成功してから保存し、「今回だけ」は次回へ残しません。'), picker, selectedTitle, commentBox, field('注文の使い方', mode, '採用した注文を使う時は、詳細設定の英語欄は使いません。'), advanced(field('英語の自由入力', tags, '自由入力はパネルの内容全体を置き換えます。採用した条件とは併用できません。'), field('避けたいもの（英語）', avoid), field('Seed', seed)), taskPanel({ kind: 'redraw_panel', name }, 'パネルの描き直し', '選んだパネルを描き直す', async () => { await panelEditor.save(); const interpreted = mode.value === 'intent'; return API.redraw(name, selected.key, interpreted ? '' : tags.value, number(seed), interpreted ? '' : avoid.value, interpreted ? panelEditor.confirmedJob() : '', mode.value); }, cleanup, job => {
     // The old picture remains visible in the result for side-by-side comparison.
     if (job.previous) { const previous = h('div', { class: 'comparison' }, h('h3', {}, '描き直す前'), picture(job.previous, '描き直す前')); const old = target.querySelector('.comparison'); old?.remove(); target.append(previous); }
-    API.character(name).then(fresh => { if (!target.isConnected) return; rec = fresh; paint(); updated(fresh); }).catch(error => notice(error.message, true));
+    API.character(name).then(async fresh => { if (!target.isConnected) return; await refresh(fresh); updated(fresh); }).catch(error => notice(error.message, true));
   }))));
-  const refresh = fresh => { rec = fresh; paint(); };
+  const refresh = async fresh => {
+    const changedSheet = rec.bible?.job_id !== fresh.bible?.job_id;
+    rec = fresh;
+    if (fresh.bible?.layout) panels = fresh.bible.layout.map(p => ({ ...p, tags: p.parts.map(part => part.description_en).filter(Boolean).join(', ') }));
+    selected = panels.find(p => p.key === selected.key) || panels[0];
+    paint();
+    if (changedSheet) await loadComment();
+  };
   refresh.save = () => panelEditor.save();
   return refresh;
 }

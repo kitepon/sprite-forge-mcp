@@ -20,6 +20,8 @@ class IntentServices:
                     or job["record_kind"] != kind or job["record_key"] != record["key"]
                     or job["record_created"] != record["created"] or job["stage"] != stage or job["panel"] != panel):
                 raise ValueError("この工程で採用した解釈を指定してください。")
+            if stage in ("sheet", "panel"):
+                self._check_intent_layout(job, record)
             conditions = deepcopy(job["effective_conditions"])
             if stage in ("sheet", "panel"):
                 conditions = deepcopy(job.get("common_conditions", job["base_conditions"]))
@@ -44,12 +46,22 @@ class IntentServices:
     def _save_intent_record(self, record: dict, kind: str):
         return self._save_character(record) if kind == "character" else self._save_style(record)
 
+    def _check_intent_layout(self, job, record):
+        from .sheet_layout import layout_for, legacy_layout
+        expected = job["sheet_layout"] if "sheet_layout" in job else legacy_layout()
+        if expected != layout_for(record, generated=job["stage"] == "panel"):
+            raise ValueError("シート構成が変わっています。今の構成で注文を読み直してください。")
+        if job["stage"] == "panel" and ("source_bible_id" not in job or job["source_bible_id"] != record.get("bible", {}).get("job_id")):
+            raise ValueError("対象の設定画が変わったか、古い注文に対象の記録がありません。今の設定画で注文を読み直してください。")
+
     async def save_comment(self, request: IntentRequest) -> dict:
         """注文と画像順を保存する。モデルや画像生成は呼ばない。"""
         record = self._intent_record(request.name, request.kind)
+        from .sheet_layout import layout_for, panel_from
+        layout = layout_for(record, generated=request.stage == "panel")
         if request.kind == "style" and request.stage in ("panel", "sheet"):
             raise ValueError("設定画とパネルはキャラクターの工程です。")
-        if request.stage == "panel" and request.panel not in {p.key for p in bible.PANELS}:
+        if request.stage == "panel" and request.panel not in {p["key"] for p in layout}:
             raise ValueError("描き直すパネルを指定してください。")
         if request.stage != "panel" and request.panel:
             raise ValueError("パネルの指定は描き直し工程で使ってください。")
@@ -72,12 +84,16 @@ class IntentServices:
                "stage_conditions": deepcopy(PREVIEW_CONDITIONS) if request.kind == "character" and request.stage == "preview" else {},
                "base_conditions": deepcopy(record.get("intent_conditions", {}))}
         if request.stage in ("sheet", "panel"):
+            job["sheet_layout"] = layout
+            if request.stage == "panel":
+                job["source_bible_id"] = record.get("bible", {}).get("job_id")
+                job["existing_settings"]["panel_overrides"] = deepcopy(record.get("bible", {}).get("panel_overrides", record.get("panel_overrides", {})))
             job["stage_conditions"] = {"background": {"description_en": bible.COMMON, "avoid_en": ""}}
             job["panel_specs"] = [{"key": p.key, "section": p.section, "label": p.label, "kind": p.kind,
                                    "conditions": p.conditions,
                                    "role_features": sorted(role_conditions(p)),
                                    "inherited_features": sorted(inherited(p, {key: {} for key in get_args(Feature)}))}
-                                  for p in bible.PANELS if not request.panel or p.key == request.panel]
+                                  for p in map(panel_from, layout) if not request.panel or p.key == request.panel]
         self.events.save_job(job)
         return job
 
@@ -165,6 +181,8 @@ class IntentServices:
         record = self._intent_record(job["name"], job["record_kind"])
         if record["created"] != job["record_created"]:
             raise ValueError("対象が作り直されています。注文を読み直してください。")
+        if job["stage"] in ("sheet", "panel"):
+            self._check_intent_layout(job, record)
         current_refs = [{"record_key": record["key"], "sample_index": s["index"], "path": s["path"]} for s in record["samples"]]
         for item in [*proposal.observations, *proposal.changes]:
             if item.reference is not None and item.reference.model_dump() not in current_refs:

@@ -23,7 +23,7 @@ export const API = {
   train: (name, steps = 1200, prepared_job_id = '') => api(`/api/lora?${new URLSearchParams({ name, steps, prepared_job_id })}`, { method: "POST" }),
   previewCharacter: (name, tags, seed = 1, count = 1, style = "", intent_job_id = "") => api(`/api/characters/${encodeURIComponent(name)}/preview?${new URLSearchParams({ tags, seed, count, style, intent_job_id })}`, { method: "POST" }),
   bible: (name, seed = 1, style = "", intent_job_id = "") => api(`/api/bible?${new URLSearchParams({ name, seed, style, intent_job_id })}`, { method: "POST" }),
-  panels: () => api("/api/panels"),
+  panels: (name = '', generated = false) => api(name ? `/api/panels?${new URLSearchParams({ name, generated })}` : '/api/panels'),
   redraw: (name, panel, tags = "", seed = 1, avoid = "", intent_job_id = "", input_mode = "auto") => api(`/api/panel?${new URLSearchParams({ name, panel, tags, seed, avoid, intent_job_id, input_mode })}`, { method: "POST" }),
   fromBible: (name, prompt, seed = 1, style = "", intent_job_id = "") => api(`/api/from-bible?${new URLSearchParams({ name, prompt, seed, style, intent_job_id })}`, { method: "POST" }),
   image: (prompt, style, seed = 1, intent_job_id = "") => api(`/api/image?${new URLSearchParams({ prompt, style, seed, intent_job_id })}`, { method: "POST" }),

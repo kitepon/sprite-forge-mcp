@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import os
 import re
+from html import escape
 from io import BytesIO
 from pathlib import Path
 from typing import NamedTuple
@@ -22,6 +24,9 @@ class Panel(NamedTuple):
     label: str
     kind: str      # full | face | item | chibi  (drives the canvas size)
     parts: tuple[tuple[str, str], ...]  # 特徴名と内容文。並びは従来の生成文を保つ。
+    negative_parts: tuple[tuple[str, str], ...] = ()
+    role_features: tuple[str, ...] | None = None
+    inherited_features: tuple[str, ...] | None = None
 
     @property
     def tags(self) -> str:
@@ -33,7 +38,11 @@ class Panel(NamedTuple):
         grouped: dict[str, list[str]] = {}
         for feature, text in self.parts:
             grouped.setdefault(feature, []).append(text)
-        return {feature: {"description_en": ", ".join(parts), "avoid_en": ""}
+        negative: dict[str, list[str]] = {}
+        for feature, text in self.negative_parts:
+            if text:
+                negative.setdefault(feature, []).append(text)
+        return {feature: {"description_en": ", ".join(parts), "avoid_en": ", ".join(negative.get(feature, []))}
                 for feature, parts in grouped.items()}
 
 
@@ -155,6 +164,12 @@ def palette(rgb: Image.Image, k: int = 7) -> list[tuple[int, int, int]]:
 
 
 def _font(size_px: int) -> ImageFont.FreeTypeFont:
+    configured = os.environ.get("SPRITEFORGE_SHEET_FONT")
+    if configured:
+        return ImageFont.truetype(configured, size_px)
+    for path in ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", "/System/Library/Fonts/Hiragino Sans GB.ttc"):
+        if Path(path).is_file():
+            return ImageFont.truetype(path, size_px)
     return ImageFont.load_default(size=size_px)
 
 
@@ -172,14 +187,39 @@ def contact_strip(paths: list[Path], height: int = 520, gap: int = 24) -> Image.
     return strip
 
 
+def sheet_rows(specs):
+    """表示順は構成の一箇所から作る。同一区分が離れていれば、その位置へ掲載する。"""
+    if [(p.key, p.section, p.label, p.kind) for p in specs] == [(p.key, p.section, p.label, p.kind) for p in PANELS]:
+        return SECTIONS
+    groups = []
+    for panel in specs:
+        if not groups or groups[-1][0] != panel.section:
+            groups.append((panel.section, []))
+        groups[-1][1].append(panel)
+    rows = []
+    for title, panels in groups:
+        for start in range(0, len(panels), 4):
+            group = panels[start:start + 4]
+            height = max(440 if p.kind == "full" else 300 for p in group)
+            rows.append((title, tuple(p.key for p in group), height, False, (40, 2000)))
+    return rows
+
+
 def compose_model_sheet(name: str, attr: str, panels: list[tuple[str, Path]], master: Path,
-                        destination: Path) -> Path:
+                        destination: Path, specs: list[Panel] | None = None) -> Path:
     """Compose the sectioned bible PNG: the training pictures, then every section, then the palette."""
     imgs = {key: Image.open(path).convert("RGB") for key, path in panels}
+    specs = list(PANELS) if specs is None else specs
+    rows = sheet_rows(specs)
+    labels = {panel.key: panel.label for panel in specs}
     W, BG, INK, MUT, LINE = 2040, (250, 250, 248), (38, 40, 46), (96, 100, 110), (210, 210, 212)
-    sheet = Image.new("RGB", (W, 4400), BG)
+    header_anchor_footer = 120 + 44 + 520 + 24 + 44 + 110
+    sheet = Image.new("RGB", (W, header_anchor_footer + sum(44 + row[2] + 30 for row in rows)), BG)
     d = ImageDraw.Draw(sheet)
     fT, fSub, fSec, fLab = _font(46), _font(20), _font(26), _font(17)
+    text = name + attr + "".join(p.label + p.section for p in specs)
+    if any(ord(char) > 255 for char in text) and not isinstance(fLab.path, (str, Path)):
+        raise ValueError("日本語などの見出しには対応フォントが必要です。SPRITEFORGE_SHEET_FONTを設定してください。")
 
     def row(keys, y, h, baseline, area, gap=16):
         x0, x1 = area
@@ -193,8 +233,8 @@ def compose_model_sheet(name: str, attr: str, panels: list[tuple[str, Path]], ma
             cx = x0 + cw * i + cw // 2
             py = (y + h - im.height) if baseline else (y + (h - im.height) // 2)
             sheet.paste(im, (cx - im.width // 2, py))
-            tw = d.textlength(LABELS[key], font=fLab)
-            d.text((cx - tw / 2, y + h + 6), LABELS[key], font=fLab, fill=MUT)
+            tw = d.textlength(labels[key], font=fLab)
+            d.text((cx - tw / 2, y + h + 6), labels[key], font=fLab, fill=MUT)
         return y + h + 30
 
     def sec(title, y):
@@ -212,7 +252,7 @@ def compose_model_sheet(name: str, attr: str, panels: list[tuple[str, Path]], ma
     m = m.resize((int(m.width * sc), int(m.height * sc)), Image.LANCZOS)
     sheet.paste(m, (40 + (W - 80 - m.width) // 2, y))
     y += m.height + 24
-    for title, keys, h, baseline, area in SECTIONS:
+    for title, keys, h, baseline, area in rows:
         y = sec(title, y)
         y = row(keys, y, h, baseline, area)
     y = sec("COLOR PALETTE", y)
@@ -235,9 +275,12 @@ def _b64(image: Image.Image, maxpx: int = 560) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-def write_html(name: str, attr: str, panels: list[tuple[str, Path]], master: Path, destination: Path) -> Path:
+def write_html(name: str, attr: str, panels: list[tuple[str, Path]], master: Path, destination: Path,
+               specs: list[Panel] | None = None) -> Path:
     """Self-contained (base64) HTML bible with the same sections as the PNG."""
     imgs = {key: Image.open(path) for key, path in panels}
+    specs = list(PANELS) if specs is None else specs
+    labels = {panel.key: panel.label for panel in specs}
     css = ("body{margin:0;background:#15171c;color:#e7e9ee;font:15px/1.5 -apple-system,system-ui,sans-serif}"
            "header{background:#1f242b;padding:20px 28px;border-bottom:1px solid #333}"
            "h1{margin:0;font-size:26px}h2{font-size:15px;letter-spacing:.08em;color:#9aa3b2;margin:26px 28px 8px;"
@@ -247,14 +290,14 @@ def write_html(name: str, attr: str, panels: list[tuple[str, Path]], master: Pat
            ".cell span{font-size:12px;color:#9aa3b2;display:block;margin-top:6px}.master img{max-width:96%;border-radius:10px;background:#fff}"
            ".pal{display:flex;gap:10px;padding:0 16px;flex-wrap:wrap}.sw{width:88px}.sw div{height:48px;border-radius:6px;border:1px solid #555}"
            ".sw code{font-size:11px;color:#9aa3b2}")
-    parts = [f"<!doctype html><meta charset=utf-8><title>{name} — character bible</title><style>{css}</style>",
-             f"<header><h1>{name}</h1><div style='color:#9aa3b2'>{attr or 'character bible'} · sprite-forge</div></header><div class=wrap>",
+    parts = [f"<!doctype html><meta charset=utf-8><title>{escape(name)} — character bible</title><style>{css}</style>",
+             f"<header><h1>{escape(name)}</h1><div style='color:#9aa3b2'>{escape(attr or 'character bible')} · sprite-forge</div></header><div class=wrap>",
              f"<h2>TRAINING PICTURES</h2><div class='row master'><div class=cell><img src='{_b64(Image.open(master), 1400)}'></div></div>"]
-    for title, keys, *_ in SECTIONS:
-        parts.append(f"<h2>{title}</h2><div class=row>")
+    for title, keys, *_ in sheet_rows(specs):
+        parts.append(f"<h2>{escape(title)}</h2><div class=row>")
         for key in keys:
             if key in imgs:
-                parts.append(f"<div class=cell><img src='{_b64(imgs[key])}'><span>{LABELS[key]}</span></div>")
+                parts.append(f"<div class=cell><img src='{_b64(imgs[key])}'><span>{escape(labels[key])}</span></div>")
         parts.append("</div>")
     parts.append("<h2>COLOR PALETTE</h2><div class=pal>")
     base = imgs.get("turn_front") or next(iter(imgs.values()))

@@ -2,6 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { API } from '../web/api.js';
 
+test('描き直しの一覧は対象キャラクターの完成済み構成を指定する', async t => {
+  let url;
+  t.mock.method(globalThis, 'fetch', async value => {
+    url = new URL(value, 'http://test');
+    return {ok:true,json:async()=>[]};
+  });
+  await API.panels('ベル', true);
+  assert.equal(url.searchParams.get('name'), 'ベル');
+  assert.equal(url.searchParams.get('generated'), 'true');
+  await API.panels();
+  assert.equal(url.pathname, '/api/panels');
+  assert.equal(url.search, '');
+});
+
 test('preview sends the selected style, including Japanese names', async (t) => {
   let request;
   t.mock.method(globalThis, 'fetch', async (url, options) => {

@@ -22,8 +22,11 @@ jobs:
       - name: Install locked test dependencies
         run: uv sync --locked --group dev
 
+      - name: 日本語の設定画見出し用フォントを導入
+        run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
+
       - name: Run test suite
-        run: uv run pytest
+        run: uv run python -m pytest
 
       - name: Set up Node.js for WebUI tests
         uses: actions/setup-node@v4
