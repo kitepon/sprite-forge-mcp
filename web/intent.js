@@ -3,7 +3,7 @@ import { h, field, button, picture, action, notice } from './ui.js?v=studio-2';
 import { draft, saveDraft, clearDraft } from './drafts.js?v=studio-2';
 
 const features = { face: '顔', hair: '髪', outfit: '衣装', style: '描き方', expression: '表情', pose: '姿勢・向き', accessory: '小物', background: '背景', subject: '被写体', composition: '構図', lighting: '光' };
-const scopes = { persistent: '今後も共通', this_run: '今回だけ', panel: 'このパネル' };
+const scopes = { persistent: '今後も共通', this_run: '今回だけ', panel: 'このパネルに残す' };
 
 export async function flushCaptions(kind, name) {
   const record = await (kind === 'character' ? API.character(name) : API.style(name));
@@ -35,12 +35,24 @@ export async function commentEditor(target, { name, kind, stage, panel = '', int
     if (!proposal) return;
     if (proposal.questions.length) output.append(h('div', { class: 'callout stack' }, h('strong', {}, 'ここを教えてください'), proposal.questions.map(question => h('p', {}, question)), h('p', { class: 'muted small' }, '上の注文へ回答を書き足して、もう一度解釈してください。')));
     for (const change of proposal.changes) {
-      const scope = h('select', { disabled: job.status === 'confirmed', 'aria-label': `${features[change.feature]}の適用範囲`, onchange: e => { change.scope = e.target.value; change.panel_key = change.scope === 'panel' ? panel : null; } },
-        Object.entries(scopes).filter(([value]) => value !== 'panel' || stage === 'panel').map(([value, label]) => h('option', { value, selected: value === change.scope }, label)));
+      const panelSpecs = job.panel_specs || [];
+      const targetPanel = h('select', { disabled: job.status === 'confirmed' || change.scope === 'persistent', 'aria-label': `${features[change.feature]}の対象パネル`, onchange: e => { change.panel_key = e.target.value || null; } });
+      const paintTargets = () => {
+        targetPanel.disabled = job.status === 'confirmed' || change.scope === 'persistent';
+        targetPanel.replaceChildren(...(change.scope === 'panel' ? [] : [h('option', { value: '', selected: !change.panel_key }, '設定画全体')]),
+          ...panelSpecs.map(p => h('option', { value: p.key, selected: p.key === change.panel_key }, `${p.section} · ${p.label}`)));
+      };
+      const scope = h('select', { disabled: job.status === 'confirmed', 'aria-label': `${features[change.feature]}の適用範囲`, onchange: e => {
+        change.scope = e.target.value;
+        if (change.scope === 'persistent') change.panel_key = null;
+        else if (change.scope === 'panel') change.panel_key ||= panel || panelSpecs[0]?.key;
+        paintTargets();
+      } }, Object.entries(scopes).filter(([value]) => value !== 'panel' || ['sheet', 'panel'].includes(stage)).map(([value, label]) => h('option', { value, selected: value === change.scope }, label)));
+      paintTargets();
       const positive = h('textarea', { rows: 2, disabled: job.status === 'confirmed', 'aria-label': `${features[change.feature]}の生成文`, oninput: e => { change.description_en = e.target.value; } }, change.description_en);
       const negative = h('input', { value: change.avoid_en, disabled: job.status === 'confirmed', 'aria-label': `${features[change.feature]}で避ける内容`, oninput: e => { change.avoid_en = e.target.value; } });
       const negativeJa = h('input', { value: change.avoid_ja || '', disabled: job.status === 'confirmed', 'aria-label': `${features[change.feature]}で避ける内容の日本語`, oninput: e => { change.avoid_ja = e.target.value; } });
-      output.append(h('article', { class: 'intent-change stack' }, h('div', { class: 'section-heading' }, h('strong', {}, features[change.feature]), scope), h('p', {}, change.reason_ja), field('避ける内容（日本語）', negativeJa, '除外するものがなければ空欄。訂正は上の注文へ書き足して再解釈できます。'), h('details', {}, h('summary', {}, '生成へ渡す言葉を確認・編集'), field('採用する内容（英語）', positive), field('避ける内容（英語）', negative))));
+      output.append(h('article', { class: 'intent-change stack' }, h('div', { class: 'section-heading' }, h('strong', {}, features[change.feature]), scope), ...(stage === 'sheet' ? [field('対象', targetPanel)] : []), h('p', {}, change.reason_ja), field('避ける内容（日本語）', negativeJa, '除外するものがなければ空欄。訂正は上の注文へ書き足して再解釈できます。'), h('details', {}, h('summary', {}, '生成へ渡す言葉を確認・編集'), field('採用する内容（英語）', positive), field('避ける内容（英語）', negative))));
     }
     const observations = structuredClone(job.accepted_observations || edits?.observations || proposal.observations);
     if (['samples', 'training'].includes(stage) && observations.length) {

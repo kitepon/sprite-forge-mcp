@@ -49,7 +49,7 @@ def main():
         if "失敗試験" in job["original_comment"]:
             raise RuntimeError("試験用の解釈エラー")
         return {"observations": [{"reference": ref, "appearance_ja": "確認用の画像観察", "caption_en": "fixture subject"} for ref in job["references"]],
-                "questions": [], "changes": [{"feature": "outfit", "scope": "this_run" if job["record_kind"] == "style" else "persistent", "panel_key": None,
+                "questions": [], "changes": [{"feature": "outfit", "scope": "panel" if job["stage"] == "panel" else "this_run" if job["record_kind"] == "style" else "persistent", "panel_key": job["panel"] or None,
                 "reference": job["references"][-1], "description_en": "separate top and skirt",
                 "avoid_en": "", "avoid_ja": "", "reason_ja": "最後の画像の衣装を使う確認用の提案です"}]}
 

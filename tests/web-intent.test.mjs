@@ -78,6 +78,28 @@ test('教材の観察は希望とは別の編集欄へ表示する', async () =>
   assert.ok(fields.find(node => node.tag === 'p' && node.children.includes('どんな青？')));
 });
 
+test('設定画の同じ衣装特徴でも、全体と対象パネルの範囲を訂正して別々に採用する', async t => {
+  t.mock.method(globalThis,'setTimeout',()=>0);
+  let saved = {job_id:'sheet-order',status:'awaiting_confirmation',stage:'sheet',panel:'',original_comment:'衣装の注文',references:[],
+    panel_specs:[{key:'turn_front',section:'向き',label:'正面'},{key:'item_shoes',section:'単品',label:'靴'}],
+    proposal:{questions:[],observations:[],changes:[
+      {feature:'outfit',scope:'persistent',panel_key:null,reference:null,description_en:'coat',avoid_en:'',avoid_ja:'',reason_ja:'全体の衣装'},
+      {feature:'outfit',scope:'this_run',panel_key:'item_shoes',reference:null,description_en:'red boots',avoid_en:'',avoid_ja:'',reason_ja:'今回の靴'}]}};
+  API.commentIntents = async()=>[structuredClone(saved)];
+  API.confirmComment = async(_id,proposal)=> { saved={...saved,status:'confirmed',accepted:structuredClone(proposal)}; return structuredClone(saved); };
+  const root = new FakeNode('root');
+  await commentEditor(root,{name:'確認用',kind:'character',stage:'sheet'});
+  const scopes = all(root).filter(n=>n.attrs['aria-label']==='衣装の適用範囲');
+  scopes[1].events.change({target:{value:'panel'}});
+  const targets = all(root).filter(n=>n.attrs['aria-label']==='衣装の対象パネル');
+  targets[1].events.change({target:{value:'item_shoes'}});
+  const control = all(root).find(n=>n.tag==='button' && n.children.includes('この内容を採用'));
+  await control.events.click({currentTarget:control});
+  assert.deepEqual(saved.accepted.changes.map(c=>[c.feature,c.scope,c.panel_key]),[
+    ['outfit','persistent',null],['outfit','panel','item_shoes']]);
+  assert.equal(saved.accepted.changes[1].description_en,'red boots');
+});
+
 for (const first of ['observations', 'wish']) test(`${first}を先に採用しても、もう片方の訂正を失わない`, async t => {
   t.mock.method(globalThis, 'setTimeout', () => 0);
   const reference = {record_key:'probe',sample_index:3,path:'four.png'};

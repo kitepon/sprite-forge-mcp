@@ -42,7 +42,7 @@ async def main(args):
         await service.add_samples("解釈検証", str(path.resolve()))
     if args.base_interpretation:
         await apply_retained(service, "解釈検証", json.loads(args.base_interpretation.read_text()))
-    job = await service.interpret_comment(IntentRequest(name="解釈検証", stage=args.stage, comment=args.comment))
+    job = await service.interpret_comment(IntentRequest(name="解釈検証", stage=args.stage, panel=args.panel, comment=args.comment))
     (args.cache / "interpretation.json").write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(job, ensure_ascii=False, indent=2))
 
@@ -52,6 +52,7 @@ if __name__ == "__main__":
     parser.add_argument("--cache", type=Path, required=True)
     parser.add_argument("--reference", type=Path, action="append", required=True)
     parser.add_argument("--comment", required=True)
-    parser.add_argument("--stage", choices=("preview", "samples", "training"), default="preview")
+    parser.add_argument("--stage", choices=("preview", "samples", "training", "sheet", "panel", "drawing"), default="preview")
+    parser.add_argument("--panel", default="")
     parser.add_argument("--base-interpretation", type=Path)
     asyncio.run(main(parser.parse_args()))

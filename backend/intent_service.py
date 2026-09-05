@@ -3,10 +3,12 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
+from typing import get_args
 import uuid
 
 from . import bible
-from .intent import IntentRequest, Observation, Proposal, PREVIEW_CONDITIONS, effective_conditions, prompt_parts, validate_proposal
+from .intent import Feature, IntentRequest, Observation, Proposal, PREVIEW_CONDITIONS, effective_conditions, prompt_parts, validate_proposal
+from .panel_intent import inherited, role_conditions
 
 
 class IntentServices:
@@ -19,13 +21,22 @@ class IntentServices:
                     or job["record_created"] != record["created"] or job["stage"] != stage or job["panel"] != panel):
                 raise ValueError("この工程で採用した解釈を指定してください。")
             conditions = deepcopy(job["effective_conditions"])
+            if stage in ("sheet", "panel"):
+                conditions = deepcopy(job.get("common_conditions", job["base_conditions"]))
         # 画風の希望は画風LoRAの選択・学習で反映する。内容文へ平坦化しない。
         style = conditions.get("style", {})
         if style.get("description_en") or style.get("avoid_en"):
             raise ValueError("画風の希望は、画風の学習・選択で反映する必要があります。内容の注文と分けて確認してください。")
         positive, negative = prompt_parts(conditions)
-        return {"intent_job_id": job_id or None, "intent_conditions": conditions,
-                "intent_positive": positive, "intent_negative": negative}
+        result = {"intent_job_id": job_id or None, "intent_conditions": conditions,
+                  "intent_positive": positive, "intent_negative": negative}
+        if stage in ("sheet", "panel"):
+            result["intent_changes"] = deepcopy(job["accepted"]["changes"]) if job_id else []
+            if stage == "panel":
+                for change in result["intent_changes"]:
+                    if change["scope"] == "this_run" and change["panel_key"] is None:
+                        change["panel_key"] = panel
+        return result
 
     def _intent_record(self, name: str, kind: str):
         return self._load_character(name) if kind == "character" else self._load_style(name)
@@ -60,6 +71,13 @@ class IntentServices:
                "training_captions": [deepcopy(s.get("training_caption")) for s in selected],
                "stage_conditions": deepcopy(PREVIEW_CONDITIONS) if request.kind == "character" and request.stage == "preview" else {},
                "base_conditions": deepcopy(record.get("intent_conditions", {}))}
+        if request.stage in ("sheet", "panel"):
+            job["stage_conditions"] = {"background": {"description_en": bible.COMMON, "avoid_en": ""}}
+            job["panel_specs"] = [{"key": p.key, "section": p.section, "label": p.label, "kind": p.kind,
+                                   "conditions": p.conditions,
+                                   "role_features": sorted(role_conditions(p)),
+                                   "inherited_features": sorted(inherited(p, {key: {} for key in get_args(Feature)}))}
+                                  for p in bible.PANELS if not request.panel or p.key == request.panel]
         self.events.save_job(job)
         return job
 
@@ -160,7 +178,9 @@ class IntentServices:
                 common[change.feature] = change.model_dump()
         self._save_intent_record(record, job["record_kind"])
         job.update(status="confirmed", accepted=proposal.model_dump(),
-                   effective_conditions=effective_conditions(common, proposal.changes))
+                   common_conditions=deepcopy(common),
+                   effective_conditions=effective_conditions(common, [c for c in proposal.changes if c.panel_key is None])
+                   if job["stage"] in ("sheet", "panel") else effective_conditions(common, proposal.changes))
         self.events.save_job(job)
         self.events.append(job_id, "interpretation_confirmed", {})
         return job

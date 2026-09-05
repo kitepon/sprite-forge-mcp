@@ -70,11 +70,13 @@ def validate_proposal(proposal: Proposal, job: dict) -> None:
             raise ValueError("避ける内容には、日本語と英語の両方の説明が必要です。")
         if job["record_kind"] == "style" and change.scope == "persistent" and change.feature != "style":
             raise ValueError("画風の共通条件へ被写体や衣装は保存できません。今回だけの条件にしてください。")
-        if change.scope == "panel":
-            if job["stage"] != "panel" or change.panel_key != job["panel"]:
+        if change.scope == "panel" and not change.panel_key:
+            raise ValueError("保存するパネルを指定してください。")
+        if change.panel_key is not None:
+            allowed = ({item["key"] for item in job.get("panel_specs", [])} if job["stage"] == "sheet"
+                       else {job["panel"]} if job["stage"] == "panel" else set())
+            if change.scope == "persistent" or change.panel_key not in allowed:
                 raise ValueError("パネル指定が今回の対象と一致しません。")
-        elif change.panel_key is not None:
-            raise ValueError("パネル限定以外の条件にパネル指定があります。")
         target = (change.feature, change.scope, change.panel_key)
         if target in targets:
             raise ValueError("同じ特徴と範囲の変更は一つにまとめてください。")

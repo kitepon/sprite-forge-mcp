@@ -69,3 +69,22 @@ test('一枚生成の両経路へ確定した注文と選択した画風を送�
   assert.equal(calls[1].url.searchParams.get('prompt'),'');
   assert.equal(calls[1].options.method,'POST');
 });
+
+test('設定画とパネル修正へ採用した注文を送る', async t => {
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async url => {
+    calls.push(new URL(url, 'http://test'));
+    return {ok:true,json:async()=>({})};
+  });
+  await API.bible('ベル',5,'水彩','sheet-order');
+  await API.redraw('ベル','item_shoes','',9,'','panel-order','intent');
+  assert.equal(calls[0].searchParams.get('intent_job_id'),'sheet-order');
+  assert.equal(calls[0].searchParams.get('style'),'水彩');
+  assert.equal(calls[1].searchParams.get('intent_job_id'),'panel-order');
+  assert.equal(calls[1].searchParams.get('panel'),'item_shoes');
+  assert.equal(calls[1].searchParams.get('tags'),'');
+  assert.equal(calls[1].searchParams.get('input_mode'),'intent');
+  await API.redraw('ベル','item_shoes','green boots',9,'','','english');
+  assert.equal(calls[2].searchParams.get('input_mode'),'english');
+  assert.equal(calls[2].searchParams.get('tags'),'green boots');
+});

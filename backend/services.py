@@ -10,6 +10,7 @@ import struct
 import time
 import zlib
 import re
+from copy import deepcopy
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from io import BytesIO
@@ -29,6 +30,7 @@ from .events import EventStore
 from .intent_service import IntentServices
 from .intent_runner import interpret
 from .intent import PREVIEW_TAGS, drawing_content, preview_content
+from .panel_intent import resolve_panel, saved_corrections
 
 
 class Services(IntentServices):
@@ -341,7 +343,7 @@ class Services(IntentServices):
             return job
 
     async def generate_character_bible(self, name: str, seed: int = 1, turbo: bool = False,
-                                       attr: str = "", style: str = "") -> dict[str, Any]:
+                                       attr: str = "", style: str = "", intent_job_id: str = "") -> dict[str, Any]:
         """Stage 3: 23 panels with the character's LoRA (about three minutes). No training happens
         here — train_character_lora is a separate, deliberate step."""
         record = self._load_character(name)
@@ -351,27 +353,32 @@ class Services(IntentServices):
         trigger = ", ".join(t for t in (record["trigger"], style_word) if t)
         char_desc, lora_name = record["char_desc"], record["lora_name"]
         attr = attr or record.get("attr", "")
+        intent = self._generation_intent(record, "character", "sheet", intent_job_id)
+        overrides = deepcopy(record.get("panel_overrides", {}))
+        requests = [{"panel": panel.key, "seed": overrides.get(panel.key, {}).get("seed", seed + index),
+                     **resolve_panel(panel, trigger, char_desc, intent["intent_conditions"], intent["intent_changes"],
+                                     overrides.get(panel.key, {}), intent_job_id)}
+                    for index, panel in enumerate(bible.PANELS)]
         job_id = str(uuid.uuid4())
         key = record["key"]
         panel_root = self._character_dir(name) / "bible" / job_id / "panels"
         job = {"job_id": job_id, "kind": "character_bible", "status": "queued", "name": name, "trigger": trigger,
                "lora_name": lora_name, "loras": chain, "style": style or record.get("style", ""), "panels_dir": str(panel_root),
-               "total_panels": len(bible.PANELS), "completed_panels": 0, "panels": []}
+               "total_panels": len(bible.PANELS), "completed_panels": 0, "panels": [],
+               "panel_requests": requests, "panel_overrides_before": overrides, **intent}
         self.events.save_job(job)
         self._record_call("generate_character_bible", job_id, {"name": name, "seed": seed, "lora_name": lora_name})
         self.events.append(job_id, "queued", {"name": name})
         try:
             panels: list[tuple[str, Path]] = []
-            overrides = record.get("panel_overrides", {})
             for index, panel in enumerate(bible.PANELS):
                 job.update(status="generating panels", panel=panel.key, completed_panels=index)
                 self.events.save_job(job)
                 width, height = bible.size(panel)
-                fix = overrides.get(panel.key, {})  # a correction made with redraw_panel sticks for the next sheet
-                negative = ", ".join(part for part in (bible.NEGATIVE, fix.get("avoid", "")) if part)
+                request = requests[index]
                 content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
-                    bible.panel_prompt(panel, trigger, char_desc, fix.get("tags", "")), fix.get("seed", seed + index), turbo=turbo, loras=chain,
-                    negative=negative, width=width, height=height))
+                    request["prompt"], request["seed"], turbo=turbo, loras=chain,
+                    negative=request["negative"], width=width, height=height))
                 panel_path = panel_root / f"{panel.key}.png"
                 panel_path.parent.mkdir(parents=True, exist_ok=True)
                 panel_path.write_bytes(bible.crop_nonwhite(content))
@@ -383,6 +390,9 @@ class Services(IntentServices):
             sheet = bible.compose_model_sheet(name, attr, panels, anchor, self.generated_root / f"bible_{key}_{job_id}.png")
             html = bible.write_html(name, attr, panels, anchor, self.generated_root / f"bible_{key}_{job_id}.html")
             record = self._load_character(name)
+            if any(c["scope"] == "panel" for c in intent["intent_changes"]):
+                record["panel_overrides"] = saved_corrections(record.get("panel_overrides", {}), overrides,
+                    intent["intent_changes"], {r["panel"]: r["seed"] for r in requests}, intent_job_id)
             record["bible"] = {"job_id": job_id, "sheet_path": str(sheet), "html_path": str(html), "panels_dir": str(panel_root),
                                "attr": attr, "seed": seed, "style": job["style"], "at": datetime.now(UTC).isoformat().replace("+00:00", "Z")}
             self._save_character(record)
@@ -449,7 +459,7 @@ class Services(IntentServices):
         return [{"key": p.key, "section": p.section, "label": p.label, "kind": p.kind, "tags": p.tags} for p in bible.PANELS]
 
     async def redraw_panel(self, name: str, panel: str, tags: str = "", seed: int = 1, avoid: str = "",
-                           turbo: bool = False) -> dict[str, Any]:
+                           turbo: bool = False, intent_job_id: str = "", input_mode: str = "auto") -> dict[str, Any]:
         """Fix one panel of a finished bible by instruction: redraw it with the same LoRA from
         ``tags`` (content words; empty = the panel's default tags), ``avoid`` (words the picture
         must not contain — diffusion ignores "no X" in the prompt, so they go to the negative side)
@@ -460,21 +470,42 @@ class Services(IntentServices):
         chain, style_word = self._loras(record, record["bible"].get("style", ""))
         info = {"trigger": ", ".join(t for t in (record["trigger"], style_word) if t), "char_desc": record["char_desc"],
                 "lora_name": record["lora_name"], "panels_dir": record["bible"]["panels_dir"], "attr": record["bible"].get("attr", ""),
+                "sheet_path": record["bible"]["sheet_path"], "html_path": record["bible"]["html_path"],
                 "source": record.get("samples_sheet") or str(Path(record["bible"]["panels_dir"]) / "turn_front.png")}
         spec = next((p for p in bible.PANELS if p.key == panel), None)
         if spec is None:
             raise ValueError(f"unknown panel {panel!r}; see list_bible_panels")
+        intent = self._generation_intent(record, "character", "panel", intent_job_id, panel)
+        overrides = deepcopy(record.get("panel_overrides", {}))
+        saved = overrides.get(panel, {})
+        if input_mode not in ("auto", "intent", "english"):
+            raise ValueError("パネルの入力方法が不明です。")
+        if input_mode == "english" and intent_job_id:
+            raise ValueError("英語の自由入力と解釈した注文は同時に使えません。")
+        if input_mode == "english":
+            intent.update(intent_conditions={}, intent_positive="", intent_negative="", intent_changes=[])
+        typed = input_mode != "english" and bool(input_mode == "intent" or intent_job_id or intent["intent_conditions"] or saved.get("conditions"))
+        if typed and (tags.strip() or avoid.strip()):
+            raise ValueError("英語の自由入力と解釈した注文は同時に使えません。制作への注文に含めて解釈してください。")
+        request = resolve_panel(spec, info["trigger"], info["char_desc"], intent["intent_conditions"],
+                                intent["intent_changes"], saved, intent_job_id) if typed else resolve_panel(
+                                    spec, info["trigger"], info["char_desc"], {}, [], {"tags": tags, "avoid": avoid.strip()})
         job_id = str(uuid.uuid4())
-        prompt = bible.panel_prompt(spec, info.get("trigger", ""), info.get("char_desc", ""), tags)
-        negative = ", ".join(part for part in (bible.NEGATIVE, avoid.strip()) if part)
+        prompt, negative = request["prompt"], request["negative"]
         job = {"job_id": job_id, "kind": "redraw_panel", "status": "queued", "name": name, "panel": panel,
-               "prompt": prompt, "negative": negative, "seed": seed, "lora_name": info["lora_name"]}
+               "prompt": prompt, "negative": negative, "seed": seed, "lora_name": info["lora_name"],
+               "loras": chain, "input_mode": "intent" if typed else "english", "panel_conditions": request["conditions"],
+               "panel_overrides_before": overrides, **intent}
         self.events.save_job(job); self._record_call("redraw_panel", job_id, {"name": name, "panel": panel, "seed": seed})
         self.events.append(job_id, "queued", {"prompt": prompt})
         with self._job_errors(job):
             width, height = bible.size(spec)
             content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
                 prompt, seed, turbo=turbo, loras=chain, negative=negative, width=width, height=height))
+            source_bible_id = record["bible"]["job_id"]
+            record = self._load_character(name)
+            if record.get("panel_overrides", {}).get(panel) != overrides.get(panel):
+                raise ValueError("同じパネルの修正が更新されています。今回の画像と保存案で上書きしていません。")
             panel_root = Path(info["panels_dir"])
             panel_path = panel_root / f"{panel}.png"
             previous = panel_root / "history" / f"{panel}-{job_id[:8]}.png"
@@ -484,11 +515,14 @@ class Services(IntentServices):
             panel_path.write_bytes(bible.crop_nonwhite(content))
             panels = [(p.key, panel_root / f"{p.key}.png") for p in bible.PANELS if (panel_root / f"{p.key}.png").is_file()]
             anchor = Path(info["source"])
-            sheet = bible.compose_model_sheet(name, info.get("attr", ""), panels, anchor, Path(record["bible"]["sheet_path"]))
-            html = bible.write_html(name, info.get("attr", ""), panels, anchor, Path(record["bible"]["html_path"]))
-            source_bible_id = record["bible"]["job_id"]
-            record = self._load_character(name)
-            record.setdefault("panel_overrides", {})[panel] = {"tags": tags, "avoid": avoid, "seed": seed}
+            sheet = bible.compose_model_sheet(name, info.get("attr", ""), panels, anchor, Path(info["sheet_path"]))
+            html = bible.write_html(name, info.get("attr", ""), panels, anchor, Path(info["html_path"]))
+            if typed:
+                if any(c["scope"] == "panel" for c in intent["intent_changes"]):
+                    record["panel_overrides"] = saved_corrections(record.get("panel_overrides", {}), overrides,
+                        intent["intent_changes"], {panel: seed}, intent_job_id)
+            else:
+                record.setdefault("panel_overrides", {})[panel] = {"tags": tags, "avoid": avoid, "seed": seed}
             # 古い設定画の描き直しで、途中に完成した別の設定画の日時を変えない。
             if record["bible"]["job_id"] == source_bible_id:
                 record["bible"]["at"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
