@@ -5,7 +5,25 @@ const storage = new Map();
 globalThis.localStorage = { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) };
 const { progress, imagePaths, discoverJob, operationKey, terminal, intentCaption, kindLabel, jobView } = await import('../web/jobs.js?v=studio-2');
 const { draft, saveDraft, clearDraft } = await import('../web/drafts.js?v=studio-2');
-const { element, action } = await import('../web/ui.js?v=studio-2');
+const { element, action, lightbox } = await import('../web/ui.js?v=studio-2');
+
+test('一枚の拡大画面にnull文字を追加せず、複数画像の移動は維持する', () => {
+  class FakeNode {
+    constructor() { this.children = []; this.events = {}; }
+    setAttribute() {}
+    append(...children) { this.children.push(...children.map(x => x instanceof FakeNode ? x : String(x))); }
+    replaceChildren(...children) { this.children = children; }
+    addEventListener(name, fn) { this.events[name] = fn; }
+    showModal() {}
+  }
+  globalThis.Node = FakeNode;
+  globalThis.document = {body:new FakeNode(), createElement:()=>new FakeNode(), createElementNS:()=>new FakeNode(), createTextNode:text=>text};
+  lightbox([{path:'a'}]);
+  assert.equal(document.body.children[0].children.length, 2);
+  lightbox([{path:'a'},{path:'b'}]);
+  assert.equal(document.body.children[1].children.length, 3);
+  assert.equal(document.body.children[1].children[2].children.length, 2);
+});
 
 test('only measured progress is shown; indeterminate jobs get no percentage', () => {
   assert.equal(progress({kind:'image',status:'running'}),null);

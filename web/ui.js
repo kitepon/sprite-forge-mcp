@@ -75,7 +75,7 @@ export function lightbox(images, index = 0) {
   const show = () => { const current = images[index]; stage.replaceChildren(h('img', { src: current.src || API.file(current.path), alt: current.label || '生成画像' })); caption.textContent = `${current.label || '生成画像'}${images.length > 1 ? ` · ${index + 1} / ${images.length}` : ''}`; download.href = current.src || API.file(current.path); };
   const close = button(icon('close'), () => dialog.close(), 'icon-button'); close.setAttribute('aria-label', '画像を閉じる');
   dialog.append(h('header', { class: 'lightbox-head' }, caption, download, close), stage,
-    images.length > 1 ? h('div', { class: 'actions centered' }, button('← 前の画像', () => { index = (index - 1 + images.length) % images.length; show(); }, 'quiet'), button('次の画像 →', () => { index = (index + 1) % images.length; show(); }, 'quiet')) : null);
+    ...(images.length > 1 ? [h('div', { class: 'actions centered' }, button('← 前の画像', () => { index = (index - 1 + images.length) % images.length; show(); }, 'quiet'), button('次の画像 →', () => { index = (index + 1) % images.length; show(); }, 'quiet'))] : []));
   dialog.addEventListener('click', e => { if (e.target === dialog) dialog.close(); });
   dialog.addEventListener('close', () => { dialog.remove(); previousFocus?.focus(); });
   document.body.append(dialog); show(); dialog.showModal();
