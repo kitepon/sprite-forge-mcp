@@ -6,7 +6,7 @@ from pathlib import Path
 import uuid
 
 from . import bible
-from .intent import IntentRequest, Proposal, PREVIEW_CONDITIONS, effective_conditions, prompt_parts, validate_proposal
+from .intent import IntentRequest, Observation, Proposal, PREVIEW_CONDITIONS, effective_conditions, prompt_parts, validate_proposal
 
 
 class IntentServices:
@@ -57,6 +57,7 @@ class IntentServices:
                "existing_settings": {key: deepcopy(record[key]) for key in ("char_desc", "attr", "style", "style_strength", "panel_overrides") if key in record},
                "references": [{"record_key": record["key"], "sample_index": s["index"], "path": s["path"]} for s in selected],
                "image_comments": [s.get("caption", "") for s in selected],
+               "training_captions": [deepcopy(s.get("training_caption")) for s in selected],
                "stage_conditions": deepcopy(PREVIEW_CONDITIONS) if request.kind == "character" and request.stage == "preview" else {},
                "base_conditions": deepcopy(record.get("intent_conditions", {}))}
         self.events.save_job(job)
@@ -76,7 +77,7 @@ class IntentServices:
         self.events.save_job(job)
         self.events.append(job["job_id"], "interpreting", {"name": job["name"]})
         with self._job_errors(job):
-            if not job["original_comment"].strip() and not any(c.strip() for c in job["image_comments"]):
+            if job["stage"] not in ("samples", "training") and not job["original_comment"].strip() and not any(c.strip() for c in job["image_comments"]):
                 raise ValueError("制作への注文か、画像ごとのコメントを入力してください。")
             # 呼出し前に画像も固定する。解釈中の削除で別画像へ差し替わらない。
             images = [Path(ref["path"]).read_bytes() for ref in job["references"]]
@@ -86,6 +87,40 @@ class IntentServices:
             job.update(status="awaiting_confirmation", proposal=proposal.model_dump())
             self.events.save_job(job)
             self.events.append(job["job_id"], "interpretation_ready", {})
+        return job
+
+    async def confirm_training_observations(self, job_id: str, observations: list[Observation]) -> dict:
+        """画像の観察だけを教材説明として確認する。希望の採用・学習はしない。"""
+        job = self.events.load_job(job_id)
+        if (not job or job.get("kind") != "intent" or job["stage"] not in ("samples", "training")
+                or job["status"] not in ("awaiting_confirmation", "confirmed")):
+            raise ValueError("参考画像・学習工程の解釈案を指定してください。")
+        if job.get("accepted_observations"):
+            raise ValueError("この画像説明は確認済みです。訂正する場合は注文を読み直してください。")
+        refs = [item.reference.model_dump() for item in observations]
+        if len(refs) != len(job["references"]) or any(refs.count(ref) != 1 for ref in job["references"]):
+            raise ValueError("渡した参考画像すべての教材の説明を、一枚ずつ確認してください。")
+        if any(not item.caption_en.strip() or not item.appearance_ja.strip() for item in observations):
+            raise ValueError("教材の説明には、画像の観察と英語の両方を入力してください。")
+        record = self._intent_record(job["name"], job["record_kind"])
+        if record["created"] != job["record_created"]:
+            raise ValueError("対象が作り直されています。注文を読み直してください。")
+        samples = {s["index"]: s for s in record["samples"]}
+        for item in observations:
+            ref = item.reference.model_dump()
+            sample = samples.get(item.reference.sample_index)
+            if not sample or sample["path"] != item.reference.path:
+                raise ValueError("参照画像が外されています。注文を読み直してください。")
+            prior = job.get("training_captions", [None] * len(job["references"]))[job["references"].index(ref)]
+            if sample.get("training_caption") != prior:
+                raise ValueError("同じ画像の教材の説明が更新されています。注文を読み直してください。")
+        for item in observations:
+            samples[item.reference.sample_index]["training_caption"] = {
+                "caption_en": item.caption_en, "appearance_ja": item.appearance_ja, "intent_job_id": job_id}
+        self._save_intent_record(record, job["record_kind"])
+        job["accepted_observations"] = [item.model_dump() for item in observations]
+        self.events.save_job(job)
+        self.events.append(job_id, "training_observations_confirmed", {})
         return job
 
     async def list_comment_intents(self, name: str, kind: str = "character") -> list[dict]:

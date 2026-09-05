@@ -38,6 +38,7 @@ class IntentRequest(StrictModel):
 class Observation(StrictModel):
     reference: Reference
     appearance_ja: str
+    caption_en: str = ""
 
 
 class Change(StrictModel):

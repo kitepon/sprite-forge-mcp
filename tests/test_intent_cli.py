@@ -39,6 +39,10 @@ def test_runner_removes_api_credentials_and_uses_only_input_images(monkeypatch):
 
     def execute(args, *, input, text, capture_output, cwd, env):
         roots.append(cwd)
+        schema = json.loads((cwd / "schema.json").read_text())
+        observation = schema["$defs"]["Observation"]
+        assert set(observation["required"]) == set(observation["properties"])
+        assert "default" not in observation["properties"]["caption_en"]
         assert all(key not in env for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"))
         assert (cwd / "1.png").read_bytes() == b"image-fixture"
         assert "原文の注文" in input
@@ -75,3 +79,10 @@ def test_app_runner_transfers_recorded_stage_conditions(monkeypatch, has_snapsho
 
     monkeypatch.setattr("backend.intent_runner.asyncio.create_subprocess_exec", start)
     assert asyncio.run(interpret(job, []))["questions"] == []
+
+
+def test_nonzero_cli_exposes_structured_error_before_generic_stderr(monkeypatch):
+    monkeypatch.setattr("backend.intent_cli.subprocess.run", lambda *args, **kwargs: SimpleNamespace(
+        returncode=1, stdout='{"type":"error","message":"Invalid schema: caption_en must be required"}', stderr="Reading prompt from stdin..."))
+    with pytest.raises(RuntimeError, match="Invalid schema"):
+        run({"input": {}, "images": []})

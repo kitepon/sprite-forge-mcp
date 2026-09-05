@@ -24,14 +24,14 @@ export async function commentEditor(target, { name, kind, stage, panel = '', int
   const output = h('div', { class: 'intent-proposal stack' });
   const box = h('section', { class: 'intent-editor stack' }, h('h3', {}, '言葉で、作りたい姿へ'), field('制作への注文', input, '画像ごとのコメントも一緒に読みます。解釈案を確認してから採用できます。'), status);
   input.addEventListener('input', () => { saveDraft(key, input.value); status.textContent = input.value === savedText ? '原文は保存済み' : '未保存の変更があります'; });
-  const paint = () => {
+  const paint = (edits = null) => {
     output.replaceChildren();
     status.textContent = busy ? '原文を保存しました。画像と注文を解釈しています…' : ({ draft: '原文を保存しました。まだ解釈していません', running: '解釈中です。画面を開き直して結果を確認できます', awaiting_confirmation: '解釈案ができました。内容を確かめてください', confirmed: '採用済みです', failed: '解釈できませんでした。原文は保存されています' }[job?.status] || '注文は、この工程を離れる前にも保存します');
     if (input.value !== savedText) status.textContent = '未保存の変更があります';
     if (!job) return;
     if (job.error) output.append(h('p', { class: 'error-text' }, job.error));
     if (job.references.length) output.append(h('div', { class: 'intent-references' }, job.references.map((ref, index) => h('figure', {}, picture(ref.path, `注文時の画像 ${index + 1}`, { plain: true }), h('figcaption', {}, `注文時の画像 ${index + 1}`)))));
-    const proposal = structuredClone(job.accepted || job.proposal);
+    const proposal = structuredClone(job.accepted || edits?.proposal || job.proposal);
     if (!proposal) return;
     if (proposal.questions.length) output.append(h('div', { class: 'callout stack' }, h('strong', {}, 'ここを教えてください'), proposal.questions.map(question => h('p', {}, question)), h('p', { class: 'muted small' }, '上の注文へ回答を書き足して、もう一度解釈してください。')));
     for (const change of proposal.changes) {
@@ -42,10 +42,25 @@ export async function commentEditor(target, { name, kind, stage, panel = '', int
       const negativeJa = h('input', { value: change.avoid_ja || '', disabled: job.status === 'confirmed', 'aria-label': `${features[change.feature]}で避ける内容の日本語`, oninput: e => { change.avoid_ja = e.target.value; } });
       output.append(h('article', { class: 'intent-change stack' }, h('div', { class: 'section-heading' }, h('strong', {}, features[change.feature]), scope), h('p', {}, change.reason_ja), field('避ける内容（日本語）', negativeJa, '除外するものがなければ空欄。訂正は上の注文へ書き足して再解釈できます。'), h('details', {}, h('summary', {}, '生成へ渡す言葉を確認・編集'), field('採用する内容（英語）', positive), field('避ける内容（英語）', negative))));
     }
-    if (proposal.observations.length) output.append(h('details', {}, h('summary', {}, '画像から読み取った内容'), proposal.observations.map(item => h('p', {}, item.appearance_ja))));
+    const observations = structuredClone(job.accepted_observations || edits?.observations || proposal.observations);
+    if (['samples', 'training'].includes(stage) && observations.length) {
+      const observed = h('section', { class: 'stack' }, h('h3', {}, '画像に写っている事実・教材の説明'), h('p', { class: 'muted small' }, '希望する変更は教材の説明に入れません。画像と一致する内容を確認してください。'));
+      for (const item of observations) {
+        const index = job.references.findIndex(ref => ref.sample_index === item.reference.sample_index);
+        const disabled = !!job.accepted_observations;
+        observed.append(h('article', { class: 'intent-change stack' }, h('strong', {}, `画像 ${index + 1}`), picture(item.reference.path, `教材説明の画像 ${index + 1}`),
+          field('画像に見える内容', h('textarea', { rows: 3, disabled, 'aria-label': `画像 ${index + 1} の観察`, oninput: e => { item.appearance_ja = e.target.value; } }, item.appearance_ja)),
+          field('学習へ渡す説明（英語）', h('textarea', { rows: 3, disabled, 'aria-label': `画像 ${index + 1} の教材説明`, oninput: e => { item.caption_en = e.target.value; } }, item.caption_en || ''))));
+      }
+      observed.append(job.accepted_observations ? h('p', { role: 'status' }, '教材の説明は確認済みです。学習はまだ始まりません。') : button('この画像説明を教材に採用', e => action(e.currentTarget, async () => {
+        if (input.value !== savedText) throw new Error('注文が変わっています。もう一度解釈してください。');
+        job = await API.confirmObservations(job.job_id, observations); paint({proposal, observations}); notice('画像の説明を教材用に保存しました。学習はまだ始まりません');
+      }), 'quiet'));
+      output.append(observed);
+    } else if (observations.length) output.append(h('details', {}, h('summary', {}, '画像から読み取った内容'), observations.map(item => h('p', {}, item.appearance_ja))));
     if (job.status === 'awaiting_confirmation') output.append(button('この内容を採用', e => action(e.currentTarget, async () => {
       if (input.value !== savedText) throw new Error('注文が変わっています。もう一度解釈してください。');
-      job = await API.confirmComment(job.job_id, proposal); paint(); notice('確認した条件を採用しました');
+      job = await API.confirmComment(job.job_id, proposal); paint({proposal, observations}); notice('確認した条件を採用しました');
     })));
     if (job.interpreter) output.append(h('p', { class: 'muted small' }, `${job.interpreter.model} · 解釈に ${job.interpreter.elapsed_seconds} 秒`));
   };

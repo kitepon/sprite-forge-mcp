@@ -68,6 +68,8 @@ def test_training_failure_is_not_left_running(tmp_path, monkeypatch, failure):
     run(service.create_character("Bell", "she/her"))
     source = tmp_path / "source.png"; source.write_bytes(png())
     run(service.add_samples("Bell", str(source)))
+    from tests.test_training_materials import accept_observations
+    run(accept_observations(service, "Bell"))
 
     async def copy(*args, **kwargs):
         return 1, "fixture copy failure"

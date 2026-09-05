@@ -243,15 +243,15 @@ class Services(IntentServices):
         shutil.rmtree(root)
         return {"name": name, "deleted": True}
 
-    async def train_style_lora(self, name: str, steps: int = 1200) -> dict[str, Any]:
+    async def train_style_lora(self, name: str, steps: int = 1200, prepared_job_id: str = "") -> dict[str, Any]:
         """Train a style LoRA on fox from the style's pictures. Its trigger word (default
         <key>_style) is what the pictures teach; the character LoRA supplies the person."""
         record = self._load_style(name)
-        if not record["samples"]:
-            raise ValueError(f"style {name!r} has no samples: add_style_samples first")
-        job = await self._train_lora(record, self._style_dir(name), f"style_{record['key']}", "train_style_lora", steps)
+        job = await self._train_lora(record, "style", steps, prepared_job_id)
         with self._job_errors(job):
             record = self._load_style(name)
+            if record["created"] != job["record_created"]:
+                raise ValueError("学習中に対象の画風が作り直されたため、結果を採用していません。")
             record.update(lora_name=job["lora_name"], train_job=job["job_id"], steps=job["steps"])
             self._save_style(record)
         return job
@@ -517,39 +517,66 @@ class Services(IntentServices):
     async def bible_status(self, job_id: str) -> dict[str, Any]:
         return await self._status(job_id, "bible_status")
 
-    async def train_character_lora(self, name: str, steps: int = 1200) -> dict[str, Any]:
+    async def train_character_lora(self, name: str, steps: int = 1200, prepared_job_id: str = "") -> dict[str, Any]:
         """Stage 2: train an Anima LoRA on fox from the character's samples and captions. Runs only
         when called (minutes); the LoRA name is stored on the character."""
         record = self._load_character(name)
-        if not record["samples"]:
-            raise ValueError(f"{name!r} has no samples: add_samples first")
-        job = await self._train_lora(record, self._character_dir(name), f"dataset_{record['key']}", "train_character_lora", steps)
+        job = await self._train_lora(record, "character", steps, prepared_job_id)
         with self._job_errors(job):
             record = self._load_character(name)
+            if record["created"] != job["record_created"]:
+                raise ValueError("学習中に対象のキャラクターが作り直されたため、結果を採用していません。")
             record.update(lora_name=job["lora_name"], train_job=job["job_id"], steps=job["steps"])
             self._save_character(record)
         return job
 
-    async def _train_lora(self, record: dict[str, Any], root: Path, dataset_name: str, tool: str, steps: int = 1200) -> dict[str, Any]:
-        """開始時の画像と説明で学習する。最新台帳への結果保存は呼出し側が担う。"""
+    async def prepare_training(self, name: str, kind: str = "character", steps: int = 1200) -> dict[str, Any]:
+        """確認用の教材を凍結する。GPUや学習器は起動しない。"""
+        if kind not in ("character", "style"):
+            raise ValueError("対象はcharacterかstyleを指定してください。")
+        if steps < 1:
+            raise ValueError("学習ステップは1以上を指定してください。")
+        record = self._intent_record(name, kind)
+        if not record["samples"]:
+            raise ValueError("学習する参考画像を追加してください。")
+        if any(not s.get("training_caption", {}).get("caption_en", "").strip() for s in record["samples"]):
+            raise ValueError("すべての画像について、解釈した教材の説明を確認・採用してください。")
         trigger = record["trigger"]
-        panels = root / dataset_name
-        if panels.exists():
-            shutil.rmtree(panels)
+        job_id, stem = str(uuid.uuid4()), f"{record['key']}_{uuid.uuid4().hex[:8]}"
+        panels = self.generated_root / "training" / job_id / f"dataset_{stem}"
         panels.mkdir(parents=True)
+        materials = []
         for sample in record["samples"]:
             target = panels / f"{sample['index']:03d}.png"
             target.write_bytes(Path(sample["path"]).read_bytes())
-            target.with_suffix(".txt").write_text(", ".join(t for t in (trigger, sample.get("caption", "")) if t), encoding="utf-8")
-        job_id, stem = str(uuid.uuid4()), f"{record['key']}_{uuid.uuid4().hex[:8]}"
-        remote_root = r"C:\sf"
-        job = {"job_id": job_id, "kind": "lora_train", "status": "queued", "name": record["name"], "tool": tool,
+            observed = sample["training_caption"]
+            caption = ", ".join(t for t in (trigger, observed["caption_en"]) if t)
+            target.with_suffix(".txt").write_text(caption, encoding="utf-8")
+            materials.append({"reference": {"record_key": record["key"], "sample_index": sample["index"], "path": sample["path"]},
+                              "path": str(target), "caption": caption, "original_comment": sample.get("caption", ""), **observed})
+        job = {"job_id": job_id, "kind": "lora_train", "status": "awaiting_confirmation", "name": name,
+               "record_kind": kind, "record_key": record["key"], "record_created": record["created"],
+               "tool": f"train_{kind}_lora", "materials": materials,
                "trigger": trigger, "steps": steps, "progress": {"step": 0, "total": steps}, "lora_name": f"{stem}.safetensors",
                "dataset": str(panels), "images": len(record["samples"])}
-        self.events.save_job(job); self._record_call(tool, job_id, {"name": record["name"], "steps": steps})
-        self.events.append(job_id, "queued", {"name": record["name"], "steps": steps})
+        self.events.save_job(job)
+        self.events.append(job_id, "training_materials_ready", {"images": len(materials)})
+        return job
+
+    async def _train_lora(self, record: dict[str, Any], kind: str, steps: int, prepared_job_id: str) -> dict[str, Any]:
+        """表示した教材で学習する。ID省略時も確認済みの説明だけを使う。"""
+        job = self.events.load_job(prepared_job_id) if prepared_job_id else await self.prepare_training(record["name"], kind, steps)
+        if (not job or job.get("kind") != "lora_train" or job.get("record_kind") != kind
+                or job.get("record_key") != record["key"] or job.get("record_created") != record["created"]):
+            raise ValueError("この対象の学習教材を指定してください。")
+        if job["status"] != "awaiting_confirmation":
+            raise ValueError("確認待ちの学習教材を指定してください。")
+        job.update(status="queued")
+        self.events.save_job(job)
+        self._record_call(job["tool"], job["job_id"], {"name": record["name"], "steps": job["steps"]})
+        self.events.append(job["job_id"], "queued", {"name": record["name"], "steps": job["steps"]})
         with self._job_errors(job):
-            return await self._execute_training(job, panels, stem, remote_root, steps)
+            return await self._execute_training(job, Path(job["dataset"]), Path(job["lora_name"]).stem, r"C:\sf", job["steps"])
 
     async def _execute_training(self, job: dict[str, Any], panels: Path,
                                 stem: str, remote_root: str, steps: int) -> dict[str, Any]:

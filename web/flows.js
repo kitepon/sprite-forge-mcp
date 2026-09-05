@@ -4,6 +4,7 @@ import { h, icon, field, button, link, picture, empty, notice, action, pageHead,
 import { taskPanel } from './jobs.js?v=studio-2';
 import { draft, saveDraft, clearDraft, pendingFiles } from './drafts.js?v=studio-2';
 import { commentEditor, flushCaptions } from './intent.js?v=studio-2';
+import { trainingMaterials } from './training.js?v=studio-2';
 
 export const FLOWS = [
   { id: 'sheet', title: 'キャラクターを育てる', desc: '参考画像から、その子らしい設定画へ。', icon: 'layers', steps: ['キャラクター', '参考画像', '学習', 'プレビュー', '設定画'] },
@@ -123,17 +124,33 @@ async function samples(target, kind, name, cleanup, changed) {
   const onPending = () => { if (pending.latest && pending.latest !== lastRecord) { lastRecord = pending.latest; paint(pending.latest); } renderPending(); };
   pending.listeners.add(onPending); cleanup.push(() => pending.listeners.delete(onPending));
   renderPending(); target.append(h('div', { class: 'upload-section stack' }, drop, label, tray, h('div', { class: 'actions' }, add)), h('p', { class: 'muted small' }, '説明の下書きはこの端末に保存します。選択中のファイルは、ページを再読み込みすると選び直しになります。'));
-  const editor = await commentEditor(target, { name, kind, stage: 'samples', interpretEnabled: kind === 'character' });
+  const editor = await commentEditor(target, { name, kind, stage: 'samples' });
   return editor.save;
 }
 
 async function training(target, kind, name, cleanup) {
   const rec = await (kind === 'character' ? API.character(name) : API.style(name));
-  const editor = await commentEditor(target, { name, kind, stage: 'training', interpretEnabled: false });
+  const editor = await commentEditor(target, { name, kind, stage: 'training' });
   const steps = input(`${kind}:${name}:steps`, '1200', { type: 'number', min: 1, step: 1 });
-  target.append(h('div', { class: 'training-summary' }, h('div', { class: 'mini-stack' }, rec.samples.slice(0, 3).map(s => picture(s.path, '学習用の参考画像', { plain: true }))), h('div', {}, h('h3', {}, `${rec.samples.length} 枚から、${name}を覚えます`), h('p', { class: 'muted' }, rec.lora_name ? '学習済みです。参考画像や説明を変えたら、ここで学習し直せます。' : '学習には時間がかかります。開始すると実際の学習ステップを表示します。'))),
-    advanced(field('学習ステップ', steps, 'まずは 1200。画像を追加しただけでは学習は始まりません。')),
-    taskPanel({ kind: 'lora_train', name, tool: kind === 'character' ? 'train_character_lora' : 'train_style_lora' }, '学習', rec.lora_name ? 'この内容で学習し直す' : 'この内容で学習する', async () => { await editor.save(); await flushCaptions(kind, name); return (kind === 'character' ? API.train : API.trainStyle)(name, number(steps)); }, cleanup));
+  const history = await API.jobs();
+  let prepared = history.find(job => job.kind === 'lora_train' && job.status === 'awaiting_confirmation' && job.record_kind === kind && job.record_key === rec.key && job.record_created === rec.created) || null;
+  const materials = h('div', { class: 'stack' });
+  const execution = h('div');
+  const paint = () => {
+    materials.replaceChildren(...(prepared ? [trainingMaterials(prepared), h('p', { class: 'callout' }, 'この教材は保存した写しです。後から変更した画像・説明・ステップを含めるには、下のボタンで教材を作り直してください。')] : [h('p', { class: 'muted' }, '画像説明を採用してから、学習する教材を表示してください。')]));
+    execution.hidden = !prepared;
+    const start = execution.querySelector('button');
+    if (start) start.disabled = prepared?.status !== 'awaiting_confirmation';
+  };
+  execution.append(taskPanel({ kind: 'lora_train', name, tool: kind === 'character' ? 'train_character_lora' : 'train_style_lora' }, '学習', '表示した教材で学習を開始', async () => {
+    if (!prepared) throw new Error('先に学習する教材を表示してください。');
+    await editor.save();
+    return (kind === 'character' ? API.train : API.trainStyle)(name, prepared.steps, prepared.job_id);
+  }, cleanup, job => { if (prepared?.job_id === job.job_id) { prepared = job; paint(); } }, { existingJob: () => prepared, canStart: () => prepared?.status === 'awaiting_confirmation' }));
+  target.append(advanced(field('学習ステップ', steps, '教材を作る時点の値を保存します。学習は開始ボタンを押すまで始まりません。')), materials,
+    button('学習する教材を表示・作り直す', e => action(e.currentTarget, async () => { await editor.save(); prepared = await API.prepareTraining(name, kind, number(steps)); paint(); })), execution);
+  if (rec.lora_name) target.append(h('details', {}, h('summary', {}, '現在のLoRAが学習した教材'), trainingMaterials(history.find(job => job.job_id === rec.train_job && job.status === 'completed' && job.lora_name === rec.lora_name), '学習時の教材')));
+  paint();
   return editor.save;
 }
 async function styleSelect(ctx, key) {

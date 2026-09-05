@@ -256,3 +256,6 @@
 .intent-references figcaption { font-size: 12px; margin-top: 6px; }
 .intent-change { padding: 16px; border: 1px solid color-mix(in srgb, var(--intent-accent) 24%, transparent); border-radius: 14px; }
 .intent-change select { width: auto; max-width: 60%; }
+/* 学習へ渡す長い説明もスマートフォン幅で折り返す。 */
+.training-caption { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: .875rem; }
+@media (max-width: 700px) { .sample-grid.training-grid { grid-template-columns: 1fr; } }

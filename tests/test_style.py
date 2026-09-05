@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import base64
 from io import BytesIO
+from pathlib import Path
 
 from PIL import Image
 import pytest
@@ -75,8 +76,10 @@ def test_style_is_pictures_then_a_lora_then_a_look_for_new_pictures(tmp_path, mo
         assert "train_style_lora" in str(error)
     else:
         raise AssertionError("a style without a LoRA cannot draw")
+    from tests.test_training_materials import accept_observations
+    run(accept_observations(service, "glow", "style"))
     training = run(service.train_style_lora("glow", steps=3))
-    assert (tmp_path / "styles" / "glow" / "style_glow" / "000.txt").read_text() == "glow_style, night sky, sparkles"
+    assert (Path(training["dataset"]) / "000.txt").read_text() == "glow_style, night sky, sparkles"
     assert run(service.style_info("glow"))["lora_name"] == training["lora_name"]
     job = run(service.generate_image("a fox on a snowy street", "glow", width=768, height=512, seed=4))
     graph = comfy.submitted[-1]
@@ -90,7 +93,9 @@ def test_character_in_a_style_stacks_both_loras(tmp_path, monkeypatch):
     service, comfy = make(tmp_path, monkeypatch)
     run = asyncio.run
     a = tmp_path / "a.png"; a.write_bytes(png())
-    run(service.create_style("glow")); run(service.add_style_samples("glow", str(a))); run(service.train_style_lora("glow", steps=3))
+    run(service.create_style("glow")); run(service.add_style_samples("glow", str(a)))
+    from tests.test_training_materials import accept_observations
+    run(accept_observations(service, "glow", "style")); run(service.train_style_lora("glow", steps=3))
     run(service.create_character("Bell", "she/her", lora_name="BellGrok.safetensors", trigger="bell_idol"))
     preview = run(service.preview_character("Bell", "waving", seed=1, style="glow"))
     graph = comfy.submitted[-1]

@@ -55,13 +55,20 @@ def run(packet: dict) -> dict:
             path = root / f"{index + 1}.png"
             path.write_bytes(base64.b64decode(encoded, validate=True))
             images.append(path)
-        (root / "schema.json").write_text(json.dumps(Proposal.model_json_schema()))
+        schema = Proposal.model_json_schema()
+        # 古い保存済み応答では省略可。新しいCLI出力では全画像の英語説明を必須とする。
+        observation = schema["$defs"]["Observation"]
+        observation["required"].append("caption_en")
+        observation["properties"]["caption_en"].pop("default")
+        (root / "schema.json").write_text(json.dumps(schema))
         instruction = Path(__file__).with_name("intent_instructions.txt").read_text()
         prompt = instruction + "\n入力:\n" + json.dumps(packet["input"], ensure_ascii=False)
         started = time.monotonic()
         result = subprocess.run(command(root, images), input=prompt, text=True,
                                 capture_output=True, cwd=root, env=env)
         if result.returncode:
+            if result.stdout.strip():
+                check_events(result.stdout)
             raise RuntimeError(f"Codexで解釈できませんでした（終了値{result.returncode}）: {result.stderr.strip()}")
         check_events(result.stdout)
         proposal = Proposal.model_validate_json((root / "result.json").read_text())

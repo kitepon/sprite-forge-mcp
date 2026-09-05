@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pytest
 
 from backend import box
 from tests.test_style import make, png
+from tests.test_training_materials import accept_observations
 
 
 @pytest.mark.parametrize("kind", ["character", "style"])
@@ -31,6 +33,7 @@ def test_caption_saved_during_training_survives_completion(tmp_path, monkeypatch
     async def scenario():
         await create("probe", "she/her")
         await add("probe", str(picture), "old observation")
+        await accept_observations(service, "probe", kind)
         job = await train("probe", steps=3)
         return job, await info("probe")
 
@@ -42,7 +45,7 @@ def test_caption_saved_during_training_survives_completion(tmp_path, monkeypatch
     assert record["lora_name"] == job["lora_name"]
     assert record["train_job"] == job["job_id"]
     assert record["steps"] == 3
-    assert (tmp_path / f"{kind}s" / "probe" / ("dataset_probe" if kind == "character" else "style_probe") / "000.txt").read_text() == (
+    assert (Path(job["dataset"]) / "000.txt").read_text() == (
         f"{record['trigger']}, old observation"
     )
 

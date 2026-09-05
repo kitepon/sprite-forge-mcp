@@ -36,3 +36,19 @@ test('注文の原文と確認内容をJSONで送り、画像順を保つ', asyn
   await API.previewCharacter('ベル', '', 1, 2, '', 'intent-1');
   assert.equal(new URL(calls[3].url, 'http://test').searchParams.get('intent_job_id'), 'intent-1');
 });
+
+test('教材の表示では学習を呼ばず、開始時は表示済みjobを指定する', async t => {
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    calls.push({url:new URL(url,'http://test'),options});
+    return {ok:true,json:async()=>({job_id:'prepared'})};
+  });
+  await API.prepareTraining('ベル','character',30);
+  assert.equal(calls[0].url.pathname,'/api/training/prepare');
+  assert.equal(calls.length,1);
+  await API.train('ベル',30,'prepared');
+  assert.equal(calls[1].url.searchParams.get('prepared_job_id'),'prepared');
+  const observations = [{caption_en:'white jacket'}];
+  await API.confirmObservations('intent',observations);
+  assert.deepEqual(JSON.parse(calls[2].options.body),observations);
+});

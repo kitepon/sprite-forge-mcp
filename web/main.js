@@ -57,7 +57,7 @@ function activity(root, cleanup) {
   const render = () => {
     stateLabel.textContent = connectionError ? `接続を確認できません。最後に取得した状態を表示中: ${connectionError}` : '2.5 秒ごとに記録を確認しています。更新日時は最後の報告時刻です。';
     const unsent = [...operations.values()].filter(op => !op.job && (op.requesting || op.error));
-    const filtered = jobs.filter(job => filter.value === 'all' || (filter.value === 'active' ? !terminal(job) : filter.value === 'completed' ? ['completed','success'].includes(job.status) : ['failed','error'].includes(job.status)));
+    const filtered = jobs.filter(job => filter.value === 'all' || (filter.value === 'active' ? !terminal(job) || job.status === 'awaiting_confirmation' : filter.value === 'completed' ? ['completed','success'].includes(job.status) : ['failed','error'].includes(job.status)));
     content.replaceChildren(...(filter.value === 'active' || filter.value === 'all' ? unsent.map(op => jobView(null, op)) : []), ...filtered.map(job => {
       const op = [...operations.values()].find(value => value.job?.job_id === job.job_id);
       return jobView(job, { startedAt: op?.startedAt || job.created_at, error: op?.error });

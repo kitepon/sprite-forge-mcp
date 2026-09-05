@@ -5,12 +5,15 @@ globalThis.localStorage = {getItem: () => null, setItem() {}};
 class FakeNode {
   constructor(tag) { this.tag = tag; this.children = []; this.attrs = {}; this.value = ''; }
   setAttribute(key, value) { this.attrs[key] = value; if (key === 'value') this.value = value; }
-  addEventListener() {}
+  removeAttribute(key) { delete this.attrs[key]; }
+  get lastChild() { return this.children.at(-1); }
+  remove() {}
+  addEventListener(name, fn) { (this.events ||= {})[name] = fn; }
   append(...items) { this.children.push(...items); }
   replaceChildren(...items) { this.children = items; }
 }
 globalThis.Node = FakeNode;
-globalThis.document = {createElement: tag => new FakeNode(tag), createTextNode: text => text};
+globalThis.document = {createElement: tag => new FakeNode(tag), createElementNS: (_namespace, tag) => new FakeNode(tag), createTextNode: text => text, querySelector: () => new FakeNode('notice')};
 const {API} = await import('../web/api.js?v=studio-2');
 const {commentEditor} = await import('../web/intent.js?v=studio-2');
 const {previewIntentJob} = await import('../web/flows.js?v=studio-2');
@@ -52,4 +55,37 @@ test('未採用の注文があっても、別経路の自由入力には解釈ID
   const editor = {confirmedJob() { throw new Error('未確認'); }};
   assert.equal(previewIntentJob(editor, 'side view'), '');
   assert.throws(() => previewIntentJob(editor, 'full body, standing, front view, looking at viewer'), /未確認/);
+});
+
+test('教材の観察は希望とは別の編集欄へ表示する', async () => {
+  const reference = {record_key:'probe',sample_index:3,path:'four.png'};
+  API.commentIntents = async () => [{job_id:'job',status:'awaiting_confirmation',stage:'training',panel:'',original_comment:'青にしたい',references:[reference],proposal:{observations:[{reference,appearance_ja:'白い服',caption_en:'white outfit'}],changes:[],questions:['どんな青？']}}];
+  const root = new FakeNode('root');
+  await commentEditor(root, {name:'確認用',kind:'character',stage:'training'});
+  const fields = all(root);
+  assert.ok(fields.find(node => node.attrs['aria-label'] === '画像 1 の観察'));
+  assert.ok(fields.find(node => node.attrs['aria-label'] === '画像 1 の教材説明'));
+  assert.ok(fields.find(node => node.tag === 'button' && node.children.includes('この画像説明を教材に採用')));
+  assert.ok(fields.find(node => node.tag === 'p' && node.children.includes('どんな青？')));
+});
+
+for (const first of ['observations', 'wish']) test(`${first}を先に採用しても、もう片方の訂正を失わない`, async t => {
+  t.mock.method(globalThis, 'setTimeout', () => 0);
+  const reference = {record_key:'probe',sample_index:3,path:'four.png'};
+  let saved = {job_id:'job',status:'awaiting_confirmation',stage:'training',panel:'',original_comment:'青にしたい',references:[reference],proposal:{observations:[{reference,appearance_ja:'白い服',caption_en:'white outfit'}],changes:[{feature:'outfit',scope:'persistent',panel_key:null,reference,description_en:'blue outfit',avoid_en:'',avoid_ja:'',reason_ja:'青にする'}],questions:[]}};
+  API.commentIntents = async () => [structuredClone(saved)];
+  API.confirmObservations = async (_id, observations) => { saved.accepted_observations = structuredClone(observations); return structuredClone(saved); };
+  API.confirmComment = async (_id, proposal) => { saved.status = 'confirmed'; saved.accepted = structuredClone(proposal); return structuredClone(saved); };
+  const root = new FakeNode('root');
+  await commentEditor(root, {name:'確認用',kind:'character',stage:'training'});
+  const field = label => all(root).find(node => node.attrs['aria-label'] === label);
+  for (const [label, value] of [['衣装の生成文','navy blue outfit'], ['画像 1 の教材説明','white top and skirt']]) field(label).events.input({target:{value}});
+  const click = async label => { const control = all(root).find(node => node.tag === 'button' && node.children.includes(label)); await control.events.click({currentTarget:control}); };
+  const labels = first === 'observations' ? ['この画像説明を教材に採用','この内容を採用'] : ['この内容を採用','この画像説明を教材に採用'];
+  await click(labels[0]);
+  assert.ok(field('衣装の生成文').children.includes('navy blue outfit'));
+  assert.ok(field('画像 1 の教材説明').children.includes('white top and skirt'));
+  await click(labels[1]);
+  assert.equal(saved.accepted.changes[0].description_en, 'navy blue outfit');
+  assert.equal(saved.accepted_observations[0].caption_en, 'white top and skirt');
 });

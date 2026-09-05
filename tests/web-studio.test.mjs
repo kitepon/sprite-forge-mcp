@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 const storage = new Map();
 globalThis.localStorage = { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) };
-const { progress, imagePaths, discoverJob, operationKey, terminal, intentCaption, kindLabel } = await import('../web/jobs.js?v=studio-2');
+const { progress, imagePaths, discoverJob, operationKey, terminal, intentCaption, kindLabel, jobView } = await import('../web/jobs.js?v=studio-2');
 const { draft, saveDraft, clearDraft } = await import('../web/drafts.js?v=studio-2');
 const { element, action } = await import('../web/ui.js?v=studio-2');
 
@@ -32,6 +32,19 @@ test('解釈の確認待ちと採用済みを処理中として数えない', ()
   assert.equal(terminal({kind:'intent',status:'running'}),false);
   assert.equal(terminal({kind:'preview',status:'draft'}),false);
   assert.equal(kindLabel('intent'),'注文の解釈');
+});
+test('教材確認待ちはGPU処理中にも学習完了にも見せない', () => {
+  const job = {kind:'lora_train',status:'awaiting_confirmation',progress:{step:0,total:1200}};
+  assert.equal(terminal(job),true);
+  assert.equal(progress(job),null);
+  assert.equal(intentCaption(job),'教材の確認待ち・学習は未開始');
+  class FakeNode { constructor(){this.attributes={};this.children=[];} setAttribute(k,v){this.attributes[k]=v;} append(...children){this.children.push(...children);} addEventListener(){} }
+  globalThis.Node = FakeNode;
+  globalThis.document = {createElement:()=>new FakeNode(),createElementNS:()=>new FakeNode(),createTextNode:text=>text};
+  const view = jobView(job, {startedAt:'2026-09-05T00:00:00Z'});
+  const all = node => [node, ...node.children.filter(child=>child instanceof FakeNode).flatMap(all)];
+  assert.ok(!view.className.includes('completed'));
+  assert.ok(!all(view).some(node => /working|indeterminate|elapsed/.test(node.className || '')));
 });
 test('all final pictures are collected without duplicated sheets', () => {
   assert.deepEqual(imagePaths({sheet_path:'sheet',path:'sheet',pictures:[{path:'a'}],candidates:[{path:'b'}]}),['sheet','a','b']);

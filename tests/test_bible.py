@@ -82,8 +82,10 @@ def test_three_stages_each_stop_for_correction(tmp_path, monkeypatch):
         raise AssertionError("the bible must not train by itself")
 
     # stage 2: train (only when asked), then preview in seconds
+    from tests.test_training_materials import accept_observations
+    run(accept_observations(service, "Bell"))
     training = run(service.train_character_lora("Bell", steps=3))
-    assert training["status"] == "completed" and (tmp_path / "characters" / "Bell" / "dataset_Bell" / "001.txt").read_text() == "bell, white long coat, hood"
+    assert training["status"] == "completed" and (Path(training["dataset"]) / "001.txt").read_text() == "bell, white long coat, hood"
     record = run(service.character_info("Bell"))
     assert record["lora_name"] == training["lora_name"] and record["train_job"] == training["job_id"]
     preview = run(service.preview_character("Bell", "waving", seed=7, count=2))
