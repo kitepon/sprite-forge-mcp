@@ -54,3 +54,6 @@ HANDOFF.md
 
 # Lattice detached-worktree execution state
 .lattice/runs/
+
+# Private comparison inputs and raw model replies (never publish)
+evidence/user-intent-agent-20260905/private/

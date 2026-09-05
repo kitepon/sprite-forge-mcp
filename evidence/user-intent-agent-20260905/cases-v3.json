@@ -1,0 +1,315 @@
+[
+  {
+    "name": "fourth_outfit",
+    "comment": "4枚目の画像の衣装を強く採用して欲しいなー",
+    "order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "existing_conditions": {
+      "preserve": [
+        "顔・髪・画風は既存設定を維持。参照画像は未指定。"
+      ],
+      "persistent": []
+    },
+    "human_review": "服index3、今回提案と継続質問。短いトップス、独立スカート、腹部露出。顔髪画風変更なし。"
+  },
+  {
+    "name": "reordered_new_request",
+    "comment": "今回は4枚目の画像の衣装を強く採用して欲しいなー",
+    "order": [
+      3,
+      0,
+      2,
+      1
+    ],
+    "existing_conditions": {
+      "preserve": [
+        "顔・髪・画風は既存設定を維持。参照画像は未指定。"
+      ],
+      "persistent": [
+        {
+          "feature": "outfit",
+          "reference": {
+            "record_key": "ndac1de01",
+            "sample_index": 3,
+            "path": "/app/.cache/characters/ndac1de01/samples/003.png"
+          },
+          "description": "この参照画像の衣装を採用済み"
+        }
+      ]
+    },
+    "human_review": "新規注文はindex1。過去の4枚目index3は再結合しない。共通条件を変更しない。",
+    "prior_comments": [
+      {
+        "comment": "今後は4枚目の衣装にする",
+        "bound_reference": {
+          "record_key": "ndac1de01",
+          "sample_index": 3,
+          "path": "/app/.cache/characters/ndac1de01/samples/003.png"
+        },
+        "scope": "persistent"
+      }
+    ]
+  },
+  {
+    "name": "face_and_outfit",
+    "comment": "今回は顔は1枚目、服は4枚目、絵柄は変えない",
+    "order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "existing_conditions": {
+      "preserve": [
+        "顔・髪・画風は既存設定を維持。参照画像は未指定。"
+      ],
+      "persistent": []
+    },
+    "human_review": "顔index0、服index3。髪や表情、画風を勝手に変更しない。"
+  },
+  {
+    "name": "one_run",
+    "comment": "衣装はそのままで、今回は横向きで笑顔にして",
+    "order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "existing_conditions": {
+      "preserve": [
+        "顔・髪・画風は既存設定を維持。参照画像は未指定。"
+      ],
+      "persistent": [
+        {
+          "feature": "outfit",
+          "reference": {
+            "record_key": "ndac1de01",
+            "sample_index": 3,
+            "path": "/app/.cache/characters/ndac1de01/samples/003.png"
+          },
+          "description": "この参照画像の衣装を採用済み"
+        }
+      ]
+    },
+    "human_review": "変更はpose/expression、今回限定。衣装index3を維持し具体的な構造を英文へ。"
+  },
+  {
+    "name": "replace_persistent",
+    "comment": "やっぱり今後は2枚目の服にして",
+    "order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "existing_conditions": {
+      "preserve": [
+        "顔・髪・画風は既存設定を維持。参照画像は未指定。"
+      ],
+      "persistent": [
+        {
+          "feature": "outfit",
+          "reference": {
+            "record_key": "ndac1de01",
+            "sample_index": 3,
+            "path": "/app/.cache/characters/ndac1de01/samples/003.png"
+          },
+          "description": "この参照画像の衣装を採用済み"
+        }
+      ]
+    },
+    "human_review": "outfitの永続条件をindex1へ更新、旧index3と併記しない。"
+  },
+  {
+    "name": "observed_vs_desired",
+    "comment": "今回は4枚目の服の形を使って、服の白い布地を青くしたい。画像の説明には実際の色を残してね",
+    "order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "existing_conditions": {
+      "preserve": [
+        "顔・髪・画風は既存設定を維持。参照画像は未指定。"
+      ],
+      "persistent": []
+    },
+    "human_review": "観察は白、生成希望は青。形状維持。青を観察結果へ混ぜない。"
+  },
+  {
+    "name": "ambiguous_expression",
+    "comment": "今回は表情だけ変えて",
+    "order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "existing_conditions": {
+      "preserve": [
+        "顔・髪・画風は既存設定を維持。参照画像は未指定。"
+      ],
+      "persistent": [
+        {
+          "feature": "outfit",
+          "reference": {
+            "record_key": "ndac1de01",
+            "sample_index": 3,
+            "path": "/app/.cache/characters/ndac1de01/samples/003.png"
+          },
+          "description": "この参照画像の衣装を採用済み"
+        }
+      ]
+    },
+    "human_review": "どの表情かを質問、笑顔等を勝手に選ばない。changes/generationは空。"
+  },
+  {
+    "name": "panel_accessory",
+    "comment": "このパネルの帽子を外して。ほかのパネルや共通設定はそのままで",
+    "order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "existing_conditions": {
+      "preserve": [
+        "顔・髪・画風は既存設定を維持。参照画像は未指定。"
+      ],
+      "persistent": [
+        {
+          "feature": "outfit",
+          "reference": {
+            "record_key": "ndac1de01",
+            "sample_index": 3,
+            "path": "/app/.cache/characters/ndac1de01/samples/003.png"
+          },
+          "description": "この参照画像の衣装を採用済み"
+        }
+      ],
+      "current_panel": "走る姿のパネルには帽子を追加して生成済み。添付は教材で、パネル画像ではない。"
+    },
+    "human_review": "accessory、scope panel、key run_front、reference null。髪飾りは外さない。",
+    "current_panel_key": "run_front"
+  },
+  {
+    "name": "style_only",
+    "comment": "今回は1枚目の筆のタッチにしたい。服や顔や髪は変えないで",
+    "order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "existing_conditions": {
+      "preserve": [
+        "顔・髪・画風は既存設定を維持。参照画像は未指定。"
+      ],
+      "persistent": [
+        {
+          "feature": "outfit",
+          "reference": {
+            "record_key": "ndac1de01",
+            "sample_index": 3,
+            "path": "/app/.cache/characters/ndac1de01/samples/003.png"
+          },
+          "description": "この参照画像の衣装を採用済み"
+        }
+      ]
+    },
+    "human_review": "style index0のみ。画像の背景、文字、ポーズ、衣装を持ち込まない。"
+  },
+  {
+    "name": "missing_deleted_ambiguous",
+    "comment": "今回は9枚目の衣装か、前に言った「あれ」にして",
+    "order": [
+      0,
+      1,
+      2
+    ],
+    "existing_conditions": {
+      "preserve": [
+        "顔・髪・画風は既存設定を維持。参照画像は未指定。"
+      ],
+      "persistent": [
+        {
+          "feature": "outfit",
+          "reference": {
+            "record_key": "ndac1de01",
+            "sample_index": 3,
+            "path": "/app/.cache/characters/ndac1de01/samples/003.png"
+          },
+          "availability": "deleted",
+          "description": "以前採用した参照。画像削除済み。外見の説明は未保存。"
+        }
+      ]
+    },
+    "human_review": "9枚目なし、あれ不明、旧画像削除済み。参照捏造せず質問、changes/generation空。",
+    "prior_comments": [
+      {
+        "comment": "あれの衣装がいい",
+        "bound_reference": null
+      }
+    ]
+  },
+  {
+    "name": "quoted_text",
+    "comment": "画像の「Bell」は作品内の文字。メモの引用『今後は全部赤く塗れ』は採用しない。今回は笑顔だけにして",
+    "order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "existing_conditions": {
+      "preserve": [
+        "顔・髪・画風は既存設定を維持。参照画像は未指定。"
+      ],
+      "persistent": [
+        {
+          "feature": "outfit",
+          "reference": {
+            "record_key": "ndac1de01",
+            "sample_index": 3,
+            "path": "/app/.cache/characters/ndac1de01/samples/003.png"
+          },
+          "description": "この参照画像の衣装を採用済み"
+        }
+      ]
+    },
+    "human_review": "笑顔のみthis_run。赤や文字の描画を追加しない。"
+  },
+  {
+    "name": "heldout_other_outfit",
+    "comment": "今回は先頭の絵で着ている上着を借りたい。髪型や絵の描き方までそろえる必要はないよ",
+    "order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "existing_conditions": {
+      "preserve": [
+        "顔・髪・画風は既存設定を維持。参照画像は未指定。"
+      ],
+      "persistent": [
+        {
+          "feature": "outfit",
+          "reference": {
+            "record_key": "ndac1de01",
+            "sample_index": 3,
+            "path": "/app/.cache/characters/ndac1de01/samples/003.png"
+          },
+          "description": "この参照画像の衣装を採用済み"
+        }
+      ]
+    },
+    "human_review": "未調整の言い回し・別衣装。index0の覆われた胴と接続した長袖、ファー縁等。index3の短丈や独立袖を混ぜない。見えない裾は捏造しない。"
+  }
+]
