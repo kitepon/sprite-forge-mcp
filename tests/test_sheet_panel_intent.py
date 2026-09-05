@@ -66,6 +66,35 @@ def test_targeted_temporary_condition_overrides_saved_but_does_not_mutate_it():
     assert "red uniform" in global_result["prompt"] and "blue coat" not in global_result["prompt"]
 
 
+def test_human_custom_role_order_keeps_face_hair_views_armor_and_shoes():
+    from backend.panel_intent import resolve_panel
+    from backend.sheet_layout import legacy_layout, panel_from
+    layouts = {p["key"]: p for p in legacy_layout()}
+    for key in ("turn_front", "turn_side"):
+        layouts[key]["parts"].extend([
+            {"feature": "outfit", "description_en": "red cape, blue tunic, brown boots", "avoid_en": "white trousers"},
+            {"feature": "face", "description_en": "blue eyes", "avoid_en": ""},
+            {"feature": "hair", "description_en": "short brown hair", "avoid_en": ""}])
+        layouts[key]["role_features"].extend(["outfit", "face", "hair"])
+    common = {"outfit": change("outfit", "red cape, blue tunic, brown boots", "persistent")}
+    changes = [change("outfit", "green cape, blue tunic, brown boots", panel=key) for key in ("turn_front", "turn_side")]
+    for item in changes:
+        item.update(avoid_en="white trousers", avoid_ja="白いズボン")
+    saved = {"conditions": {"outfit": change("outfit", "brown boots", "panel", "item_shoes")}}
+    front = resolve_panel(panel_from(layouts["turn_front"]), "fixture", "he/him", common, changes, {})
+    side = resolve_panel(panel_from(layouts["turn_side"]), "fixture", "he/him", common, changes, {})
+    for value in (front, side):
+        assert "green cape" in value["prompt"] and "red cape" not in value["prompt"]
+        assert "blue eyes" in value["prompt"] and "short brown hair" in value["prompt"]
+        assert "white trousers" in value["negative"]
+    assert "front view" in front["prompt"] and "from side" in side["prompt"]
+    assert "front view" not in side["prompt"]
+    armor = resolve_panel(panel_from(layouts["cos_armor"]), "fixture", "he/him", common, changes, {})
+    shoes = resolve_panel(panel_from(layouts["item_shoes"]), "fixture", "he/him", common, changes, saved)
+    assert "plate armor" in armor["prompt"] and "green cape" not in armor["prompt"]
+    assert "brown boots" in shoes["prompt"] and all(text not in shoes["prompt"] for text in ("cape", "tunic", "blue eyes"))
+
+
 def test_legacy_content_is_unchanged_and_mixing_requires_targeted_confirmation():
     from backend.panel_intent import resolve_panel
     panel = bible.PANELS[0]
