@@ -6,6 +6,8 @@ from html import escape
 import json
 from pathlib import Path
 
+from backend import bible
+from backend.intent import Change, PREVIEW_TAGS, drawing_content, effective_conditions, generation_negative, preview_content
 from backend.panel_intent import resolve_panel
 from backend.sheet_layout import panel_from
 
@@ -16,6 +18,17 @@ def resolve_candidate(job):
         return []
     common = deepcopy(job["base_conditions"])
     changes = job["proposal"]["changes"]
+    if job["stage"] in ("preview", "drawing"):
+        conditions = effective_conditions(common, [Change.model_validate(change) for change in changes])
+        if job["stage"] == "preview":
+            subject = "" if "subject" in conditions else bible.subject_tag(job["record_description"])
+            background = "" if "background" in conditions else bible.COMMON
+            parts = ("reference_probe", subject, preview_content(PREVIEW_TAGS, conditions), background)
+        else:
+            parts = ("reference_probe", drawing_content("", conditions, job["job_id"]))
+        return [{"key": job["stage"], "label": "プレビュー" if job["stage"] == "preview" else "一枚生成",
+                 "prompt": ", ".join(part for part in parts if part),
+                 "negative": generation_negative(conditions), "conditions": conditions}]
     for change in changes:
         if change["scope"] == "persistent":
             common[change["feature"]] = deepcopy(change)

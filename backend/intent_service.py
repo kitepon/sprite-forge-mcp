@@ -7,7 +7,7 @@ from typing import get_args
 import uuid
 
 from . import bible
-from .intent import Feature, IntentRequest, Observation, Proposal, PREVIEW_CONDITIONS, effective_conditions, prompt_parts, validate_proposal
+from .intent import DRAWING_CONDITIONS, Feature, IntentRequest, Observation, Proposal, PREVIEW_CONDITIONS, effective_conditions, prompt_parts, validate_proposal
 from .panel_intent import inherited, role_conditions
 
 
@@ -88,8 +88,14 @@ class IntentServices:
                "references": [{"record_key": record["key"], "sample_index": s["index"], "path": s["path"]} for s in selected],
                "image_comments": [s.get("caption", "") for s in selected],
                "training_captions": [deepcopy(s.get("training_caption")) for s in selected],
-               "stage_conditions": deepcopy(PREVIEW_CONDITIONS) if request.kind == "character" and request.stage == "preview" else {},
+               "stage_conditions": {},
                "base_conditions": deepcopy(record.get("intent_conditions", {}))}
+        if request.kind == "character" and request.stage == "preview":
+            job["stage_conditions"] = {**deepcopy(PREVIEW_CONDITIONS),
+                                       "subject": {"description_en": bible.subject_tag(record["char_desc"]), "avoid_en": ""},
+                                       "background": {"description_en": bible.COMMON, "avoid_en": ""}}
+        elif request.stage == "drawing":
+            job["stage_conditions"] = deepcopy(DRAWING_CONDITIONS)
         if request.stage in ("sheet", "panel", "layout"):
             job["sheet_layout"] = layout
             if request.layout_panels is not None:

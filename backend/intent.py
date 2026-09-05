@@ -6,12 +6,15 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from .bible import QUALITY_NEGATIVE, SINGLE_VIEW_NEGATIVE
+
 RecordKind = Literal["character", "style"]
 Stage = Literal["samples", "training", "preview", "sheet", "panel", "drawing", "layout"]
 Feature = Literal["face", "hair", "outfit", "style", "expression", "pose", "accessory", "background", "subject", "composition", "lighting"]
 PREVIEW_TAGS = "full body, standing, front view, looking at viewer"
+DRAWING_CONDITIONS = {"composition": {"description_en": "", "avoid_en": SINGLE_VIEW_NEGATIVE}}
 PREVIEW_CONDITIONS = {
-    "composition": {"description_en": "full body", "avoid_en": ""},
+    "composition": {**DRAWING_CONDITIONS["composition"], "description_en": "full body"},
     "pose": {"description_en": "standing, front view, looking at viewer", "avoid_en": ""},
 }
 
@@ -110,6 +113,12 @@ def preview_content(tags: str, conditions: dict) -> str:
     if tags and tags != PREVIEW_TAGS:
         raise ValueError("英語の自由入力と解釈した注文は同時に使えません。自由入力の内容を制作への注文に含めて解釈してください。")
     return prompt_parts({**PREVIEW_CONDITIONS, **conditions})[0]
+
+
+def generation_negative(conditions: dict) -> str:
+    """既定の構図除外を、確定した構図の条件で置き換える。"""
+    negative = prompt_parts({**DRAWING_CONDITIONS, **conditions})[1]
+    return ", ".join(part for part in (QUALITY_NEGATIVE, negative) if part)
 
 
 def drawing_content(prompt: str, conditions: dict, job_id: str = "") -> str:

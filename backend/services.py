@@ -29,7 +29,7 @@ from .config import CACHE, CHARACTERS, STYLES, UPLOADS
 from .events import EventStore
 from .intent_service import IntentServices
 from .intent_runner import interpret
-from .intent import PREVIEW_TAGS, drawing_content, preview_content
+from .intent import PREVIEW_TAGS, drawing_content, generation_negative, preview_content
 from .panel_intent import resolve_panel, saved_corrections
 from .sheet_layout import LayoutServices, layout_for, matching_keys, panel_from
 
@@ -269,7 +269,7 @@ class Services(IntentServices, LayoutServices):
         content = drawing_content(prompt, intent["intent_conditions"], intent_job_id)
         job_id = str(uuid.uuid4())
         full_prompt = ", ".join(part for part in (style_record["trigger"], content) if part)
-        negative = ", ".join(part for part in (bible.NEGATIVE, intent["intent_negative"]) if part)
+        negative = generation_negative(intent["intent_conditions"])
         chain = [(style_record["lora_name"], strength)]
         job = {"job_id": job_id, "kind": "image", "status": "queued", "prompt": full_prompt, "style": style,
                "lora_name": style_record["lora_name"], "seed": seed, "requested_prompt": prompt,
@@ -325,8 +325,10 @@ class Services(IntentServices, LayoutServices):
         intent = self._generation_intent(record, "character", "preview", intent_job_id)
         job_id = str(uuid.uuid4())
         content = preview_content(tags, intent["intent_conditions"])
-        prompt = ", ".join(part for part in (record["trigger"], style_word, bible.subject_tag(record["char_desc"]), content, bible.COMMON) if part)
-        negative = ", ".join(part for part in (bible.NEGATIVE, intent["intent_negative"]) if part)
+        subject = "" if "subject" in intent["intent_conditions"] else bible.subject_tag(record["char_desc"])
+        background = "" if "background" in intent["intent_conditions"] else bible.COMMON
+        prompt = ", ".join(part for part in (record["trigger"], style_word, subject, content, background) if part)
+        negative = generation_negative(intent["intent_conditions"])
         job = {"job_id": job_id, "kind": "preview", "status": "queued", "name": name, "prompt": prompt, "seed": seed, "loras": chain,
                "style": style, "total_images": max(1, count), "pictures": [], "negative": negative, **intent}
         self.events.save_job(job); self._record_call("preview_character", job_id, {"name": name, "seed": seed, "count": count})
@@ -446,7 +448,7 @@ class Services(IntentServices, LayoutServices):
         intent = self._generation_intent(record, "character", "drawing", intent_job_id)
         content = drawing_content(prompt, intent["intent_conditions"], intent_job_id)
         full_prompt = ", ".join(part for part in (record["trigger"], style_word, content) if part)
-        negative = ", ".join(part for part in (bible.NEGATIVE, intent["intent_negative"]) if part)
+        negative = generation_negative(intent["intent_conditions"])
         job_id = str(uuid.uuid4())
         job = {"job_id": job_id, "kind": "from_bible", "status": "queued", "name": name, "prompt": full_prompt,
                "lora_name": record["lora_name"], "loras": chain, "seed": seed, "requested_prompt": prompt,
