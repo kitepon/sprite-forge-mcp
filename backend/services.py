@@ -156,7 +156,7 @@ class Services(IntentServices, LayoutServices):
         the one set on the character). Returns (chain, style trigger word)."""
         chain: list[tuple[str, float]] = []
         if record.get("lora_name"):
-            chain.append((record["lora_name"], 0.8))
+            chain.append((record["lora_name"], record.get("character_strength", 0.8)))
         style_name = style or record.get("style", "")
         if style_name:
             style_record = self._load_style(style_name)
@@ -186,6 +186,15 @@ class Services(IntentServices, LayoutServices):
         record = self._load_character(name)
         self._add_pictures(record, self._character_dir(name) / "samples", paths, captions)
         self._record_call("add_samples", None, {"name": name, "images": len(record["samples"])})
+        return self._save_character(record)
+
+    async def set_character_strength(self, name: str, strength: float = 0.8) -> dict[str, Any]:
+        """研究中。次の新規生成に使う特徴の強さを保存する。学習や既存シートは変更しない。"""
+        if not 0 <= strength <= 2:
+            raise ValueError("特徴の強さは0〜2の有限の数値で指定してください。")
+        record = self._load_character(name)
+        record["character_strength"] = strength
+        self._record_call("set_character_strength", None, {"name": name, "strength": strength})
         return self._save_character(record)
 
     async def set_character_style(self, name: str, style: str = "", strength: float = 0.7) -> dict[str, Any]:

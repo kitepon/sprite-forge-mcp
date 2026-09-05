@@ -6,6 +6,7 @@ import { taskPanel } from './jobs.js?v=studio-2';
 import { draft, saveDraft, clearDraft, pendingFiles } from './drafts.js?v=studio-2';
 import { commentEditor, flushCaptions } from './intent.js?v=studio-2';
 import { trainingMaterials } from './training.js?v=studio-2';
+import { characterStrength } from './strength.js?v=studio-2';
 
 export const FLOWS = [
   { id: 'sheet', title: 'キャラクターを育てる', desc: '参考画像から、その子らしい設定画へ。', icon: 'layers', steps: ['キャラクター', '参考画像', '学習', 'プレビュー', '設定画'] },
@@ -163,7 +164,7 @@ async function previewStep(target, ctx, styled, cleanup) {
   const name = ctx.character, style = styled ? ctx.style : ''; const key = `preview:${name}:${style}`;
   const editor = await commentEditor(target, { name, kind: 'character', stage: 'preview' });
   const tags = input(`${key}:tags`, 'full body, standing, front view, looking at viewer', { multiline: true, rows: 3 }); const seed = seedControl(key);
-  target.append(advanced(field('英語の自由入力（解釈した注文を使わない場合）', tags, '注文を解釈して使う場合は既定値のままにします。姿勢などは上の制作への注文へ書いてください。'), field('Seed', seed, '同じ数値で構図を比較できます。')),
+  target.append(advanced(characterStrength(await API.character(name)), field('英語の自由入力（解釈した注文を使わない場合）', tags, '注文を解釈して使う場合は既定値のままにします。姿勢などは上の制作への注文へ書いてください。'), field('Seed', seed, '同じ数値で構図を比較できます。')),
     taskPanel({ kind: 'preview', name, style }, 'プレビュー', '2 枚で確かめる', async () => { await editor.save(); const content = requireText(tags, '内容'); return API.previewCharacter(name, content, number(seed), 2, style, previewIntentJob(editor, content)); }, cleanup));
   if (styled) {
     const strength = input(`${key}:strength`, '0.7', { type: 'number', min: 0.1, max: 2, step: 0.1 });
@@ -183,7 +184,7 @@ async function drawing(target, ctx, kind, cleanup) {
   const seed = seedControl(key); const style = kind === 'character' ? await styleSelect(ctx, key) : null;
   const mode = h('select', { 'aria-label': '注文の使い方' }, h('option', { value: 'intent' }, '解釈して採用した注文で描く'), h('option', { value: 'english' }, '英語の自由入力で描く'));
   target.append(field('注文の使い方', mode, '解釈した注文を使う時は、下の英語欄は使いません。場所やポーズも制作への注文に含めてください。'), ...(style ? [field('合わせる画風', style)] : []),
-    advanced(field('英語の自由入力', prompt, '自由入力を選んだ時に使います。共通条件がある場合は併用できないため、内容を制作への注文に含めて解釈してください。'), field('Seed', seed)),
+    advanced(kind === 'character' ? characterStrength(await API.character(name)) : null, field('英語の自由入力', prompt, '自由入力を選んだ時に使います。共通条件がある場合は併用できないため、内容を制作への注文に含めて解釈してください。'), field('Seed', seed)),
     taskPanel(kind === 'character' ? { kind: 'from_bible', name } : { kind: 'image', style: name }, '新しい一枚', 'この内容で描く', async () => { await editor.save(); const selected = drawingInput(editor, mode.value, prompt.value); return kind === 'character' ? API.fromBible(name, selected.prompt, number(seed), style.value, selected.intentJobId) : API.image(selected.prompt, name, number(seed), selected.intentJobId); }, cleanup));
   return editor.save;
 }
@@ -195,7 +196,7 @@ async function sheet(target, ctx, styled, cleanup) {
   const showExisting = record => { if (record.bible?.sheet_path) existing.replaceChildren(h('h3', {}, '保存してある設定画'), picture(record.bible.sheet_path, `${name}の設定画`, { version: record.bible.at })); };
   showExisting(rec);
   const update = async () => { const fresh = await API.character(name); if (!target.isConnected) return; showExisting(fresh); if (fresh.bible && !editingReady) { editingReady = true; refreshEditor = await redraw(edit, name, fresh, cleanup, showExisting); } else await refreshEditor?.(fresh); };
-  target.append(h('p', { class: 'muted' }, '保存した構成の項目を順に描き、設定画にまとめます。前の設定画は、新しい一枚が完成するまで残ります。'), advanced(field('Seed', seed)), taskPanel({ kind: 'character_bible', name }, '設定画', rec.bible ? '新しい設定画を作る' : '設定画を作る', () => { layout.requireConfirmed(); return editor.save().then(() => API.bible(name, number(seed), styled ? ctx.style : '', editor.confirmedJob())); }, cleanup, () => update().catch(error => notice(error.message, true)), { hideCompletedImages: true }), existing, edit);
+  target.append(h('p', { class: 'muted' }, '保存した構成の項目を順に描き、設定画にまとめます。前の設定画は、新しい一枚が完成するまで残ります。'), advanced(characterStrength(rec), field('Seed', seed)), taskPanel({ kind: 'character_bible', name }, '設定画', rec.bible ? '新しい設定画を作る' : '設定画を作る', () => { layout.requireConfirmed(); return editor.save().then(() => API.bible(name, number(seed), styled ? ctx.style : '', editor.confirmedJob())); }, cleanup, () => update().catch(error => notice(error.message, true)), { hideCompletedImages: true }), existing, edit);
   if (rec.bible) { editingReady = true; refreshEditor = await redraw(edit, name, rec, cleanup, showExisting); }
   return async () => { await layout.save(); await editor.save(); await refreshEditor?.save(); };
 }

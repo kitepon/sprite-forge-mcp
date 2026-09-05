@@ -16,6 +16,7 @@ export const API = {
   sprite: (prompt, seed) => api(`/api/generate?${new URLSearchParams({ prompt, seed, count: 1 })}`, { method: "POST" }),
   characters: () => api("/api/characters"),
   character: (name) => api(`/api/characters/${encodeURIComponent(name)}`),
+  setCharacterStrength: (name, strength) => api(`/api/characters/${encodeURIComponent(name)}/strength?${new URLSearchParams({ strength })}`, { method: 'POST' }),
   createCharacter: (name, char_desc, attr = "", trigger = "", lora_name = "") => api(`/api/characters?${new URLSearchParams({ name, char_desc, attr, trigger, lora_name })}`, { method: "POST" }),
   addSamples: (name, images, captions = "") => api(`/api/characters/${encodeURIComponent(name)}/samples?${new URLSearchParams({ images, captions })}`, { method: "POST" }),
   removeSample: (name, index) => api(`/api/characters/${encodeURIComponent(name)}/samples/${index}`, { method: "DELETE" }),

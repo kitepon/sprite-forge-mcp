@@ -16,9 +16,40 @@ globalThis.Node = FakeNode;
 globalThis.document = {createElement: tag => new FakeNode(tag), createElementNS: (_namespace, tag) => new FakeNode(tag), createTextNode: text => text, querySelector: () => new FakeNode('notice')};
 const {API} = await import('../web/api.js?v=studio-2');
 const {commentEditor} = await import('../web/intent.js?v=studio-2');
+const {characterStrength} = await import('../web/strength.js?v=studio-2');
 const {previewIntentJob, drawingInput} = await import('../web/flows.js?v=studio-2');
 const all = root => [root, ...root.children.filter(x => x instanceof FakeNode).flatMap(all)];
 const next = () => new Promise(resolve => setImmediate(resolve));
+
+test('研究中の強度を明示保存し、ゼロ・再表示・既定値への復帰を扱う', async () => {
+  let saved = {name:'確認用'};
+  const calls = [];
+  API.setCharacterStrength = async (name, strength) => { calls.push([name, strength]); saved = {...saved, character_strength:strength}; return saved; };
+  const root = characterStrength(saved);
+  const input = all(root).find(n => n.attrs['aria-label'] === 'キャラクターの特徴の強さ');
+  input.reportValidity = () => root.disabled || input.value !== '';
+  assert.equal(input.value, '0.8');
+  assert.equal(calls.length, 0);
+  input.value = '';
+  await all(root).find(n => n.tag === 'button' && n.children.includes('特徴の強さを保存')).events.click();
+  assert.equal(calls.length, 0);
+  input.value = '0';
+  await all(root).find(n => n.tag === 'button' && n.children.includes('特徴の強さを保存')).events.click();
+  assert.deepEqual(calls, [['確認用', 0]]);
+  assert.equal(all(characterStrength(saved)).find(n => n.tag === 'input').value, '0');
+  await all(root).find(n => n.tag === 'button' && n.children.includes('既定値に戻す')).events.click();
+  assert.equal(input.value, '0.8');
+  assert.deepEqual(calls.at(-1), ['確認用', 0.8]);
+});
+
+test('コメント反映に研究中の表示と画像確認の説明がある', async () => {
+  API.commentIntents = async () => [];
+  const root = new FakeNode('root');
+  await commentEditor(root, {name:'確認用',kind:'character',stage:'preview'});
+  const texts = all(root).flatMap(n => n.children.filter(c => typeof c === 'string'));
+  assert.ok(texts.includes('研究中の機能'));
+  assert.ok(texts.some(text => text.includes('十分に反映されない場合')));
+});
 
 test('画風は全体の選択として表示し、明示保留でも衣装の訂正を採用できる', async t => {
   t.mock.method(globalThis, 'setTimeout', () => 0);

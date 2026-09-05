@@ -22,7 +22,7 @@ export async function commentEditor(target, { name, kind, stage, panel = '', int
   const input = h('textarea', { rows: 3, placeholder: '例：4枚目の衣装を今後も使って。顔と髪はそのままで。', 'aria-label': '制作への注文' });
   const status = h('p', { class: 'draft-status', role: 'status' });
   const output = h('div', { class: 'intent-proposal stack' });
-  const box = h('section', { class: 'intent-editor stack' }, h('h3', {}, '言葉で、作りたい姿へ'), field('制作への注文', input, '画像ごとのコメントも一緒に読みます。解釈案を確認してから採用できます。'), status);
+  const box = h('section', { class: 'intent-editor stack' }, h('h3', {}, '言葉で、作りたい姿へ'), h('span', { class: 'badge' }, '研究中の機能'), h('p', { class: 'muted small' }, 'コメントから生成条件を提案します。採用しても、学習済みの特徴などの影響で、衣装・向き・背景が十分に反映されない場合があります。生成画像を確認してご利用ください。'), field('制作への注文', input, '画像ごとのコメントも一緒に読みます。解釈案を確認してから採用できます。'), status);
   input.addEventListener('input', () => { saveDraft(key, input.value); status.textContent = input.value === savedText ? '原文は保存済み' : '未保存の変更があります'; });
   const paint = (edits = null) => {
     output.replaceChildren();
