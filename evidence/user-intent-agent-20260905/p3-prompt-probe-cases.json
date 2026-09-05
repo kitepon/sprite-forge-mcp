@@ -1,0 +1,14 @@
+[
+  {
+    "key": "coverage",
+    "source": "p3-preserve-outfit-v2-images",
+    "old": "white long-sleeved jacket",
+    "new": "white fitted waist-length long-sleeved jacket, continuous closed front fabric covering the torso and abdomen down to the skirt waistband"
+  },
+  {
+    "key": "profile",
+    "source": "p3-preserve-side-images",
+    "old": "standing, side view",
+    "new": "standing, full side profile of head and torso, face and body turned together to the side, looking sideways"
+  }
+]
