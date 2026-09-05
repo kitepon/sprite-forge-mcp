@@ -28,7 +28,7 @@ from .config import CACHE, CHARACTERS, STYLES, UPLOADS
 from .events import EventStore
 from .intent_service import IntentServices
 from .intent_runner import interpret
-from .intent import PREVIEW_TAGS, preview_content
+from .intent import PREVIEW_TAGS, drawing_content, preview_content
 
 
 class Services(IntentServices):
@@ -257,20 +257,25 @@ class Services(IntentServices):
         return job
 
     async def generate_image(self, prompt: str, style: str, width: int = 1024, height: int = 1024, seed: int = 1,
-                             strength: float = 0.8, turbo: bool = False) -> dict[str, Any]:
+                             strength: float = 0.8, turbo: bool = False, intent_job_id: str = "") -> dict[str, Any]:
         """Usage 5: a brand-new picture in a style's look only (no character LoRA)."""
         style_record = self._load_style(style)
         if not style_record.get("lora_name"):
             raise ValueError(f"style {style!r} has no LoRA yet: train_style_lora first")
+        intent = self._generation_intent(style_record, "style", "drawing", intent_job_id)
+        content = drawing_content(prompt, intent["intent_conditions"], intent_job_id)
         job_id = str(uuid.uuid4())
-        full_prompt = ", ".join(part for part in (style_record["trigger"], prompt) if part)
+        full_prompt = ", ".join(part for part in (style_record["trigger"], content) if part)
+        negative = ", ".join(part for part in (bible.NEGATIVE, intent["intent_negative"]) if part)
+        chain = [(style_record["lora_name"], strength)]
         job = {"job_id": job_id, "kind": "image", "status": "queued", "prompt": full_prompt, "style": style,
-               "lora_name": style_record["lora_name"], "seed": seed}
+               "lora_name": style_record["lora_name"], "seed": seed, "requested_prompt": prompt,
+               "negative": negative, "loras": chain, **intent}
         self.events.save_job(job); self._record_call("generate_image", job_id, {"style": style, "seed": seed})
         self.events.append(job_id, "queued", {"prompt": full_prompt})
         with self._job_errors(job):
             content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
-                full_prompt, seed, turbo=turbo, loras=[(style_record["lora_name"], strength)], negative=bible.NEGATIVE, width=width, height=height))
+                full_prompt, seed, turbo=turbo, loras=chain, negative=negative, width=width, height=height))
             path = self._write_generated(f"{job_id}-image.png", content)
             job.update(status="completed", path=str(path), elapsed_s=elapsed)
             self.events.save_job(job); self.events.append(job_id, "image_completed", {"path": str(path), "elapsed_s": elapsed})
@@ -415,22 +420,26 @@ class Services(IntentServices):
         return content, round(time.monotonic() - started, 1)
 
     async def generate_from_bible(self, name: str, prompt: str, width: int = 1024, height: int = 1024,
-                                  seed: int = 1, style: str = "", turbo: bool = False) -> dict[str, Any]:
+                                  seed: int = 1, style: str = "", turbo: bool = False, intent_job_id: str = "") -> dict[str, Any]:
         """A new picture of a character, drawn by Anima + that character's LoRA. ``prompt`` is
         content (pose, place, outfit) in Danbooru-style tags or plain words."""
         record = self._load_character(name)
         if not record.get("lora_name"):
             raise ValueError(f"{name!r} has no LoRA yet: train_character_lora first")
         chain, style_word = self._loras(record, style)
+        intent = self._generation_intent(record, "character", "drawing", intent_job_id)
+        content = drawing_content(prompt, intent["intent_conditions"], intent_job_id)
+        full_prompt = ", ".join(part for part in (record["trigger"], style_word, content) if part)
+        negative = ", ".join(part for part in (bible.NEGATIVE, intent["intent_negative"]) if part)
         job_id = str(uuid.uuid4())
-        job = {"job_id": job_id, "kind": "from_bible", "status": "queued", "name": name, "prompt": prompt,
-               "lora_name": record["lora_name"], "loras": chain, "seed": seed}
+        job = {"job_id": job_id, "kind": "from_bible", "status": "queued", "name": name, "prompt": full_prompt,
+               "lora_name": record["lora_name"], "loras": chain, "seed": seed, "requested_prompt": prompt,
+               "negative": negative, **intent}
         self.events.save_job(job); self._record_call("generate_from_bible", job_id, {"name": name, "seed": seed})
         self.events.append(job_id, "queued", {"name": name, "prompt": prompt})
-        full_prompt = ", ".join(part for part in (record["trigger"], style_word, prompt) if part)
         with self._job_errors(job):
             content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
-                full_prompt, seed, turbo=turbo, loras=chain, negative=bible.NEGATIVE, width=width, height=height))
+                full_prompt, seed, turbo=turbo, loras=chain, negative=negative, width=width, height=height))
             path = self._write_generated(f"{job_id}-from-bible.png", content)
             job.update(status="completed", path=str(path), elapsed_s=elapsed)
             self.events.save_job(job); self.events.append(job_id, "image_completed", {"path": str(path), "elapsed_s": elapsed})

@@ -14,6 +14,7 @@ def main():
     parser.add_argument("--real-interpreter", action="store_true")
     parser.add_argument("--interpretation", type=Path)
     parser.add_argument("--with-bible", action="store_true")
+    parser.add_argument("--with-style", action="store_true")
     parser.add_argument("--port", type=int, default=8767)
     args = parser.parse_args()
     if args.real_interpreter and args.interpretation:
@@ -48,9 +49,9 @@ def main():
         if "失敗試験" in job["original_comment"]:
             raise RuntimeError("試験用の解釈エラー")
         return {"observations": [{"reference": ref, "appearance_ja": "確認用の画像観察", "caption_en": "fixture subject"} for ref in job["references"]],
-                "questions": [], "changes": [{"feature": "outfit", "scope": "persistent", "panel_key": None,
+                "questions": [], "changes": [{"feature": "outfit", "scope": "this_run" if job["record_kind"] == "style" else "persistent", "panel_key": None,
                 "reference": job["references"][-1], "description_en": "separate top and skirt",
-                "avoid_en": "", "avoid_ja": "", "reason_ja": "最後の画像の衣装を今後も共通に使います"}]}
+                "avoid_en": "", "avoid_ja": "", "reason_ja": "最後の画像の衣装を使う確認用の提案です"}]}
 
     service._view = view
     service.comfy.stats = stats
@@ -72,6 +73,12 @@ def main():
         await service.create_character("確認用", "she/her", lora_name="fixture.safetensors")
         for path in args.reference:
             await service.add_samples("確認用", str(path.resolve()))
+        if args.with_style:
+            style = await service.create_style("確認用の画風")
+            style["lora_name"] = "fixture-style.safetensors"
+            service._save_style(style)
+            for path in args.reference:
+                await service.add_style_samples(style["name"], str(path.resolve()))
         if args.with_bible:
             from backend.bible import PANELS
             directory = args.cache.resolve() / "panels"

@@ -16,7 +16,7 @@ globalThis.Node = FakeNode;
 globalThis.document = {createElement: tag => new FakeNode(tag), createElementNS: (_namespace, tag) => new FakeNode(tag), createTextNode: text => text, querySelector: () => new FakeNode('notice')};
 const {API} = await import('../web/api.js?v=studio-2');
 const {commentEditor} = await import('../web/intent.js?v=studio-2');
-const {previewIntentJob} = await import('../web/flows.js?v=studio-2');
+const {previewIntentJob, drawingInput} = await import('../web/flows.js?v=studio-2');
 const all = root => [root, ...root.children.filter(x => x instanceof FakeNode).flatMap(all)];
 const next = () => new Promise(resolve => setImmediate(resolve));
 
@@ -55,6 +55,15 @@ test('未採用の注文があっても、別経路の自由入力には解釈ID
   const editor = {confirmedJob() { throw new Error('未確認'); }};
   assert.equal(previewIntentJob(editor, 'side view'), '');
   assert.throws(() => previewIntentJob(editor, 'full body, standing, front view, looking at viewer'), /未確認/);
+});
+
+test('一枚生成は明示した入力方法で注文を選び、残っている自由英文に切り替えない', () => {
+  const editor = {confirmedJob:()=> 'adopted'};
+  assert.deepEqual(drawingInput(editor,'intent','old English'), {prompt:'',intentJobId:'adopted'});
+  const pending = {confirmedJob(){throw new Error('未確認');}};
+  assert.throws(()=>drawingInput(pending,'intent','old English'),/未確認/);
+  assert.deepEqual(drawingInput(pending,'english','a tree'), {prompt:'a tree',intentJobId:''});
+  assert.throws(()=>drawingInput(editor,'english','  '),/内容/);
 });
 
 test('教材の観察は希望とは別の編集欄へ表示する', async () => {

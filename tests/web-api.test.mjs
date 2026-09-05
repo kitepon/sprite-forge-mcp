@@ -52,3 +52,20 @@ test('教材の表示では学習を呼ばず、開始時は表示済みjobを�
   await API.confirmObservations('intent',observations);
   assert.deepEqual(JSON.parse(calls[2].options.body),observations);
 });
+
+test('一枚生成の両経路へ確定した注文と選択した画風を送る', async t => {
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    calls.push({url:new URL(url,'http://test'),options});
+    return {ok:true,json:async()=>({job_id:'drawing'})};
+  });
+  await API.fromBible('ベル','',7,'水彩','character-order');
+  await API.image('','水彩',8,'style-order');
+  assert.equal(calls[0].url.pathname,'/api/from-bible');
+  assert.equal(calls[0].url.searchParams.get('intent_job_id'),'character-order');
+  assert.equal(calls[0].url.searchParams.get('style'),'水彩');
+  assert.equal(calls[1].url.pathname,'/api/image');
+  assert.equal(calls[1].url.searchParams.get('intent_job_id'),'style-order');
+  assert.equal(calls[1].url.searchParams.get('prompt'),'');
+  assert.equal(calls[1].options.method,'POST');
+});

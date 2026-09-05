@@ -170,12 +170,20 @@ async function previewStep(target, ctx, styled, cleanup) {
   }
   return editor.save;
 }
+export function drawingInput(editor, mode, text) {
+  if (mode === 'intent') return { prompt: '', intentJobId: editor.confirmedJob() };
+  if (!text.trim()) throw new Error('英語の自由入力に描きたい内容を入力してください。');
+  return { prompt: text, intentJobId: '' };
+}
 async function drawing(target, ctx, kind, cleanup) {
   const name = kind === 'character' ? ctx.character : ctx.style; const key = `draw:${kind}:${name}`;
-  const editor = await commentEditor(target, { name, kind, stage: 'drawing', interpretEnabled: false });
+  const editor = await commentEditor(target, { name, kind, stage: 'drawing' });
   const prompt = input(`${key}:prompt`, '', { multiline: true, rows: 5, placeholder: '例：standing by the window, morning light, holding a cup' });
   const seed = seedControl(key); const style = kind === 'character' ? await styleSelect(ctx, key) : null;
-  target.append(field('次は、どんな一枚に？', prompt, '場所、ポーズ、衣装、構図など。絵柄は学習した画像から引き継ぎます。'), style ? field('合わせる画風', style) : null, advanced(field('Seed', seed)), taskPanel(kind === 'character' ? { kind: 'from_bible', name } : { kind: 'image', style: name }, '新しい一枚', 'この内容で描く', async () => { await editor.save(); return kind === 'character' ? API.fromBible(name, requireText(prompt, '描きたい内容'), number(seed), style.value) : API.image(requireText(prompt, '描きたい内容'), name, number(seed)); }, cleanup));
+  const mode = h('select', { 'aria-label': '注文の使い方' }, h('option', { value: 'intent' }, '解釈して採用した注文で描く'), h('option', { value: 'english' }, '英語の自由入力で描く'));
+  target.append(field('注文の使い方', mode, '解釈した注文を使う時は、下の英語欄は使いません。場所やポーズも制作への注文に含めてください。'), ...(style ? [field('合わせる画風', style)] : []),
+    advanced(field('英語の自由入力', prompt, '自由入力を選んだ時に使います。共通条件がある場合は併用できないため、内容を制作への注文に含めて解釈してください。'), field('Seed', seed)),
+    taskPanel(kind === 'character' ? { kind: 'from_bible', name } : { kind: 'image', style: name }, '新しい一枚', 'この内容で描く', async () => { await editor.save(); const selected = drawingInput(editor, mode.value, prompt.value); return kind === 'character' ? API.fromBible(name, selected.prompt, number(seed), style.value, selected.intentJobId) : API.image(selected.prompt, name, number(seed), selected.intentJobId); }, cleanup));
   return editor.save;
 }
 async function sheet(target, ctx, styled, cleanup) {

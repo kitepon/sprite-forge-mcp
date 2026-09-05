@@ -106,3 +106,13 @@ def preview_content(tags: str, conditions: dict) -> str:
     if tags and tags != PREVIEW_TAGS:
         raise ValueError("英語の自由入力と解釈した注文は同時に使えません。自由入力の内容を制作への注文に含めて解釈してください。")
     return prompt_parts({**PREVIEW_CONDITIONS, **conditions})[0]
+
+
+def drawing_content(prompt: str, conditions: dict, job_id: str = "") -> str:
+    """一枚生成の確定条件と自由入力を、矛盾する連結なしで選ぶ。"""
+    if prompt.strip() and (conditions or job_id):
+        raise ValueError("英語の自由入力と解釈した注文は同時に使えません。描きたい内容を制作への注文に含めて解釈してください。")
+    content = prompt_parts(conditions)[0] if conditions else prompt.strip()
+    if not content:
+        raise ValueError("描きたい内容を制作への注文か英語の自由入力で指定してください。")
+    return content

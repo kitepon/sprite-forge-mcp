@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>一枚生成への注文の接続確認</title>
+<style>body{max-width:900px;margin:24px auto;padding:16px;background:#f4f3ee;color:#183c32;font:16px/1.75 system-ui}section{background:white;padding:24px;border-radius:20px;margin:24px 0}p,code{overflow-wrap:anywhere}.notice{background:#e5ecd9;padding:20px;border-radius:16px}dt{font-weight:600;margin-top:16px}dd{margin:4px 0}small{color:#58665e}</style>
+<h1>採用した注文で、新しい一枚を描く</h1>
+<p class="notice">接続の検証は完了。解釈と画像生成は模擬処理です。実画像の品質確認、本番機能の配備、再学習は行っていません。</p>
+<p>2026年9月5日。隔離した画面で原文を入力し、解釈案を訂正・採用してから生成しました。以下は保存された生成記録との照合結果です。</p>
+<section><h2>キャラクターと画風を組み合わせる</h2><dl>
+<dt>注文原文</dt><dd>4枚目の衣装を今後も使って。帽子は外したい。</dd>
+<dt>訂正して採用した内容</dt><dd><code>separate white top and layered skirt, exposed midriff</code>。避ける内容は帽子。</dd>
+<dt>生成へ渡った全文</dt><dd><code>n0adb82c5, n131b802f_style, separate white top and layered skirt, exposed midriff</code></dd>
+<dt>混ざらなかった古い入力</dt><dd><code>a red coat in a dark room</code> は画面に残して試験しましたが、採用した注文で描くモードでは送信されませんでした。</dd>
+<dt>LoRA</dt><dd>キャラクター 0.8 ＋ 選択した画風 0.7。除外文に <code>hat</code> が入りました。</dd>
+</dl><small>再読込み後も原文・採用状態・選択した画風・結果を保持。</small></section>
+<section><h2>画風だけで、今回の内容を指定する</h2><dl>
+<dt>注文原文</dt><dd>今回は4枚目の衣装を使いたい。</dd>
+<dt>訂正して採用した内容</dt><dd><code>a person wearing a separate green top and skirt</code>。適用範囲は今回だけ。</dd>
+<dt>生成へ渡った全文</dt><dd><code>n131b802f_style, a person wearing a separate green top and skirt</code></dd>
+<dt>LoRA</dt><dd>画風だけ 0.8。今回の条件は生成記録に残り、画風の共通条件には残りませんでした。</dd>
+</dl></section>
+<section><h2>自由入力へ明示的に切り替える</h2><dl>
+<dt>入力</dt><dd><code>a fox under a tree</code></dd>
+<dt>生成へ渡った全文</dt><dd><code>n131b802f_style, a fox under a tree</code></dd>
+<dt>前の注文の扱い</dt><dd>解釈の指定なし、条件は空。前回だけの衣装は混ざりませんでした。</dd>
+</dl></section>
+<p>RESTとMCPの両入口を試験済み。最終試験はPython 142件、JavaScript 19件が成功。設定画・パネル修正など残る工程と、本番接続は引き続き作業対象です。</p>
+</html>
