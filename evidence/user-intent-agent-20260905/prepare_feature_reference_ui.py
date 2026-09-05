@@ -18,6 +18,7 @@ with httpx.Client(base_url="http://192.168.1.2:8766", timeout=180) as client:
     records = call("GET", "/api/characters")
     assert not any(r["name"] == args.name for r in records)
     original = next(r for r in records if r["name"] == "ベル")
+    original = call("GET", f"/api/characters/{quote(original['key'])}")
     record = call("POST", "/api/characters", params={"name": args.name, "char_desc": original["char_desc"],
                   "trigger": original["trigger"], "lora_name": original["lora_name"]})
     call("POST", f"/api/characters/{quote(record['key'])}/samples", params={
