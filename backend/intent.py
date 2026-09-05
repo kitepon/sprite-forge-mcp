@@ -7,7 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 RecordKind = Literal["character", "style"]
-Stage = Literal["samples", "training", "preview", "sheet", "panel", "drawing"]
+Stage = Literal["samples", "training", "preview", "sheet", "panel", "drawing", "layout"]
 Feature = Literal["face", "hair", "outfit", "style", "expression", "pose", "accessory", "background", "subject", "composition", "lighting"]
 PREVIEW_TAGS = "full body, standing, front view, looking at viewer"
 PREVIEW_CONDITIONS = {
@@ -33,6 +33,8 @@ class IntentRequest(StrictModel):
     comment: str
     panel: str = ""
     sample_indices: list[int] | None = None
+    layout_panels: list[dict] | None = None
+    layout_expected: list[dict] | None = None
 
 
 class Observation(StrictModel):

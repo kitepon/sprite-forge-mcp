@@ -59,7 +59,14 @@ class IntentServices:
         record = self._intent_record(request.name, request.kind)
         from .sheet_layout import layout_for, panel_from
         layout = layout_for(record, generated=request.stage == "panel")
-        if request.kind == "style" and request.stage in ("panel", "sheet"):
+        if request.layout_panels is not None:
+            if request.stage != "layout":
+                raise ValueError("編集中の構成は構成工程だけで指定してください。")
+            if request.layout_expected != layout:
+                raise ValueError("構成が更新されています。最新の構成を確認してから注文してください。")
+            from .sheet_layout import LayoutUpdate
+            working = LayoutUpdate.model_validate({"expected": layout, "panels": request.layout_panels})
+        if request.kind == "style" and request.stage in ("panel", "sheet", "layout"):
             raise ValueError("設定画とパネルはキャラクターの工程です。")
         if request.stage == "panel" and request.panel not in {p["key"] for p in layout}:
             raise ValueError("描き直すパネルを指定してください。")
@@ -83,8 +90,10 @@ class IntentServices:
                "training_captions": [deepcopy(s.get("training_caption")) for s in selected],
                "stage_conditions": deepcopy(PREVIEW_CONDITIONS) if request.kind == "character" and request.stage == "preview" else {},
                "base_conditions": deepcopy(record.get("intent_conditions", {}))}
-        if request.stage in ("sheet", "panel"):
+        if request.stage in ("sheet", "panel", "layout"):
             job["sheet_layout"] = layout
+            if request.layout_panels is not None:
+                job["working_layout"] = [p.model_dump() for p in working.panels]
             if request.stage == "panel":
                 job["source_bible_id"] = record.get("bible", {}).get("job_id")
                 job["existing_settings"]["panel_overrides"] = deepcopy(record.get("bible", {}).get("panel_overrides", record.get("panel_overrides", {})))
@@ -116,8 +125,13 @@ class IntentServices:
             # 呼出し前に画像も固定する。解釈中の削除で別画像へ差し替わらない。
             images = [Path(ref["path"]).read_bytes() for ref in job["references"]]
             result = await self.intent_interpreter(job, images)
-            proposal = Proposal.model_validate(result)
-            validate_proposal(proposal, job)
+            if job["stage"] == "layout":
+                from .sheet_layout import LayoutProposal, validate_layout_proposal
+                proposal = LayoutProposal.model_validate(result)
+                validate_layout_proposal(proposal, job)
+            else:
+                proposal = Proposal.model_validate(result)
+                validate_proposal(proposal, job)
             job.update(status="awaiting_confirmation", proposal=proposal.model_dump())
             self.events.save_job(job)
             self.events.append(job["job_id"], "interpretation_ready", {})
@@ -168,6 +182,9 @@ class IntentServices:
 
     async def confirm_comment_intent(self, job_id: str, proposal: Proposal) -> dict:
         """利用者が確認・訂正した提案を採用する。共通条件以外は台帳へ昇格させない。"""
+        candidate = self.events.load_job(job_id)
+        if candidate and candidate.get("stage") == "layout":
+            raise ValueError("構成案は構成の確定操作で保存してください。")
         job = self.events.load_job(job_id)
         if not job or job.get("kind") != "intent":
             raise ValueError("コメントの解釈記録が見つかりません。")

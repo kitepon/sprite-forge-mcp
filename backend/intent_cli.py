@@ -11,6 +11,7 @@ import tempfile
 import time
 
 from .intent import Proposal
+from .sheet_layout import LayoutProposal
 
 MODEL = "gpt-5.6-terra"
 
@@ -55,13 +56,23 @@ def run(packet: dict) -> dict:
             path = root / f"{index + 1}.png"
             path.write_bytes(base64.b64decode(encoded, validate=True))
             images.append(path)
-        schema = Proposal.model_json_schema()
-        # 古い保存済み応答では省略可。新しいCLI出力では全画像の英語説明を必須とする。
-        observation = schema["$defs"]["Observation"]
-        observation["required"].append("caption_en")
-        observation["properties"]["caption_en"].pop("default")
+        is_layout = packet["input"].get("stage") == "layout"
+        model = LayoutProposal if is_layout else Proposal
+        schema = model.model_json_schema()
+        # 保存済みの旧応答の省略は読めるが、新しいCLI出力では全項目を返す。
+        def require_properties(value):
+            if isinstance(value, dict):
+                value.pop("default", None)
+                if "properties" in value:
+                    value["required"] = list(value["properties"])
+                for nested in value.values():
+                    require_properties(nested)
+            elif isinstance(value, list):
+                for nested in value:
+                    require_properties(nested)
+        require_properties(schema)
         (root / "schema.json").write_text(json.dumps(schema))
-        instruction = Path(__file__).with_name("intent_instructions.txt").read_text()
+        instruction = Path(__file__).with_name("layout_instructions.txt" if is_layout else "intent_instructions.txt").read_text()
         prompt = instruction + "\n入力:\n" + json.dumps(packet["input"], ensure_ascii=False)
         started = time.monotonic()
         result = subprocess.run(command(root, images), input=prompt, text=True,
@@ -71,7 +82,7 @@ def run(packet: dict) -> dict:
                 check_events(result.stdout)
             raise RuntimeError(f"Codexで解釈できませんでした（終了値{result.returncode}）: {result.stderr.strip()}")
         check_events(result.stdout)
-        proposal = Proposal.model_validate_json((root / "result.json").read_text())
+        proposal = model.model_validate_json((root / "result.json").read_text())
         return {"proposal": proposal.model_dump(), "model": MODEL,
                 "elapsed_seconds": round(time.monotonic() - started, 2), "auth": "chatgpt"}
 

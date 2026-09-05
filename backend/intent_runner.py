@@ -13,6 +13,8 @@ async def interpret(job: dict, images: list[bytes]) -> dict:
     # 旧記録には当時の工程既定がない。現在の既定で過去を補わない。
     payload["stage_conditions"] = job.get("stage_conditions", {})
     payload["panel_specs"] = job.get("panel_specs", [])
+    if job["stage"] == "layout":
+        payload["sheet_layout"] = job.get("working_layout", job["sheet_layout"])
     packet = {"input": payload, "images": [base64.b64encode(image).decode("ascii") for image in images]}
     host = os.environ.get("SPRITEFORGE_INTENT_SSH", "")
     if host:

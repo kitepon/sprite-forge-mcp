@@ -259,3 +259,11 @@
 /* 学習へ渡す長い説明もスマートフォン幅で折り返す。 */
 .training-caption { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: .875rem; }
 @media (max-width: 700px) { .sample-grid.training-grid { grid-template-columns: 1fr; } }
+.layout-editor { padding: clamp(16px, 3vw, 28px); border: 1px solid var(--line); border-radius: 20px; background: var(--surface, #fff); }
+.layout-controls { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 18px; }
+.layout-list { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
+.layout-card { min-width: 0; padding: 16px; background: var(--bg, #f6f5f0); border-radius: 14px; overflow-wrap: anywhere; }
+.layout-card .picture { max-height: 150px; }
+.layout-card .actions { flex-shrink: 0; }
+.layout-card input, .layout-card textarea, .layout-card select { max-width: 100%; }
+.layout-part { padding: 12px 0; border-bottom: 1px solid var(--line); }

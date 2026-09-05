@@ -1,4 +1,5 @@
 import { API } from './api.js?v=studio-2';
+import { layoutEditor } from './layout.js?v=studio-2';
 import { state } from './state.js?v=studio-2';
 import { h, icon, field, button, link, picture, empty, notice, action, pageHead, errorState, confirmAction } from './ui.js?v=studio-2';
 import { taskPanel } from './jobs.js?v=studio-2';
@@ -188,14 +189,15 @@ async function drawing(target, ctx, kind, cleanup) {
 }
 async function sheet(target, ctx, styled, cleanup) {
   const name = ctx.character; const rec = await API.character(name); const seed = seedControl(`sheet:${name}`);
+  const layout = await layoutEditor(target, name);
   const editor = await commentEditor(target, { name, kind: 'character', stage: 'sheet' });
   const existing = h('div', { class: 'stack' }); const edit = h('div', { class: 'stack' }); let editingReady = false; let refreshEditor;
   const showExisting = record => { if (record.bible?.sheet_path) existing.replaceChildren(h('h3', {}, '保存してある設定画'), picture(record.bible.sheet_path, `${name}の設定画`, { version: record.bible.at })); };
   showExisting(rec);
   const update = async () => { const fresh = await API.character(name); if (!target.isConnected) return; showExisting(fresh); if (fresh.bible && !editingReady) { editingReady = true; refreshEditor = await redraw(edit, name, fresh, cleanup, showExisting); } else await refreshEditor?.(fresh); };
-  target.append(h('p', { class: 'muted' }, '保存した構成の項目を順に描き、設定画にまとめます。前の設定画は、新しい一枚が完成するまで残ります。'), advanced(field('Seed', seed)), taskPanel({ kind: 'character_bible', name }, '設定画', rec.bible ? '新しい設定画を作る' : '設定画を作る', async () => { await editor.save(); return API.bible(name, number(seed), styled ? ctx.style : '', editor.confirmedJob()); }, cleanup, () => update().catch(error => notice(error.message, true)), { hideCompletedImages: true }), existing, edit);
+  target.append(h('p', { class: 'muted' }, '保存した構成の項目を順に描き、設定画にまとめます。前の設定画は、新しい一枚が完成するまで残ります。'), advanced(field('Seed', seed)), taskPanel({ kind: 'character_bible', name }, '設定画', rec.bible ? '新しい設定画を作る' : '設定画を作る', () => { layout.requireConfirmed(); return editor.save().then(() => API.bible(name, number(seed), styled ? ctx.style : '', editor.confirmedJob())); }, cleanup, () => update().catch(error => notice(error.message, true)), { hideCompletedImages: true }), existing, edit);
   if (rec.bible) { editingReady = true; refreshEditor = await redraw(edit, name, rec, cleanup, showExisting); }
-  return async () => { await editor.save(); await refreshEditor?.save(); };
+  return async () => { await layout.save(); await editor.save(); await refreshEditor?.save(); };
 }
 async function redraw(target, name, rec, cleanup, updated) {
   let panels = await API.panels(name, true); const key = `redraw:${name}`; let selected = panels.find(p => p.key === draft(`${key}:panel`)) || panels[0];
