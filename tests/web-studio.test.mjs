@@ -9,8 +9,8 @@ const { element, action, lightbox } = await import('../web/ui.js?v=studio-2');
 
 test('一枚の拡大画面にnull文字を追加せず、複数画像の移動は維持する', () => {
   class FakeNode {
-    constructor() { this.children = []; this.events = {}; }
-    setAttribute() {}
+    constructor() { this.children = []; this.events = {}; this.attributes = {}; }
+    setAttribute(k, v) { this.attributes[k] = v; }
     append(...children) { this.children.push(...children.map(x => x instanceof FakeNode ? x : String(x))); }
     replaceChildren(...children) { this.children = children; }
     addEventListener(name, fn) { this.events[name] = fn; }
@@ -20,9 +20,25 @@ test('一枚の拡大画面にnull文字を追加せず、複数画像の移動�
   globalThis.document = {body:new FakeNode(), createElement:()=>new FakeNode(), createElementNS:()=>new FakeNode(), createTextNode:text=>text};
   lightbox([{path:'a'}]);
   assert.equal(document.body.children[0].children.length, 2);
+  const [header, stage] = document.body.children[0].children;
+  const zoom = header.children[1];
+  const img = stage.children[0]; img.naturalWidth = 2400;
+  zoom.value = '1'; zoom.events.change();
+  assert.match(img.attributes.style, /width:2400px;max-width:none;max-height:none/);
+  zoom.value = '2'; zoom.events.change();
+  assert.match(img.attributes.style, /width:4800px/);
+  zoom.value = '0.5'; zoom.events.change();
+  assert.match(img.attributes.style, /width:1200px/);
+  zoom.value = 'fit'; zoom.events.change();
+  assert.equal(img.attributes.style, '');
+  assert.equal(stage.scrollTop, 0);
   lightbox([{path:'a'},{path:'b'}]);
   assert.equal(document.body.children[1].children.length, 3);
   assert.equal(document.body.children[1].children[2].children.length, 2);
+  const multiple = document.body.children[1];
+  multiple.children[0].children[1].value = '2';
+  multiple.children[2].children[1].events.click();
+  assert.equal(multiple.children[0].children[1].value, 'fit');
 });
 
 test('only measured progress is shown; indeterminate jobs get no percentage', () => {

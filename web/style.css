@@ -197,7 +197,9 @@
   dialog::backdrop { background: #14271ed9; backdrop-filter: blur(6px); }
   .lightbox { width: min(1200px,95vw); max-height: 94dvh; padding: 18px; }
   .lightbox-head { display: flex; align-items: center; gap: 12px; padding-bottom: 15px; font-size: 13px; } .lightbox-head > span { margin-right: auto; } .lightbox-head .button-link { font-size: 11px; min-height: 36px; padding: 9px 12px; }
-  .lightbox-stage { display: grid; place-items: center; background: #edeee6; border-radius: 12px; padding: 14px; } .lightbox-stage img { max-height: 75dvh; object-fit: contain; }
+  .lightbox-head select { width: auto; min-height: 36px; padding: 6px 10px; }
+  .layout-waiting { padding: 18px; border: 1px solid var(--line); border-left: 4px solid var(--accent, #315c4b); border-radius: 12px; background: #eef3e7; color: var(--ink); font-size: 15px; line-height: 1.8; }
+  .lightbox-stage { height: 65dvh; overflow: auto; overscroll-behavior: contain; background: #edeee6; border-radius: 12px; } .lightbox-stage img { display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; margin: 0 auto; object-fit: contain; }
   .work-dialog { width: min(630px,95vw); padding: 27px; } .work-dialog > * + * { margin-top: 17px; } .work-dialog > .picture { height: 380px; }
   .confirm-dialog { width: min(430px,92vw); padding: 26px; } .confirm-dialog > * + * { margin-top: 20px; } .confirm-dialog .actions { justify-content: flex-end; }
   #notice { position: fixed; right: 24px; bottom: 24px; z-index: 100; display: flex; flex-direction: column; gap: 8px; max-width: min(450px,calc(100vw - 32px)); }
@@ -243,7 +245,7 @@
     .page-head:has(select) { flex-direction: column; } .page-head select { max-width: none; font-size: 14px; } .activity-list { margin-top: 20px; }
     .card { padding: 22px 18px; border-radius: 16px; } .card h2 { font-size: 22px; } .card > p { font-size: 12px; }
     #notice { left: 16px; right: 16px; bottom: calc(87px + env(safe-area-inset-bottom)); max-width: none; } .toast { font-size: 11px; }
-    .lightbox { padding: 12px; width: 96vw; } .lightbox-head { flex-wrap: wrap; gap: 8px; font-size: 11px; } .lightbox-stage { padding: 5px; } .lightbox-stage img { max-height: 65dvh; } .work-dialog { padding: 20px; } .work-dialog > .picture { height: 280px; }
+    .lightbox { padding: 12px; width: 96vw; } .lightbox-head { flex-wrap: wrap; gap: 8px; font-size: 11px; } .lightbox-head > span { flex-basis: 100%; } .lightbox-stage { height: 60dvh; } .work-dialog { padding: 20px; } .work-dialog > .picture { height: 280px; }
   }
   @media(max-width:380px) { .page { padding-inline: 14px; } .hero-copy { padding-left: 16px; } .hero .eyebrow { font-size: 6px; letter-spacing: 1px; } .hero h1 { font-size: 24px; } .hero-description { font-size: 9px; } .hero-cta { padding-inline: 9px; font-size: 9px; } .sample-grid { grid-template-columns: 1fr; } .sample-card > .picture { aspect-ratio: 1.3; } .sample-content .actions { flex-direction: row; } .sample-content .small-button { width: auto; } .context-card { grid-template-columns: 60px 1fr; } .context-card .picture { width: 60px; height: 65px; } }
   @media(prefers-reduced-motion:reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }

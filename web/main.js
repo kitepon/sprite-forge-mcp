@@ -1,11 +1,19 @@
 import { API } from './api.js?v=studio-2';
-import { h, $, icon, button, link, field, picture, empty, notice, action, pageHead, errorState, dateText } from './ui.js?v=studio-2';
+import { h, $, icon, button, link, field, picture, empty, notice, action, pageHead, errorState, dateText, confirmAction } from './ui.js?v=studio-2';
 import { FLOWS, flow, cover, openFlow } from './flows.js?v=studio-2';
 import { jobs, operations, active, connectionError, subscribe, refreshJobs, startJobUpdates, tickElapsed, terminal, kindLabel, imagePaths, jobView, taskPanel } from './jobs.js?v=studio-2';
 import { draft, saveDraft } from './drafts.js?v=studio-2';
 
 const routes = [{ id: '', label: 'スタジオ', icon: 'home' }, { id: 'library', label: '作品と素材', icon: 'grid' }, { id: 'activity', label: '制作状況', icon: 'activity' }, { id: 'tools', label: '道具箱', icon: 'tool' }];
 let dispose = () => {}; let routeVersion = 0;
+function deleteCharacterButton(rec, refresh) {
+  return button('削除', e => action(e.currentTarget, async () => {
+    if (!await confirmAction(`「${rec.name}」を削除しますか？`, 'キャラクターの登録を一覧から外します。元画像・生成済み作品・共有LoRAは残ります。登録情報は復旧用に退避します。', 'このキャラクターを削除')) return;
+    await API.deleteCharacter(rec.name);
+    await refresh();
+    notice(`「${rec.name}」の登録を削除しました。画像・作品・LoRAは残っています。`);
+  }), 'text-button');
+}
 function flowTile(spec, index) {
   return h('a', { href: `#/flow/${spec.id}`, class: `flow-tile flow-${spec.id}` }, h('div', { class: 'flow-tile-top' }, h('span', { class: 'flow-icon' }, icon(spec.icon, 25)), h('span', { class: 'flow-number' }, `0${index + 1}`)), h('h3', {}, spec.title), h('p', {}, spec.desc), h('span', { class: 'flow-bottom' }, h('span', {}, `${spec.steps.length} ステップ`), icon('arrow')));
 }
@@ -21,6 +29,7 @@ async function home(root) {
     h('section', { class: 'section stack' }, h('div', { class: 'section-heading' }, h('div', {}, h('p', { class: 'eyebrow' }, 'YOUR CHARACTERS'), h('h2', {}, '制作の続きを')), link(['すべて見る', icon('arrow', 17)], '#/library?tab=characters', 'text-link')),
       characters.length ? h('div', { class: 'home-characters' }, characters.slice(0, 4).map(rec => h('article', { class: 'continue-card' }, h('div', { class: 'continue-cover' }, picture(cover(rec), rec.name)), h('div', { class: 'stack' }, h('div', { class: 'section-heading' }, h('h3', {}, rec.name), h('span', { class: `badge ${rec.lora_name ? 'green' : ''}` }, rec.lora_name ? '学習済み' : '準備中')), h('p', { class: 'muted small' }, `${rec.samples.length} 枚の参考画像${rec.bible ? ' · 設定画あり' : ''}`), button(['続きを作る', icon('arrow', 16)], () => openFlow('sheet', rec.name, 'character', rec.bible ? 4 : rec.lora_name ? 3 : 1), 'quiet'))))) : empty('あなたのキャラクターが、ここに並びます', 'まずは気に入った画像から始めてみましょう。', link([icon('plus'), '最初のキャラクター'], '#/flow/sheet'))),
     h('div', { class: 'studio-footer' }, h('span', {}, `${characters.length} キャラクター`), h('span', {}, `${styles.length} 画風`), h('span', {}, `${history.filter(job => job.status === 'completed' && imagePaths(job).length).length} 件の制作`)));
+  root.querySelectorAll('.continue-card .stack').forEach((card, index) => card.append(deleteCharacterButton(characters[index], () => home(root))));
 }
 
 async function library(root, query, cleanup) {
@@ -39,6 +48,12 @@ async function library(root, query, cleanup) {
     } else {
       const kind = tab === 'characters' ? 'character' : 'style'; const items = (kind === 'character' ? characters : styles).filter(rec => rec.name.toLowerCase().includes(term)); count.textContent = `${items.length} 件`;
       content.replaceChildren(...items.map(rec => h('article', { class: 'work-card entity-record' }, picture(cover(rec), rec.name), h('div', { class: 'work-caption stack' }, h('div', { class: 'section-heading' }, h('h3', {}, rec.name), h('span', { class: `badge ${rec.lora_name ? 'green' : ''}` }, rec.lora_name ? '学習済み' : '未学習')), h('p', { class: 'muted small' }, `${rec.samples.length} 枚の参考画像`), h('div', { class: 'actions' }, button('参考画像を編集', () => openFlow(kind === 'character' ? 'sheet' : 'style', rec.name, kind, 1), 'quiet small-button'), rec.lora_name ? button('この子で描く'.replace('この子', kind === 'style' ? 'この画風' : 'この子'), () => openFlow(kind === 'character' ? 'draw' : 'styleonly', rec.name, kind, 1), 'text-button') : null), rec.bible ? button('設定画を見る・直す', () => openFlow('sheet', rec.name, 'character', 4), 'text-button') : null))));
+    }
+    if (tab === 'characters') {
+      const items = characters.filter(rec => rec.name.toLowerCase().includes(term));
+      content.querySelectorAll('.entity-record .work-caption').forEach((card, index) => card.append(deleteCharacterButton(items[index], async () => {
+        characters.splice(characters.indexOf(items[index]), 1); render();
+      })));
     }
     if (!content.childElementCount) content.append(empty(search.value ? '見つかりませんでした' : 'ここに作品が並びます', search.value ? '別の名前や言葉で探してみてください。' : 'コースから制作を始めると、作品も素材もここで見返せます。', link('スタジオへ', '#/')));
   };

@@ -29,6 +29,26 @@ const setup = () => {
   return () => saved;
 };
 
+test('処理中の再表示で経過時間と通信失敗を示し、完了案を自動で表示する', async t => {
+  const saved = setup(); let tick, stopped = false;
+  t.mock.method(globalThis, 'setInterval', fn => { tick = fn; return 1; });
+  t.mock.method(globalThis, 'clearInterval', () => { stopped = true; });
+  const job = {job_id:'waiting',stage:'layout',status:'running',original_comment:'衣装を変更',updated_at:new Date(Date.now()-10000).toISOString()};
+  API.commentIntents = async () => [job];
+  API.job = async () => { throw new Error('接続できません'); };
+  const root = new FakeNode('root'), cleanup = [];
+  await layoutEditor(root, '待機確認', cleanup);
+  assert.ok(all(root).some(n => n.textContent?.includes('10秒経過')));
+  await tick();
+  assert.ok(all(root).some(n => n.textContent?.includes('状態の確認に失敗：接続できません')));
+  t.mock.method(Date, 'now', () => new Date(job.updated_at).getTime()+30000);
+  API.job = async () => ({...job,status:'awaiting_confirmation',proposal:{summary_ja:'変更案が完成',questions:[],panels:saved().map(p=>({...p,description_ja:p.label,reference:null}))}});
+  await tick();
+  assert.ok(find(root, '変更案が完成'));
+  assert.equal(all(root).find(n=>n.tag==='fieldset').disabled,false);
+  cleanup.forEach(fn=>fn()); assert.ok(stopped);
+});
+
 test('手動の並べ替えと名称変更を保存し、再表示でも保つ', async () => {
   const saved = setup(); const root = new FakeNode('root');
   const editor = await layoutEditor(root, '手動確認'); editor.requireConfirmed();

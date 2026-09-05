@@ -190,7 +190,7 @@ async function drawing(target, ctx, kind, cleanup) {
 }
 async function sheet(target, ctx, styled, cleanup) {
   const name = ctx.character; const rec = await API.character(name); const seed = seedControl(`sheet:${name}`);
-  const layout = await layoutEditor(target, name);
+  const layout = await layoutEditor(target, name, cleanup);
   const editor = await commentEditor(target, { name, kind: 'character', stage: 'sheet' });
   const existing = h('div', { class: 'stack' }); const edit = h('div', { class: 'stack' }); let editingReady = false; let refreshEditor;
   const showExisting = record => { if (record.bible?.sheet_path) existing.replaceChildren(h('h3', {}, '保存してある設定画'), picture(record.bible.sheet_path, `${name}の設定画`, { version: record.bible.at })); };

@@ -322,6 +322,17 @@ class Services(IntentServices, LayoutServices):
             return []
         return [json.loads(m.read_text(encoding="utf-8")) for m in sorted(self.characters_root.glob("*/character.json"))]
 
+    async def delete_character(self, name: str) -> dict[str, Any]:
+        """キャラクター登録を削除する。登録情報は退避し、画像・作品・共有LoRAは残す。"""
+        record = self._load_character(name)
+        if any(job.get("name") == record["name"] and job.get("status") in {"queued", "running"}
+               for job in self.events.list_jobs()):
+            raise ValueError("このキャラクターは処理中です。完了してから削除してください。")
+        root = self._character_dir(name)
+        backup = root / f"deleted-character-{uuid.uuid4()}.json"
+        (root / "character.json").rename(backup)
+        return {"name": record["name"], "deleted": True, "backup_path": str(backup)}
+
     async def preview_character(self, name: str, tags: str = PREVIEW_TAGS,
                                 seed: int = 1, count: int = 1, style: str = "", turbo: bool = False,
                                 intent_job_id: str = "") -> dict[str, Any]:

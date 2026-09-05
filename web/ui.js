@@ -52,11 +52,11 @@ export async function action(control, work) {
   try { return await work(); } catch (error) { notice(error.message, true); }
   finally { control.disabled = false; control.removeAttribute('aria-busy'); }
 }
-export function confirmAction(message) {
+export function confirmAction(message, description = '参考画像と説明を台帳から外します。元のアップロード画像は残ります。', acceptLabel = '参考画像から外す') {
   return new Promise(resolve => {
-    const dialog = h('dialog', { class: 'confirm-dialog', 'aria-label': '参考画像を外す' }, h('h3', {}, message), h('p', { class: 'muted small' }, '参考画像と説明を台帳から外します。元のアップロード画像は残ります。'));
+    const dialog = h('dialog', { class: 'confirm-dialog', 'aria-label': message }, h('h3', {}, message), h('p', { class: 'muted small' }, description));
     let accepted = false;
-    dialog.append(h('div', { class: 'actions' }, button('戻る', () => dialog.close(), 'quiet'), button('参考画像から外す', () => { accepted = true; dialog.close(); })));
+    dialog.append(h('div', { class: 'actions' }, button('戻る', () => dialog.close(), 'quiet'), button(acceptLabel, () => { accepted = true; dialog.close(); })));
     dialog.addEventListener('close', () => { dialog.remove(); resolve(accepted); }); document.body.append(dialog); dialog.showModal();
   });
 }
@@ -70,11 +70,20 @@ export function picture(path, label = '画像', options = {}) {
 export function lightbox(images, index = 0) {
   const previousFocus = document.activeElement;
   const dialog = h('dialog', { class: 'lightbox', 'aria-label': '画像ビューアー' });
-  const stage = h('div', { class: 'lightbox-stage' }); const caption = h('span');
+  const stage = h('div', { class: 'lightbox-stage', tabindex: 0, 'aria-label': '画像。拡大時は縦横にスクロールできます' }); const caption = h('span');
+  let img;
+  const applyZoom = () => {
+    const fit = zoom.value === 'fit';
+    img.setAttribute('style', fit ? '' : `width:${img.naturalWidth * Number(zoom.value)}px;max-width:none;max-height:none`);
+    stage.scrollTop = 0; stage.scrollLeft = 0;
+  };
+  const zoom = h('select', { 'aria-label': '画像の表示倍率', onchange: applyZoom },
+    ...[['fit', '全体表示'], ['0.5', '50％'], ['1', '原寸 100％'], ['2', '200％'], ['4', '400％']].map(([value, label]) => h('option', { value }, label)));
+  zoom.value = 'fit';
   const download = link([icon('download'), 'ダウンロード'], '#', 'button-link quiet'); download.setAttribute('download', '');
-  const show = () => { const current = images[index]; stage.replaceChildren(h('img', { src: current.src || API.file(current.path), alt: current.label || '生成画像' })); caption.textContent = `${current.label || '生成画像'}${images.length > 1 ? ` · ${index + 1} / ${images.length}` : ''}`; download.href = current.src || API.file(current.path); };
+  const show = () => { const current = images[index]; zoom.value = 'fit'; img = h('img', { src: current.src || API.file(current.path), alt: current.label || '生成画像', onload: applyZoom }); stage.replaceChildren(img); applyZoom(); caption.textContent = `${current.label || '生成画像'}${images.length > 1 ? ` · ${index + 1} / ${images.length}` : ''}`; download.href = current.src || API.file(current.path); };
   const close = button(icon('close'), () => dialog.close(), 'icon-button'); close.setAttribute('aria-label', '画像を閉じる');
-  dialog.append(h('header', { class: 'lightbox-head' }, caption, download, close), stage,
+  dialog.append(h('header', { class: 'lightbox-head' }, caption, zoom, download, close), stage,
     ...(images.length > 1 ? [h('div', { class: 'actions centered' }, button('← 前の画像', () => { index = (index - 1 + images.length) % images.length; show(); }, 'quiet'), button('次の画像 →', () => { index = (index + 1) % images.length; show(); }, 'quiet'))] : []));
   dialog.addEventListener('click', e => { if (e.target === dialog) dialog.close(); });
   dialog.addEventListener('close', () => { dialog.remove(); previousFocus?.focus(); });

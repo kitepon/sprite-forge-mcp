@@ -9,7 +9,7 @@ const describe = panels => panels.map(p => ({ ...structuredClone(p), description
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
 const same = (a, b) => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
 
-export async function layoutEditor(target, name) {
+export async function layoutEditor(target, name, cleanup = []) {
   const storageKey = `layout:${name}`;
   let saved = await API.sheetLayout(name);
   let job = (await API.commentIntents(name, 'character')).find(j => j.stage === 'layout') || null;
@@ -19,6 +19,9 @@ export async function layoutEditor(target, name) {
     job = null; proposal = { summary_ja: '', questions: [], panels: describe(saved) };
   }
   let original = job?.original_comment || '', busy = false;
+  let timer, checking = false, lastCheck = 0, checkError = '', started = Date.parse(job?.updated_at || '') || Date.now();
+  const stopWatching = () => { clearInterval(timer); timer = null; };
+  cleanup.push(stopWatching);
   const stored = draft(storageKey, null);
   const cached = stored?.jobId === (job?.job_id || null) ? stored : null;
   if (cached) proposal = cached.proposal;
@@ -32,7 +35,33 @@ export async function layoutEditor(target, name) {
   const changed = () => !same(layoutValues(proposal.panels), saved);
   const remember = () => { saveDraft(storageKey, { jobId: job?.job_id || null, text: input.value, proposal, expected: conflict ? cached.expected : saved }); showStatus(); };
   const showStatus = () => {
-    status.textContent = conflict ? '保存済み構成が別の操作で更新されています。下書きと比較し、最新の構成を読み込んでください。' : busy ? '構成案を考えています。原文は保存済みです。' : job?.status === 'running' ? '構成案を考えています。再表示で結果を確認できます。' : input.value !== original ? '注文に未解釈の変更があります' : job?.status === 'awaiting_confirmation' || changed() ? '構成はまだ確定していません' : '保存した構成を次の生成に使います';
+    if (busy || job?.status === 'running') {
+      status.className = 'draft-status layout-waiting';
+      status.textContent = `構成案を作成中 · ${Math.max(0, Math.floor((Date.now() - started) / 1000))}秒経過。${job?.original_comment === input.value ? '原文は保存済みです。' : '原文を保存しています。'}${checkError ? `状態の確認に失敗：${checkError}` : lastCheck ? `サーバー応答確認 ${new Date(lastCheck).toLocaleTimeString('ja-JP')}。` : 'サーバーの応答を待っています。'} 完了すると構成案を自動表示します。`;
+      return;
+    }
+    status.className = 'draft-status';
+    status.textContent = conflict ? '保存済み構成が別の操作で更新されています。下書きと比較し、最新の構成を読み込んでください。' : input.value !== original ? '注文に未解釈の変更があります' : job?.status === 'awaiting_confirmation' || changed() ? '構成はまだ確定していません' : '保存した構成を次の生成に使います';
+  };
+  const watch = () => {
+    stopWatching();
+    timer = setInterval(async () => {
+      showStatus();
+      if (!job || checking || Date.now() - lastCheck < 5000) return;
+      checking = true;
+      try {
+        const fresh = await API.job(job.job_id); lastCheck = Date.now(); checkError = '';
+        if (!busy) {
+          job = fresh;
+          if (job.status !== 'running') {
+            stopWatching(); controls.disabled = false;
+            if (job.proposal) { proposal = structuredClone(job.proposal); remember(); }
+            paint();
+          }
+        }
+      } catch (error) { lastCheck = Date.now(); checkError = error.message; }
+      finally { checking = false; showStatus(); }
+    }, 1000);
   };
   input.addEventListener('input', remember);
   const editInput = (label, value, write, multiline = false) => {
@@ -91,7 +120,7 @@ export async function layoutEditor(target, name) {
   const propose = async () => {
     if (busy) return;
     if (conflict) throw new Error('最新の構成を読み込んでから注文してください。');
-    busy = true; controls.disabled = true; showStatus();
+    busy = true; started = Date.now(); lastCheck = 0; checkError = ''; controls.disabled = true; showStatus(); watch();
     try {
       await flushCaptions('character', name);
       job = await API.saveComment({ name, kind: 'character', stage: 'layout', comment: input.value, layout_panels: layoutValues(proposal.panels), layout_expected: saved });
@@ -101,7 +130,7 @@ export async function layoutEditor(target, name) {
     } catch (error) {
       if (job) job = await API.job(job.job_id);
       throw error;
-    } finally { busy = false; controls.disabled = false; paint(); }
+    } finally { busy = false; stopWatching(); controls.disabled = job?.status === 'running'; paint(); if (job?.status === 'running') watch(); }
   };
   const confirm = async () => {
     if (conflict || busy || input.value !== original || job && !['awaiting_confirmation', 'confirmed'].includes(job.status)) throw new Error('注文を解釈して、構成案を確認してください。');
@@ -125,6 +154,7 @@ export async function layoutEditor(target, name) {
     }), 'quiet'));
   target.append(h('section', { class: 'layout-editor stack' }, h('h3', {}, 'シートに載せる項目'), h('p', { class: 'muted' }, '順番と内容を選び、構成を確定してから描きます。過去のシートは変わりません。'), status, controls));
   paint();
+  if (job?.status === 'running') { controls.disabled = true; watch(); }
   return { save: saveOriginal, requireConfirmed: () => {
     if (conflict || busy || input.value !== original || changed() || job && job.status !== 'confirmed') throw new Error('シート構成を確定してから生成してください。');
   } };
