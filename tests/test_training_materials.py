@@ -20,6 +20,26 @@ async def accept_observations(service, name, kind="character", captions=None):
     return await service.confirm_training_observations(job["job_id"], Proposal.model_validate(proposal).observations)
 
 
+def test_reviewed_identity_survives_training_materials_and_drawing_snapshot(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+
+    async def scenario():
+        source = tmp_path / "reference.png"
+        source.write_bytes(png())
+        await service.create_character("probe", "人物")
+        await service.add_samples("probe", str(source))
+        caption = "adult figure, narrow face, small head relative to torso, long limbs"
+        await accept_observations(service, "probe", captions=[caption])
+        prepared = await service.prepare_training("probe", steps=3)
+        assert prepared["status"] == "awaiting_confirmation"
+        assert Path(prepared["materials"][0]["path"]).with_suffix(".txt").read_text() == f"probe, {caption}"
+        drawing = await service.save_comment(IntentRequest(name="probe", stage="drawing", comment="白背景"))
+        assert drawing["training_captions"][0]["caption_en"] == caption
+        assert not (await service.character_info("probe")).get("lora_name")
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("kind", ["character", "style"])
 def test_reviewed_observation_is_separate_and_prepared_copy_is_frozen(tmp_path, monkeypatch, kind):
     service, _ = make(tmp_path, monkeypatch)

@@ -64,6 +64,8 @@ def test_app_runner_transfers_recorded_stage_conditions(monkeypatch, has_snapsho
            "references": [], "image_comments": [], "base_conditions": {}, "stage": "preview", "panel": "", "record_kind": "character"}
     if has_snapshot:
         job["stage_conditions"] = recorded
+        job["training_captions"] = [{"appearance_ja": "成人に見える人物。小さめの頭と長い手足。",
+                                    "caption_en": "adult figure, small head relative to body, long limbs"}]
         job["available_styles"] = [{"name": "確認用", "note": "登録された画風", "lora_name": "look.safetensors"}]
 
     class Process:
@@ -74,6 +76,7 @@ def test_app_runner_transfers_recorded_stage_conditions(monkeypatch, has_snapsho
             assert packet["input"]["stage_conditions"] == (recorded if has_snapshot else {})
             assert packet["input"]["record_kind"] == "character"
             assert packet["input"]["available_styles"] == job.get("available_styles", [])
+            assert packet["input"]["training_captions"] == job.get("training_captions", [])
             return json.dumps({"proposal": {"observations": [], "changes": [], "questions": []},
                                "model": "fixture", "elapsed_seconds": 0, "auth": "chatgpt"}).encode(), b""
 

@@ -14,6 +14,7 @@ async def interpret(job: dict, images: list[bytes]) -> dict:
     payload["stage_conditions"] = job.get("stage_conditions", {})
     payload["panel_specs"] = job.get("panel_specs", [])
     payload["available_styles"] = job.get("available_styles", [])
+    payload["training_captions"] = job.get("training_captions", [])
     payload["record_kind"] = job["record_kind"]
     if job["stage"] == "layout":
         payload["sheet_layout"] = job.get("working_layout", job["sheet_layout"])
