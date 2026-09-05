@@ -1,0 +1,78 @@
+[
+  {
+    "key": "front-without-reference",
+    "panel": "front",
+    "graph": "workflow-e3f4978d-5804-4ee3-bbdc-7fdb093e9877-3.json",
+    "factor": "positive_phrase",
+    "old": "character reference, ",
+    "new": ""
+  },
+  {
+    "key": "front-without-lora",
+    "panel": "front",
+    "graph": "workflow-e3f4978d-5804-4ee3-bbdc-7fdb093e9877-3.json",
+    "factor": "node_inputs",
+    "changes": [
+      {
+        "node": "4",
+        "input": "strength_model",
+        "before": 0.8,
+        "after": 0
+      },
+      {
+        "node": "4",
+        "input": "strength_clip",
+        "before": 0.8,
+        "after": 0
+      }
+    ]
+  },
+  {
+    "key": "side-without-reference",
+    "panel": "side",
+    "graph": "workflow-e3f4978d-5804-4ee3-bbdc-7fdb093e9877-4.json",
+    "factor": "positive_phrase",
+    "old": "character reference, ",
+    "new": ""
+  },
+  {
+    "key": "side-without-lora",
+    "panel": "side",
+    "graph": "workflow-e3f4978d-5804-4ee3-bbdc-7fdb093e9877-4.json",
+    "factor": "node_inputs",
+    "changes": [
+      {
+        "node": "4",
+        "input": "strength_model",
+        "before": 0.8,
+        "after": 0
+      },
+      {
+        "node": "4",
+        "input": "strength_clip",
+        "before": 0.8,
+        "after": 0
+      }
+    ]
+  },
+  {
+    "key": "shoes-without-lora",
+    "panel": "shoes",
+    "graph": "workflow-e3f4978d-5804-4ee3-bbdc-7fdb093e9877-5.json",
+    "factor": "node_inputs",
+    "changes": [
+      {
+        "node": "4",
+        "input": "strength_model",
+        "before": 0.8,
+        "after": 0
+      },
+      {
+        "node": "4",
+        "input": "strength_clip",
+        "before": 0.8,
+        "after": 0
+      }
+    ]
+  }
+]

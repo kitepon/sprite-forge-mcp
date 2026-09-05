@@ -1,0 +1,32 @@
+{
+  "summary": "構図の修理は未完了。語句を除いた2枚では複数人物が残った。LoRAを無効にした比較では正面と靴の構図が改善したが、顔・画風・衣装も変わったため製品設定には採用しない。側面は両方の単独変更で複数人物が残った。",
+  "limits": "各条件は同じseedで1枚の比較。LoRAの影響はこの画像・条件での観察であり、全キャラクターへの一般化や再学習の必要性は未確定。比較元3枚は製品の余白除去後、新規5枚は生成直後の画像なので、枠の寸法や余白の量は比較しない。",
+  "groups": [
+    {
+      "label": "正面立ち姿",
+      "panel": "turn_front",
+      "cases": [
+        {"key": "baseline-front", "source": "baseline", "label": "比較元：LoRA 0.8", "observation": "正面と背面の二人が描かれた。青いトップ、白いスカートと靴が見える。"},
+        {"key": "front-without-reference", "source": "probe", "label": "構図の語句を除去：LoRA 0.8", "observation": "正面と背面の二人描写が残った。character referenceを除くだけでは解消しない。"},
+        {"key": "front-without-lora", "source": "probe", "label": "診断用：LoRA 0", "observation": "正面の一人になった。顔と体の比率、塗り、服の形が変わり、元の本人らしさを維持した解決にはなっていない。"}
+      ]
+    },
+    {
+      "label": "側面立ち姿",
+      "panel": "turn_side",
+      "cases": [
+        {"key": "baseline-side", "source": "baseline", "label": "比較元：LoRA 0.8", "observation": "正面と左向きの側面が同居した。右向きの指定を満たさず、トップの正面に白が残る。"},
+        {"key": "side-without-reference", "source": "probe", "label": "構図の語句を除去：LoRA 0.8", "observation": "正面と左向きの側面が残った。トップの青は増えたが、人物数と向きは改善していない。"},
+        {"key": "side-without-lora", "source": "probe", "label": "診断用：LoRA 0", "observation": "正面と左向きの側面が残り、画風と衣装の形も変わった。側面の問題をLoRAだけの原因とは断定できない。"}
+      ]
+    },
+    {
+      "label": "靴の単品",
+      "panel": "item_shoes",
+      "cases": [
+        {"key": "baseline-shoes", "source": "baseline", "label": "比較元：LoRA 0.8", "observation": "白と金のブーツに脚が入った。脚を除く指定が画像で満たされていない。"},
+        {"key": "shoes-without-lora", "source": "probe", "label": "診断用：LoRA 0", "observation": "履き口が見える空のブーツになり、脚は消えた。金の飾りや茶色い革部分などデザインも変わっている。"}
+      ]
+    }
+  ]
+}
