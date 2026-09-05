@@ -30,10 +30,40 @@ def test_probe_passes_the_given_character_description(tmp_path, monkeypatch, des
 
     service.intent_interpreter = interpret
     args = SimpleNamespace(cache=tmp_path / "probe", reference=[source], description=description,
-                           base_interpretation=None, stage="sheet", panel="", comment="参照の姿を今後も使う")
+                           base_interpretation=None, layout_from=None, stage="sheet", panel="", comment="参照の姿を今後も使う")
     asyncio.run(main(args))
     job = json.loads((args.cache / "interpretation.json").read_text())
     assert job["record_description"] == description and job["status"] == "awaiting_confirmation"
+
+
+@pytest.mark.parametrize("stage", ["sheet", "layout"])
+def test_probe_uses_confirmed_layout_without_transferring_old_image_references(tmp_path, monkeypatch, stage):
+    from backend import services
+    from backend.sheet_layout import legacy_layout
+    from scripts.check_intent import main
+    from tests.test_layout_intent import proposal as layout_proposal
+    from tests.test_style import png
+
+    service, _ = make(tmp_path, monkeypatch)
+    monkeypatch.setattr(services, "Services", lambda: service)
+    monkeypatch.setenv("SPRITEFORGE_CACHE", "")
+    source = tmp_path / "source.png"
+    source.write_bytes(png())
+    layout = legacy_layout()[:2]
+    value = layout_proposal(layout)
+    value["panels"][0]["reference"] = {"record_key": "old", "sample_index": 7, "path": "/old.png"}
+    retained = tmp_path / "layout.json"
+    retained.write_text(json.dumps({"proposal": value}))
+
+    async def interpret(job, images):
+        assert job["sheet_layout"] == layout
+        assert len(images) == 1 and job["references"][0]["path"] != "/old.png"
+        return layout_proposal(layout) if stage == "layout" else proposal(job["references"][0])
+    service.intent_interpreter = interpret
+    args = SimpleNamespace(cache=tmp_path / "probe", reference=[source], description="a creature", base_interpretation=None,
+                           layout_from=retained, stage=stage, panel="", comment="参照の姿")
+    asyncio.run(main(args))
+    assert json.loads((args.cache / "interpretation.json").read_text())["sheet_layout"] == layout
 
 
 def test_retained_response_rebinds_only_isolated_references(tmp_path, monkeypatch):
