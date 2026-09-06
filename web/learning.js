@@ -5,9 +5,10 @@ import { subscribe, jobs, refreshJobs, jobView, connectionError } from './jobs.j
 import { trainingMaterials } from './training.js?v=studio-2';
 import { draft, saveDraft } from './drafts.js?v=studio-2';
 
-export async function learning(target, kind, name, cleanup, changed, actionTarget = target) {
+export async function learning(target, kind, name, cleanup, changed) {
   const rec = await (kind === 'character' ? API.character(name) : API.style(name));
   let busy = false, disposed = false, signature = '', explanationSignature = '', version = 0;
+  let latestExplanation = null, reviewBox = null;
   const summary = h('div', { class: 'learning-summary stack' }, h('strong', {}, `${rec.samples.length} 枚の画像から学習します`),
     h('div', { class: 'learning-images' }, rec.samples.map((s, i) => h('figure', {}, picture(s.path, `参考画像 ${i + 1}`), h('figcaption', {}, `画像 ${i + 1}`)))),
     rec.samples.some(s => s.caption) ? h('div', { class: 'stack small' }, rec.samples.map((s, i) => s.caption ? h('p', {}, h('strong', {}, `画像 ${i + 1}：`), s.caption) : null)) : null,
@@ -42,7 +43,6 @@ export async function learning(target, kind, name, cleanup, changed, actionTarge
   target.append(output, explanations, repeat,
     h('details', { class: 'advanced' }, h('summary', {}, '詳細設定・学習の記録'), field('学習ステップ', steps),
       rec.train_job ? trainingMaterials(jobs.find(j => j.job_id === rec.train_job), '前回学習した教材') : null));
-  actionTarget.append(actions);
   function paint() {
     if (disposed) return;
     const candidates = jobs.filter(j => j.record_kind === kind && j.record_key === rec.key && j.record_created === rec.created);
@@ -58,8 +58,12 @@ export async function learning(target, kind, name, cleanup, changed, actionTarge
     if (explanationSignature !== explanationKey) {
       explanationSignature = explanationKey;
       explanations.replaceChildren();
+      latestExplanation = null;
       if (visible.length) {
-        if (!reviewing) explanations.append(savedLearningExplanation(visible[0]));
+        if (!reviewing) {
+          latestExplanation = savedLearningExplanation(visible[0]);
+          explanations.append(latestExplanation);
+        }
         const earlier = reviewing ? visible : visible.slice(1);
         if (earlier.length) explanations.append(h('details', {}, h('summary', {}, `以前の読み取り結果（${earlier.length}件）`), earlier.map(savedLearningExplanation)));
       }
@@ -68,6 +72,7 @@ export async function learning(target, kind, name, cleanup, changed, actionTarge
     const complete = child?.status === 'completed' || !!rec.lora_name;
     const repeating = complete && !busy && !running && !reviewing;
     repeat.hidden = !repeating;
+    (reviewing && reviewBox || latestExplanation || target).append(actions);
     (repeating ? repeat : actions).append(start);
     actions.hidden = repeating;
     start.disabled = busy || !!running;
@@ -80,6 +85,7 @@ export async function learning(target, kind, name, cleanup, changed, actionTarge
     if (signature === next) return;
     signature = next; const current = ++version;
     output.replaceChildren();
+    reviewBox = null;
     if (connectionError) output.append(h('p', { class: 'error-text' }, `制作状況を更新できません：${connectionError}`));
     if (busy && !running) output.append(h('div', { class: 'layout-waiting', role: 'status' }, h('strong', {}, '学習の開始を確認しています'), h('p', {}, '画像と希望を保存して処理を始めます。進捗が届くとここに表示します。')));
     else if (child) {
@@ -90,6 +96,7 @@ export async function learning(target, kind, name, cleanup, changed, actionTarge
       commentEditor(review, { name, kind, stage: 'training', learningJob: parent,
         onLearningConfirm: proposal => execute(() => API.confirmLearning(parent.job_id, proposal)) }).then(() => {
         if (disposed || current !== version) review.remove();
+        else { reviewBox = review.children[0]; reviewBox.append(actions); }
       }).catch(error => { if (!disposed && current === version) notice(error.message, true); });
     } else if (oldReview) output.append(h('p', {class:'muted small'}, '保存した画像と希望を引き継ぎます。「この内容で学習を始める」を押すと、読み取りから学習まで続けて進みます。'));
     else if (failed) output.append(jobView(parent, { title: '学習の準備' }));
