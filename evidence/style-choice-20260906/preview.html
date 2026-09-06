@@ -26,9 +26,13 @@ async function show(stage) {
     proposal:{observations:[],questions:[],changes:[
       {feature:'style',scope:'persistent',panel_key:null,reference:null,description_en:'',avoid_en:'',avoid_ja:'',reason_ja:'参考画像の画風を使いたい',style_name:null,style_deferred:false},
       {feature:'outfit',scope:'persistent',panel_key:null,reference:null,description_en:'blue coat',avoid_en:'',avoid_ja:'',reason_ja:'青いコートを使いたい'}]}};
+  if (stage === 'training') {
+    job.references = [0,1,2].map(sample_index => ({record_key:'fixture',sample_index,path:`sample-${sample_index}.png`}));
+    job.proposal.training_samples = job.references.map((reference,i) => ({reference,priority:['reference','normal','primary'][i],features:[['pose','outfit','style'][i]],reason_ja:['構図の参考だけに使います','衣装を学びます','この画像の画風を優先します'][i]}));
+  }
   const accept = proposal => {
     const style = proposal.changes.find(c => c.feature === 'style');
-    receipt.textContent = style.style_deferred ? '確認結果：画風設定は線画のまま。青いコートの希望を採用。' : `確認結果：画風は${style.style_name || '追加なし'}。青いコートの希望を採用。`;
+    receipt.textContent = stage === 'training' ? '確認結果：画像1は構図の参考だけ、画像2を通常の教材、画像3を優先する教材として学習開始。' : style.style_deferred ? '確認結果：画風設定は線画のまま。青いコートの希望を採用。' : `確認結果：画風は${style.style_name || '追加なし'}。青いコートの希望を採用。`;
     job = {...job,status:'confirmed',accepted:proposal}; return job;
   };
   API.commentIntents = async () => [job];

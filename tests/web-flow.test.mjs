@@ -7,11 +7,12 @@ class FakeNode {
   setAttribute(k, v) { this.attrs[k] = v; if (k === 'value') this.value = v; }
   removeAttribute(k) { delete this.attrs[k]; }
   addEventListener(k, v) { (this.events ||= {})[k] = v; }
-  append(...items) { this.children.push(...items); }
+  append(...items) { this.children.push(...items); if (this.tag === 'textarea') this.value = this.children.join(''); }
   replaceChildren(...items) { this.children = items; }
   insertBefore(item, before) { this.children.splice(this.children.indexOf(before), 0, item); }
   get lastChild() { return this.children.at(-1); }
   remove() {}
+  reportValidity() { return true; }
 }
 globalThis.Node = FakeNode;
 globalThis.document = { createElement: tag => new FakeNode(tag), createElementNS: (_, tag) => new FakeNode(tag), createTextNode: text => text, querySelector: () => new FakeNode('notice') };
@@ -19,7 +20,35 @@ const { API } = await import('../web/api.js?v=studio-2');
 const { samples } = await import('../web/flows.js?v=studio-2');
 const { pendingFiles, saveDraft } = await import('../web/drafts.js?v=studio-2');
 const { referenceNotes, saveCaption } = await import('../web/intent.js?v=studio-2');
+const { learning } = await import('../web/learning.js?v=studio-2');
 const all = node => [node, ...node.children.filter(c => c instanceof FakeNode).flatMap(all)];
+
+test('古い確認待ちは希望を引き継ぎ、再開始の応答待ちに過去の状態を表示しない', async () => {
+  const rec = {key:'legacy',created:'now',samples:[],lora_name:''};
+  const job = {job_id:'old',record_kind:'character',record_key:'legacy',record_created:'now',kind:'intent',status:'awaiting_confirmation',learning_steps:1200,proposal:{changes:[],observations:[],questions:[]}};
+  API.character = async () => rec;
+  API.commentIntents = async () => [{stage:'samples',original_comment:'保存済みの画風への希望'}];
+  API.jobs = async () => [job];
+  let release;
+  API.startLearning = () => new Promise(resolve => {release=resolve;});
+  const root=new FakeNode('root'), cleanup=[];
+  await learning(root,'character','旧記録の確認',cleanup,()=>{});
+  assert.ok(all(root).some(n=>n.children.includes('保存した画像と希望を引き継ぎます。「学習を始める」で、画像ごとの使い方を確認して学習へ進みます。')));
+  assert.ok(all(root).some(n=>n.value === '保存済みの画風への希望'));
+  assert.ok(!all(root).some(n=>n.children.includes('読み取った希望の確認')));
+  const start=all(root).find(n=>n.textContent === '学習を始める');
+  const pending=start.events.click(); await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(all(root).some(n=>n.children.includes('学習の開始を確認しています')));
+  assert.ok(!all(root).some(n=>n.children.includes('解釈案の確認待ち')));
+  release(job); await pending;
+  job.status='confirmed'; job.training_job_id='completed';
+  API.jobs=async()=>[job,{job_id:'completed',kind:'lora_train',status:'completed',record_kind:'character',record_key:'legacy',record_created:'now'}];
+  const { refreshJobs }=await import('../web/jobs.js?v=studio-2'); await refreshJobs();
+  const repeat=start.events.click(); await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(all(root).some(n=>n.children.includes('学習の開始を確認しています')));
+  assert.ok(!all(root).some(n=>n.children.includes('できました')));
+  release(job); await repeat; cleanup.forEach(fn=>fn());
+});
 
 for (const kind of ['character', 'style']) test(`${kind}：画像選択だけで追加し、完了まで次へ進めない`, async t => {
   t.mock.method(URL, 'createObjectURL', () => 'blob:test');

@@ -16,6 +16,7 @@ async def interpret(job: dict, images: list[bytes]) -> dict:
     payload["available_styles"] = job.get("available_styles", [])
     payload["training_captions"] = job.get("training_captions", [])
     payload["record_kind"] = job["record_kind"]
+    payload["learning_request"] = "learning_steps" in job
     if job["stage"] == "layout":
         payload["sheet_layout"] = job.get("working_layout", job["sheet_layout"])
     packet = {"input": payload, "images": [base64.b64encode(image).decode("ascii") for image in images]}

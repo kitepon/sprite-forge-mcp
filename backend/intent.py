@@ -59,21 +59,41 @@ class Change(StrictModel):
     style_deferred: bool = False
 
 
+class TrainingSample(StrictModel):
+    reference: Reference
+    priority: Literal["primary", "normal", "reference"]
+    features: list[Feature]
+    reason_ja: str
+
+
 class Proposal(StrictModel):
     observations: list[Observation]
     changes: list[Change]
     questions: list[str]
+    training_samples: list[TrainingSample] | None = None
 
 
 def validate_proposal(proposal: Proposal, job: dict) -> None:
     """外部入力の参照先と範囲を検査する。衣装などの意味の合否は判定しない。"""
     references = job["references"]
+    if proposal.training_samples is not None:
+        if job["stage"] not in ("samples", "training"):
+            raise ValueError("学習画像の採用方針は、参考画像・学習工程で指定してください。")
+        selected = [s.reference.model_dump() for s in proposal.training_samples]
+        if len(selected) != len(references) or any(selected.count(ref) != 1 for ref in references):
+            raise ValueError("学習への採用方針を、参考画像すべてについて一枚ずつ指定してください。")
+        if not proposal.questions and not any(s.priority != "reference" for s in proposal.training_samples):
+            raise ValueError("学習する画像がありません。教材にする画像を希望へ指定してください。")
+        if any(not s.reason_ja.strip() for s in proposal.training_samples):
+            raise ValueError("学習画像の採用方針には理由を添えてください。")
     for item in [*proposal.observations, *proposal.changes]:
         if item.reference is not None and item.reference.model_dump() not in references:
             raise ValueError("解釈案が、渡していない参考画像を参照しています。")
     targets = set()
     for change in proposal.changes:
         if change.feature == "style":
+            if job["stage"] in ("samples", "training") and (change.style_name is not None or change.style_deferred):
+                raise ValueError("学習では素材の採用方針を指定します。別の画風は生成時に選んでください。")
             if change.scope == "panel" or change.panel_key is not None:
                 raise ValueError("画風はシート全体で統一します。パネルごとには指定できません。")
             if change.style_deferred and change.style_name is not None:

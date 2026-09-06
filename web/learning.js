@@ -47,7 +47,8 @@ export async function learning(target, kind, name, cleanup, changed) {
     const parent = candidates.find(j => j.learning_steps !== undefined);
     const child = parent?.training_job_id ? jobs.find(j => j.job_id === parent.training_job_id) : candidates.find(j => j.kind === 'lora_train' && ['queued', 'running'].includes(j.status));
     const running = parent?.status === 'running' || child && ['queued', 'running'].includes(child.status);
-    const reviewing = parent?.status === 'awaiting_confirmation' && !child;
+    const oldReview = parent?.status === 'awaiting_confirmation' && !parent.proposal?.training_samples && !child;
+    const reviewing = parent?.status === 'awaiting_confirmation' && !!parent.proposal?.training_samples && !child;
     const failed = parent?.status === 'failed' || child?.status === 'failed';
     const complete = child?.status === 'completed' || !!rec.lora_name;
     const repeating = complete && !busy && !running && !reviewing;
@@ -65,16 +66,18 @@ export async function learning(target, kind, name, cleanup, changed) {
     signature = next; const current = ++version;
     output.replaceChildren();
     if (connectionError) output.append(h('p', { class: 'error-text' }, `制作状況を更新できません：${connectionError}`));
-    if (child) {
+    if (busy && !running) output.append(h('div', { class: 'layout-waiting', role: 'status' }, h('strong', {}, '学習の開始を確認しています'), h('p', {}, '画像と希望を保存して処理を始めます。進捗が届くとここに表示します。')));
+    else if (child) {
       output.append(jobView(child, { title: '学習', startedAt: child.created_at }), h('details', {}, h('summary', {}, '学習する画像と説明を見る'), trainingMaterials(child)));
-    } else if (running || busy) output.append(jobView(parent, { title: '画像と希望を読み取っています', startedAt: parent?.created_at || new Date().toISOString(), requesting: true }));
+    } else if (running) output.append(jobView(parent, { title: '画像と希望を読み取っています', startedAt: parent.created_at }));
     else if (reviewing) {
       const review = h('div'); output.append(review);
       commentEditor(review, { name, kind, stage: 'training', learningJob: parent,
         onLearningConfirm: proposal => execute(() => API.confirmLearning(parent.job_id, proposal)) }).then(() => {
         if (disposed || current !== version) review.remove();
       }).catch(error => { if (!disposed && current === version) notice(error.message, true); });
-    } else if (failed) output.append(jobView(parent, { title: '学習の準備' }));
+    } else if (oldReview) output.append(h('p', {class:'muted small'}, '保存した画像と希望を引き継ぎます。「学習を始める」で、画像ごとの使い方を確認して学習へ進みます。'));
+    else if (failed) output.append(jobView(parent, { title: '学習の準備' }));
     else if (complete) output.append(h('p', { class: 'callout' }, '学習済みです。次のプレビューで顔や体形、衣装を確かめられます。'));
   }
   cleanup.push(() => { disposed = true; version++; });

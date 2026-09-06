@@ -269,7 +269,7 @@ def test_unresolved_style_change_is_not_persisted(tmp_path, monkeypatch):
 
     async def scenario():
         await setup(service, tmp_path)
-        job = await service.interpret_comment(IntentRequest(name="probe", comment="筆のタッチを変えたい"))
+        job = await service.interpret_comment(IntentRequest(name="probe", stage="preview", comment="筆のタッチを変えたい"))
         with pytest.raises(ValueError, match="今回は画風の希望を反映しない"):
             await service.confirm_comment_intent(job["job_id"], Proposal.model_validate(job["proposal"]))
         assert "intent_conditions" not in await service.character_info("probe")

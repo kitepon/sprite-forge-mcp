@@ -29,7 +29,7 @@ from .config import CACHE, CHARACTERS, STYLES, UPLOADS
 from .events import EventStore
 from .intent_service import IntentServices
 from .intent_runner import interpret
-from .intent import IntentRequest, Proposal, PREVIEW_TAGS, drawing_content, generation_negative, preview_content
+from .intent import IntentRequest, Proposal, PREVIEW_TAGS, drawing_content, generation_negative, preview_content, validate_proposal
 from .panel_intent import resolve_panel, saved_corrections
 from .sheet_layout import LayoutServices, layout_for, matching_keys, panel_from
 
@@ -655,7 +655,7 @@ class Services(IntentServices, LayoutServices):
         self.events.save_job(job)
         job = await self.interpret_saved_comment(job["job_id"])
         proposal = Proposal.model_validate(job["proposal"])
-        if proposal.questions or proposal.changes:
+        if proposal.questions or proposal.changes or any(s.priority != "normal" for s in proposal.training_samples):
             return job
         return await self.confirm_learning(job["job_id"], proposal)
 
@@ -666,6 +666,9 @@ class Services(IntentServices, LayoutServices):
             raise ValueError("学習開始前の確認内容を指定してください。")
         if proposal.questions:
             raise ValueError("確認事項への回答を希望に追記して、もう一度読み取ってください。")
+        validate_proposal(proposal, job)
+        if proposal.training_samples is None:
+            raise ValueError("保存した希望から学習への採用方針を読み取り直してください。")
         record = self._intent_record(job["name"], job["record_kind"])
         references = [{"record_key": record["key"], "sample_index": s["index"], "path": s["path"]} for s in record["samples"]]
         if (references != job["references"] or [s.get("caption", "") for s in record["samples"]] != job["image_comments"]
@@ -692,6 +695,15 @@ class Services(IntentServices, LayoutServices):
         record = self._intent_record(name, kind)
         if not record["samples"]:
             raise ValueError("学習する参考画像を追加してください。")
+        selection = record.get("training_selection")
+        priorities = {}
+        if selection:
+            references = [{"record_key": record["key"], "sample_index": s["index"], "path": s["path"]} for s in record["samples"]]
+            if (selection["references"] != references
+                    or selection["image_comments"] != [s.get("caption", "") for s in record["samples"]]
+                    or selection["source_comments"] != await self._learning_comments(name, kind)):
+                raise ValueError("参考画像か希望が変わっています。「学習を始める」で採用方針を読み取り直してください。")
+            priorities = {s["reference"]["sample_index"]: s for s in selection["samples"]}
         if any(not s.get("training_caption", {}).get("caption_en", "").strip() for s in record["samples"]):
             raise ValueError("すべての画像について、解釈した教材の説明を確認・採用してください。")
         trigger = record["trigger"]
@@ -700,18 +712,26 @@ class Services(IntentServices, LayoutServices):
         panels.mkdir(parents=True)
         materials = []
         for sample in record["samples"]:
-            target = panels / f"{sample['index']:03d}.png"
+            policy = priorities.get(sample["index"])
+            if policy and policy["priority"] == "reference":
+                continue
+            directory = panels / policy["priority"] if policy else panels
+            directory.mkdir(parents=True, exist_ok=True)
+            target = directory / f"{sample['index']:03d}.png"
             target.write_bytes(Path(sample["path"]).read_bytes())
             observed = sample["training_caption"]
             caption = ", ".join(t for t in (trigger, observed["caption_en"]) if t)
             target.with_suffix(".txt").write_text(caption, encoding="utf-8")
             materials.append({"reference": {"record_key": record["key"], "sample_index": sample["index"], "path": sample["path"]},
-                              "path": str(target), "caption": caption, "original_comment": sample.get("caption", ""), **observed})
+                              "path": str(target), "caption": caption, "original_comment": sample.get("caption", ""), **observed,
+                              **({"training_policy": deepcopy(policy)} if policy else {})})
         job = {"job_id": job_id, "kind": "lora_train", "status": "awaiting_confirmation", "name": name,
                "record_kind": kind, "record_key": record["key"], "record_created": record["created"],
                "tool": f"train_{kind}_lora", "materials": materials,
                "trigger": trigger, "steps": steps, "progress": {"step": 0, "total": steps}, "lora_name": f"{stem}.safetensors",
-               "dataset": str(panels), "images": len(record["samples"])}
+               "dataset": str(panels), "images": len(materials)}
+        if selection:
+            job["training_selection"] = deepcopy(selection)
         self.events.save_job(job)
         self.events.append(job_id, "training_materials_ready", {"images": len(materials)})
         return job
@@ -739,10 +759,8 @@ class Services(IntentServices, LayoutServices):
         self.generated_root.mkdir(parents=True, exist_ok=True)
         toml = self.generated_root / f"{job_id}-dataset.toml"
         toml_path = f"{remote_root.replace(chr(92), '/')}/{panels.name}"
-        # Long epochs: sd-scripts pays a per-epoch setup cost, so repeat a small picture set until
-        # one epoch is about 200 steps instead of one step per picture.
-        repeats = max(1, 200 // max(1, job["images"]))
-        toml.write_text(f'[[datasets]]\nresolution = 1024\nbatch_size = 1\nenable_bucket = true\n[[datasets.subsets]]\nimage_dir = "{toml_path}"\ncaption_extension = ".txt"\nnum_repeats = {repeats}\n', encoding="utf-8")
+        from .training_dataset import dataset_config
+        toml.write_text(dataset_config(job, toml_path), encoding="utf-8")
         code, output = await box.copy_to_box(toml, rf"{remote_root}\{job_id}-dataset.toml", ssh=BOX_SSH)
         if code: raise RuntimeError(output)
         await self.comfy.client.post(f"{self.comfy.base_url}/free", json={})

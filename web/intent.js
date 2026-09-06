@@ -2,6 +2,7 @@ import { API } from './api.js?v=studio-2';
 import { h, field, button, picture, action, notice } from './ui.js?v=studio-2';
 import { draft, saveDraft, clearDraft } from './drafts.js?v=studio-2';
 import { subscribe, jobs, connectionError } from './jobs.js?v=studio-2';
+import { trainingSelection } from './training.js?v=studio-2';
 
 const features = { face: '顔', hair: '髪', outfit: '衣装', style: '描き方', expression: '表情', pose: '姿勢・向き', accessory: '小物', background: '背景', subject: '被写体', composition: '構図', lighting: '光' };
 const scopes = { persistent: '今後も共通', this_run: '今回だけ', panel: 'このパネルに残す' };
@@ -81,11 +82,17 @@ export async function commentEditor(target, { name, kind, stage, panel = '', int
     if (job.references.length && !learningJob) output.append(h('details', {}, h('summary', {}, '参照した画像'), h('div', { class: 'intent-references' }, job.references.map((ref, index) => h('figure', {}, picture(ref.path, `注文時の画像 ${index + 1}`, { plain: true }), h('figcaption', {}, `注文時の画像 ${index + 1}`))))));
     const proposal = structuredClone(job.accepted || edits?.proposal || job.proposal);
     if (!proposal) return;
+    const learningStage = ['samples', 'training'].includes(stage);
+    if (learningStage && proposal.training_samples) output.append(trainingSelection(proposal.training_samples, job.references));
     if (proposal.questions.length) output.append(h('div', { class: 'callout stack' }, h('strong', {}, 'ここを教えてください'), proposal.questions.map(question => h('p', {}, question)), h('p', { class: 'muted small' }, learningJob ? '上の「画像から採用したい特徴」に回答を追記し、「希望を修正して読み取り直す」を押してください。' : '上の注文へ回答を書き足して、もう一度読み取ってください。')));
     for (const change of proposal.changes) {
       const sourceIndex = change.reference ? job.references.findIndex(ref => ref.record_key === change.reference.record_key && ref.sample_index === change.reference.sample_index && ref.path === change.reference.path) : -1;
       const source = sourceIndex >= 0 ? [h('p', {class:'muted small'}, `${features[change.feature]}の参照元：画像 ${sourceIndex + 1}`)] : [];
       if (change.feature === 'style') {
+        if (learningStage) {
+          output.append(h('article', {class:'intent-change stack'}, h('strong', {}, '素材から学ぶ画風'), ...source, h('p', {}, change.reason_ja)));
+          continue;
+        }
         const disabled = job.status === 'confirmed';
         const scope = h('select', { disabled, 'aria-label': '画風の適用範囲', onchange: e => {
           change.scope = e.target.value; change.panel_key = null;
@@ -104,7 +111,6 @@ export async function commentEditor(target, { name, kind, stage, panel = '', int
         } });
         output.append(h('article', {class:'intent-change stack'}, h('div', {class:'section-heading'}, h('strong', {}, '画風'), scope),
           ...source, h('p', {}, change.reason_ja),
-          ...(['samples', 'training'].includes(stage) ? [h('p', {class:'callout'}, '指定した画像の画風だけを優先して学習する機能は、まだ対応していません。ここで別の画風を選んでも、教材や今回の学習内容は変わりません。学習後の画像生成に使います。')] : []),
           ...(kind === 'character' ? [field('他の画風を使いたい場合はこちらから選択', selected, stage === 'panel' ? '元のシートと同じ画風だけ選べます。' : '登録済みの画風を追加できます。一つのシートの画風は統一します。')] : []),
           ...(stage === 'panel' ? [h('p', {class:'muted small'}, '部分描き直しは元のシートの画風を維持します。画風を変える時は、設定画全体の注文から指定してください。')] : []),
           ...(kind === 'style' ? [h('p', {class:'muted small'}, 'この画風自体を変える希望は、素材と学習の工程で確認してください。')] : []),
@@ -147,7 +153,7 @@ export async function commentEditor(target, { name, kind, stage, panel = '', int
       }), 'quiet'));
       output.append(learningJob ? h('details', {}, h('summary', {}, '画像の読み取りを確認・編集'), observed) : observed);
     } else if (observations.length) output.append(h('details', {}, h('summary', {}, '画像から読み取った内容'), observations.map(item => h('p', {}, item.appearance_ja))));
-    const needsStyleChoice = proposal.changes.some(c => c.feature === 'style' && c.style_name == null && !c.style_deferred);
+    const needsStyleChoice = !learningStage && proposal.changes.some(c => c.feature === 'style' && c.style_name == null && !c.style_deferred);
     if (job.status === 'awaiting_confirmation' && needsStyleChoice) output.append(h('p', {class:'muted small', role:'status'}, '画風の希望はまだ反映できません。上の画風欄で、使う画風を選ぶか「今回は画風の希望を反映しない」を選んでください。'));
     if (learningJob && job.status === 'awaiting_confirmation' && !proposal.questions.length) {
       const confirm = button('この内容で学習を始める', e => action(e.currentTarget, () => onLearningConfirm({ ...proposal, observations })));

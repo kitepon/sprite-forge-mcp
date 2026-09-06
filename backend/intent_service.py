@@ -155,6 +155,8 @@ class IntentServices:
             else:
                 proposal = Proposal.model_validate(result)
                 validate_proposal(proposal, job)
+                if "learning_steps" in job and proposal.training_samples is None:
+                    raise ValueError("画像ごとの学習への採用方針が返りませんでした。希望を読み取り直してください。")
                 if any(c.style_deferred for c in proposal.changes):
                     raise ValueError("画風を保留するかどうかは、利用者が確認画面で選択してください。")
             job.update(status="awaiting_confirmation", proposal=proposal.model_dump())
@@ -227,7 +229,8 @@ class IntentServices:
         for item in [*proposal.observations, *proposal.changes]:
             if item.reference is not None and item.reference.model_dump() not in current_refs:
                 raise ValueError("参照画像が外されています。注文を読み直してください。")
-        styles = [c for c in proposal.changes if c.feature == "style" and not c.style_deferred]
+        learning = job["stage"] in ("samples", "training")
+        styles = [c for c in proposal.changes if c.feature == "style" and not c.style_deferred and not learning]
         for change in styles:
             if change.style_name is None:
                 raise ValueError("画風の希望はまだ反映できません。使う画風を選ぶか、確認画面で「今回は画風の希望を反映しない」を選んでください。")
@@ -253,6 +256,13 @@ class IntentServices:
         for change in styles:
             if change.scope == "persistent":
                 record["style"] = change.style_name
+        if learning and proposal.training_samples is not None:
+            record["training_selection"] = {
+                "intent_job_id": job_id, "references": deepcopy(job["references"]),
+                "image_comments": deepcopy(job["image_comments"]),
+                "source_comments": await self._learning_comments(job["name"], job["record_kind"]),
+                "samples": [s.model_dump() for s in proposal.training_samples],
+            }
         self._save_intent_record(record, job["record_kind"])
         job.update(status="confirmed", accepted=proposal.model_dump(),
                    common_conditions=deepcopy(common),

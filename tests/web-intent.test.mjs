@@ -95,11 +95,11 @@ test('画風を今回反映しない意味を表示し、明示選択後に衣�
   assert.ok(all(root).some(n=>n.textContent === '画風の希望は今回反映していません。ほかの希望は採用済みです。'));
 });
 
-test('学習画面では画風選択の用途と未対応を示し、選択を訂正してから開始できる', async () => {
+test('学習画面は素材の採用方針を表示し、別画風の選択や希望の放棄を要求しない', async () => {
   const reference = {record_key:'probe',sample_index:0,path:'one.png'};
   const job = {job_id:'learn-style',status:'awaiting_confirmation',stage:'training',panel:'',original_comment:'素材の画風を使いたい',references:[reference],
     existing_settings:{style:'線画'}, available_styles:[{name:'水彩',lora_name:'water.safetensors'}],
-    proposal:{questions:[],observations:[{reference,appearance_ja:'白い服',caption_en:'white outfit'}],changes:[
+    proposal:{questions:[],training_samples:[{reference,priority:'primary',features:['style'],reason_ja:'画風を優先して学習'}],observations:[{reference,appearance_ja:'白い服',caption_en:'white outfit'}],changes:[
       {feature:'style',scope:'persistent',panel_key:null,reference,description_en:'',avoid_en:'',avoid_ja:'',reason_ja:'素材の画風を採用',style_name:null,style_deferred:false}]}};
   let accepted = null;
   const root = new FakeNode('root');
@@ -107,18 +107,15 @@ test('学習画面では画風選択の用途と未対応を示し、選択を�
   const field = label => all(root).find(n=>n.attrs['aria-label']===label);
   const start = () => all(root).find(n=>n.tag==='button'&&n.children.includes('この内容で学習を始める'));
   const texts = all(root).flatMap(n=>n.children.filter(c=>typeof c==='string'));
-  assert.ok(texts.some(c=>c.includes('教材や今回の学習内容は変わりません')));
-  assert.ok(texts.some(c=>c.includes('現在の画風設定（線画）')));
-  assert.equal(start().disabled,true);
+  assert.ok(texts.includes('学習での画像の使い方'));
+  assert.ok(texts.includes('画像 1 · 優先して学習'));
+  assert.equal(field('他の画風を使いたい場合はこちらから選択'),undefined);
+  assert.equal(field('今回は画風の希望を反映しない'),undefined);
+  assert.equal(start().disabled,false);
   field('画像 1 の教材説明').events.input({target:{value:'white coat'}});
-  field('今回は画風の希望を反映しない').events.change({target:{checked:true}});
-  assert.equal(start().disabled,false);
-  field('今回は画風の希望を反映しない').events.change({target:{checked:false}});
-  assert.equal(start().disabled,true);
-  field('他の画風を使いたい場合はこちらから選択').events.change({target:{value:JSON.stringify('水彩')}});
-  assert.equal(start().disabled,false);
   await start().events.click({currentTarget:start()});
-  assert.equal(accepted.changes[0].style_name,'水彩');
+  assert.equal(accepted.changes[0].style_name,null);
+  assert.equal(accepted.training_samples[0].priority,'primary');
   assert.equal(accepted.changes[0].style_deferred,false);
   assert.equal(accepted.observations[0].caption_en,'white coat');
 });
