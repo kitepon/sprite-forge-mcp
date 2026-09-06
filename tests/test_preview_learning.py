@@ -118,3 +118,31 @@ def test_too_few_steps_does_not_silently_omit_a_rating(tmp_path, monkeypatch):
         with pytest.raises(ValueError, match='学習回数を2以上'):
             await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()), steps=1)
     asyncio.run(scenario())
+
+
+def test_answers_continue_same_request_and_keep_preparation_history(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+    async def interpret(*args):
+        return {'fix': [], 'preserve': ['衣装'], 'questions': ['NGなのはどの部分ですか？']}
+    async def trained(*args, **kwargs):
+        yield '{"step": 1, "total": 1}'
+    async def fetched(remote, local, **kwargs):
+        local.write_text('{}')
+        return 0, ''
+    service.intent_interpreter = interpret
+    monkeypatch.setattr(box, 'stream_preference_training', trained)
+    monkeypatch.setattr(box, 'copy_from_box', fetched)
+    async def scenario():
+        source = await prepared(service, tmp_path, '衣装は合っている')
+        request_id = str(uuid.uuid4())
+        waiting = await service.relearn_preview('probe', source['job_id'], request_id, steps=1)
+        assert waiting['status'] == 'awaiting_answers'
+        assert await service.relearn_preview('probe', source['job_id'], request_id) == waiting
+        await service.correct_preview_interpretation('probe', source['job_id'], source['pictures'][1]['id'],
+                    ReviewCorrection(revision=1, meaning=ReviewMeaning(fix=['髪型'], preserve=['衣装'], questions=[])))
+        result = await service.relearn_preview('probe', source['job_id'], request_id)
+        assert result['status'] == 'completed' and result['job_id'] == request_id and result['steps'] == 1
+        assert result['preparation_history'][0]['questions'] == waiting['questions']
+        assert result['preparation_history'][0]['reviews'][1]['review']['revision'] == 1
+        assert result['reviews'][1]['review']['revision'] == 2
+    asyncio.run(scenario())

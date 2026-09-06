@@ -17,7 +17,9 @@ class PreviewLearning:
         if existing:
             if existing.get('kind') != 'preview_learning' or existing.get('source_job_id') != job_id or existing.get('name') != name:
                 raise ValueError('別の学習に使われた要求IDです。')
-            return existing
+            if existing['status'] != 'awaiting_answers':
+                return existing
+            steps = existing['steps']
         # 要求IDは画像やサーバーパスではなく、呼出しごとのUUID。
         uuid.UUID(request_id)
         if steps < 1:
@@ -26,6 +28,8 @@ class PreviewLearning:
         if view['relearning_unavailable_reason']:
             raise ValueError(view['relearning_unavailable_reason'])
         selected = [deepcopy(p) for p in view['pictures'] if p['review']['rating']]
+        if existing and [(p['id'], p['review']['revision']) for p in selected] == [(p['id'], p['review']['revision']) for p in existing['reviews']]:
+            return existing
         ok = [p for p in selected if p['review']['rating'] == 'ok']
         ng = [p for p in selected if p['review']['rating'] == 'ng']
         if not ok or not ng:
@@ -34,7 +38,8 @@ class PreviewLearning:
         if steps < len(pairs):
             raise ValueError(f'すべての判定を学習に使うには、学習回数を{len(pairs)}以上にしてください。')
         record = self._load_character(name)
-        directory = self.generated_root / f'preference-{request_id}'
+        history = existing.get('preparation_history', []) + [{k: deepcopy(existing[k]) for k in ('reviews', 'samples', 'questions')}] if existing else []
+        directory = self.generated_root / f'preference-{request_id}-{len(history)}'
         directory.mkdir(parents=True)
         samples = deepcopy(record['samples'])
         for sample in samples:
@@ -51,7 +56,8 @@ class PreviewLearning:
         job = {'job_id': request_id, 'kind': 'preview_learning', 'status': 'interpreting', 'name': name,
                'source_job_id': job_id, 'character_created': record['created'], 'source': deepcopy(source),
                'reviews': selected, 'samples': samples, 'pairs': pairs, 'steps': steps,
-               'learning_rate': 1e-5, 'beta': 1., 'lora_name': f"{record['key']}_preference_{request_id}.safetensors"}
+               'learning_rate': 1e-5, 'beta': 1., 'preparation_history': history,
+               'lora_name': f"{record['key']}_preference_{request_id}.safetensors"}
         self.events.save_job(job)
         with self._job_errors(job):
             for picture in selected:
