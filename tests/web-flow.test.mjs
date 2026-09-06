@@ -25,7 +25,7 @@ const all = node => [node, ...node.children.filter(c => c instanceof FakeNode).f
 
 test('古い確認待ちは希望を引き継ぎ、再開始の応答待ちに過去の状態を表示しない', async () => {
   const rec = {key:'legacy',created:'now',samples:[],lora_name:''};
-  const job = {job_id:'old',record_kind:'character',record_key:'legacy',record_created:'now',kind:'intent',status:'awaiting_confirmation',learning_steps:1200,proposal:{changes:[],observations:[],questions:[]}};
+  const job = {job_id:'old',stage:'training',references:[],record_kind:'character',record_key:'legacy',record_created:'now',kind:'intent',status:'awaiting_confirmation',learning_steps:1200,proposal:{changes:[],observations:[],questions:['保存済みの確認事項']}};
   API.character = async () => rec;
   API.commentIntents = async () => [{stage:'samples',original_comment:'保存済みの画風への希望'}];
   API.jobs = async () => [job];
@@ -36,14 +36,18 @@ test('古い確認待ちは希望を引き継ぎ、再開始の応答待ちに�
   assert.ok(all(root).some(n=>n.children.includes('保存した画像と希望を引き継ぎます。「学習を始める」で、画像ごとの使い方を確認して学習へ進みます。')));
   assert.ok(all(root).some(n=>n.value === '保存済みの画風への希望'));
   assert.ok(!all(root).some(n=>n.children.includes('読み取った希望の確認')));
+  assert.ok(all(root).some(n=>n.children.includes('AIが読み取った内容')));
+  assert.ok(all(root).some(n=>n.children.includes('保存済みの確認事項')));
   const start=all(root).find(n=>n.textContent === '学習を始める');
   const pending=start.events.click(); await new Promise(resolve=>setImmediate(resolve));
   assert.ok(all(root).some(n=>n.children.includes('学習の開始を確認しています')));
   assert.ok(!all(root).some(n=>n.children.includes('解釈案の確認待ち')));
+  assert.ok(all(root).some(n=>n.children.includes('保存済みの確認事項')));
   release(job); await pending;
   job.status='confirmed'; job.training_job_id='completed';
   API.jobs=async()=>[job,{job_id:'completed',kind:'lora_train',status:'completed',record_kind:'character',record_key:'legacy',record_created:'now'}];
   const { refreshJobs }=await import('../web/jobs.js?v=studio-2'); await refreshJobs();
+  assert.ok(all(root).some(n=>n.children.includes('AIが読み取った内容')));
   const repeat=start.events.click(); await new Promise(resolve=>setImmediate(resolve));
   assert.ok(all(root).some(n=>n.children.includes('学習の開始を確認しています')));
   assert.ok(!all(root).some(n=>n.children.includes('できました')));

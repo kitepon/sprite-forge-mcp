@@ -1,5 +1,5 @@
 import { API } from './api.js?v=studio-2';
-import { h, field, button, picture, action, notice } from './ui.js?v=studio-2';
+import { h, field, button, picture, action, notice, dateText } from './ui.js?v=studio-2';
 import { draft, saveDraft, clearDraft } from './drafts.js?v=studio-2';
 import { subscribe, jobs, connectionError } from './jobs.js?v=studio-2';
 import { trainingSelection } from './training.js?v=studio-2';
@@ -7,6 +7,28 @@ import { trainingSelection } from './training.js?v=studio-2';
 const features = { face: '顔', hair: '髪', outfit: '衣装', style: '描き方', expression: '表情', pose: '姿勢・向き', accessory: '小物', background: '背景', subject: '被写体', composition: '構図', lighting: '光' };
 const scopes = { persistent: '今後も共通', this_run: '今回だけ', panel: 'このパネルに残す' };
 const captionSaves = new Map();
+
+export function savedLearningExplanation(job) {
+  const proposal = job.accepted || job.proposal;
+  const source = ref => ref ? `画像 ${job.references.findIndex(r => r.sample_index === ref.sample_index && r.path === ref.path) + 1}` : '';
+  const observations = job.accepted_observations || proposal.observations;
+  return h('section', { class: 'intent-editor stack' }, h('h3', {}, 'AIが読み取った内容'),
+    h('p', { class: 'muted small' }, `${job.created_at ? dateText(job.created_at) + ' · ' : ''}${job.accepted ? '採用済みの内容' : '保存されている解釈案・未採用'}`),
+    h('details', {}, h('summary', {}, 'この時の注文を見る'), h('p', {}, job.original_comment || '全体への注文なし')),
+    proposal.training_samples ? trainingSelection(proposal.training_samples, job.references) : null,
+    proposal.changes.map(change => h('article', { class: 'intent-change stack' },
+      h('div', { class: 'section-heading' }, h('strong', {}, features[change.feature]), h('span', { class: 'badge' }, scopes[change.scope])),
+      change.reference ? h('p', { class: 'muted small' }, `${features[change.feature]}の参照元：${source(change.reference)}`) : null,
+      h('p', {}, change.reason_ja), change.avoid_ja ? h('p', {}, `避ける内容：${change.avoid_ja}`) : null,
+      change.description_en || change.avoid_en ? h('details', {}, h('summary', {}, '生成文の詳細'),
+        h('pre', { class: 'training-caption' }, change.description_en), change.avoid_en ? h('pre', { class: 'training-caption' }, change.avoid_en) : null) : null)),
+    proposal.questions.length ? h('div', { class: 'callout' }, h('strong', {}, 'この時の確認事項'), proposal.questions.map(q => h('p', {}, q))) : null,
+    observations.length ? h('section', { class: 'stack' }, h('h3', {}, '画像ごとの読み取り'),
+      h('div', { class: 'sample-grid training-grid' }, observations.map(item => h('article', { class: 'sample-card' },
+        picture(item.reference.path, `${source(item.reference)}の読み取り`), h('div', { class: 'sample-content stack' },
+          h('strong', {}, source(item.reference)), h('p', {}, item.appearance_ja),
+          h('details', {}, h('summary', {}, '教材の説明（英語）'), h('pre', { class: 'training-caption' }, item.caption_en))))))) : null);
+}
 
 export function saveCaption(kind, name, sample, value) {
   const key = `${kind}:${name}:caption:${sample.index}:${sample.path}`;

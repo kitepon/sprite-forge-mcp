@@ -15,11 +15,30 @@ class FakeNode {
 globalThis.Node = FakeNode;
 globalThis.document = {createElement: tag => new FakeNode(tag), createElementNS: (_namespace, tag) => new FakeNode(tag), createTextNode: text => text, querySelector: () => new FakeNode('notice')};
 const {API} = await import('../web/api.js?v=studio-2');
-const {commentEditor} = await import('../web/intent.js?v=studio-2');
+const {commentEditor, savedLearningExplanation} = await import('../web/intent.js?v=studio-2');
 const {characterStrength} = await import('../web/strength.js?v=studio-2');
 const {previewIntentJob, drawingInput} = await import('../web/flows.js?v=studio-2');
 const all = root => [root, ...root.children.filter(x => x instanceof FakeNode).flatMap(all)];
 const next = () => new Promise(resolve => setImmediate(resolve));
+
+test('旧形式の解析文は参照画像・採用理由・教材説明ごと読み取れ、開始操作を持たない', () => {
+  const reference={record_key:'old',sample_index:3,path:'old-image.png'};
+  const job={job_id:'old',references:[reference],original_comment:'この服を使って',proposal:{
+    changes:[{feature:'outfit',scope:'persistent',reference,reason_ja:'この上下セパレートの衣装を採用します',description_en:'separate top and skirt',avoid_en:'armor',avoid_ja:'鎧'}],
+    observations:[{reference,appearance_ja:'白い上下別の服を着ています',caption_en:'white two-piece outfit'}],questions:['色の希望はありますか？']}};
+  const before=structuredClone(job), root=savedLearningExplanation(job);
+  const texts=all(root).flatMap(n=>n.children.filter(c=>typeof c==='string'));
+  for (const value of ['AIが読み取った内容','この上下セパレートの衣装を採用します','白い上下別の服を着ています','white two-piece outfit','separate top and skirt','色の希望はありますか？','衣装の参照元：画像 1']) assert.ok(texts.includes(value),value);
+  assert.ok(!all(root).some(n=>['select','input','textarea'].includes(n.tag)));
+  assert.ok(!all(root).some(n=>n.events?.click && !n.attrs['aria-label']?.includes('拡大')));
+  assert.deepEqual(job,before);
+  job.accepted=structuredClone(job.proposal); job.accepted.changes[0].reason_ja='訂正後の採用理由';
+  job.accepted_observations=[{reference,appearance_ja:'訂正後の画像説明',caption_en:'corrected caption'}];
+  const acceptedTexts=all(savedLearningExplanation(job)).flatMap(n=>n.children.filter(c=>typeof c==='string'));
+  assert.ok(acceptedTexts.includes('訂正後の採用理由'));
+  assert.ok(acceptedTexts.includes('訂正後の画像説明'));
+  assert.ok(!acceptedTexts.includes('白い上下別の服を着ています'));
+});
 
 test('研究中の強度を明示保存し、ゼロ・再表示・既定値への復帰を扱う', async () => {
   let saved = {name:'確認用'};

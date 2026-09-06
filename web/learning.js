@@ -1,13 +1,13 @@
 import { API } from './api.js?v=studio-2';
 import { h, field, button, picture, notice } from './ui.js?v=studio-2';
-import { referenceNotes, commentEditor, flushCaptions } from './intent.js?v=studio-2';
+import { referenceNotes, commentEditor, flushCaptions, savedLearningExplanation } from './intent.js?v=studio-2';
 import { subscribe, jobs, refreshJobs, jobView, connectionError } from './jobs.js?v=studio-2';
 import { trainingMaterials } from './training.js?v=studio-2';
 import { draft, saveDraft } from './drafts.js?v=studio-2';
 
 export async function learning(target, kind, name, cleanup, changed) {
   const rec = await (kind === 'character' ? API.character(name) : API.style(name));
-  let busy = false, disposed = false, signature = '', version = 0;
+  let busy = false, disposed = false, signature = '', explanationSignature = '', version = 0;
   const summary = h('div', { class: 'learning-summary stack' }, h('strong', {}, `${rec.samples.length} 枚の画像から学習します`),
     h('div', { class: 'learning-images' }, rec.samples.map((s, i) => h('figure', {}, picture(s.path, `参考画像 ${i + 1}`), h('figcaption', {}, `画像 ${i + 1}`)))),
     rec.samples.some(s => s.caption) ? h('div', { class: 'stack small' }, rec.samples.map((s, i) => s.caption ? h('p', {}, h('strong', {}, `画像 ${i + 1}：`), s.caption) : null)) : null,
@@ -24,6 +24,7 @@ export async function learning(target, kind, name, cleanup, changed) {
   const key = `${kind}:${name}:steps`;
   const steps = h('input', { type: 'number', min: 1, step: 1, value: draft(key, '1200'), oninput: e => saveDraft(key, e.target.value) });
   const output = h('div', { class: 'stack', 'aria-live': 'polite' });
+  const explanations = h('div', { class: 'stack' });
   const save = async () => { await flushCaptions(kind, name); await notes.save(); await legacy?.save(); };
   const execute = async request => {
     if (busy) return;
@@ -38,7 +39,7 @@ export async function learning(target, kind, name, cleanup, changed) {
   }));
   const actions = h('div', { class: 'actions' }, start);
   const repeat = h('details', {}, h('summary', {}, '学習をやり直す'));
-  target.append(actions, output, repeat,
+  target.append(actions, output, explanations, repeat,
     h('details', { class: 'advanced' }, h('summary', {}, '詳細設定・学習の記録'), field('学習ステップ', steps),
       rec.train_job ? trainingMaterials(jobs.find(j => j.job_id === rec.train_job), '前回学習した教材') : null));
   function paint() {
@@ -49,6 +50,19 @@ export async function learning(target, kind, name, cleanup, changed) {
     const running = parent?.status === 'running' || child && ['queued', 'running'].includes(child.status);
     const oldReview = parent?.status === 'awaiting_confirmation' && !parent.proposal?.training_samples && !child;
     const reviewing = parent?.status === 'awaiting_confirmation' && !!parent.proposal?.training_samples && !child;
+    const saved = [...candidates, ...history.filter(j => !candidates.some(c => c.job_id === j.job_id))]
+      .filter(j => ['samples', 'training'].includes(j.stage) && (j.accepted || j.proposal));
+    const visible = saved.filter(j => !reviewing || j.job_id !== parent.job_id);
+    const explanationKey = JSON.stringify([reviewing, visible.map(j => [j.job_id, j.accepted || j.proposal, j.accepted_observations])]);
+    if (explanationSignature !== explanationKey) {
+      explanationSignature = explanationKey;
+      explanations.replaceChildren();
+      if (visible.length) {
+        if (!reviewing) explanations.append(savedLearningExplanation(visible[0]));
+        const earlier = reviewing ? visible : visible.slice(1);
+        if (earlier.length) explanations.append(h('details', {}, h('summary', {}, `以前の読み取り結果（${earlier.length}件）`), earlier.map(savedLearningExplanation)));
+      }
+    }
     const failed = parent?.status === 'failed' || child?.status === 'failed';
     const complete = child?.status === 'completed' || !!rec.lora_name;
     const repeating = complete && !busy && !running && !reviewing;
