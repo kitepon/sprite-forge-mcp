@@ -33,12 +33,12 @@ test('古い確認待ちは希望を引き継ぎ、再開始の応答待ちに�
   API.startLearning = () => new Promise(resolve => {release=resolve;});
   const root=new FakeNode('root'), cleanup=[];
   await learning(root,'character','旧記録の確認',cleanup,()=>{});
-  assert.ok(all(root).some(n=>n.children.includes('保存した画像と希望を引き継ぎます。「学習を始める」で、画像ごとの使い方を確認して学習へ進みます。')));
+  assert.ok(all(root).some(n=>n.children.includes('保存した画像と希望を引き継ぎます。「この内容で学習を始める」を押すと、読み取りから学習まで続けて進みます。')));
   assert.ok(all(root).some(n=>n.value === '保存済みの画風への希望'));
   assert.ok(!all(root).some(n=>n.children.includes('読み取った希望の確認')));
   assert.ok(all(root).some(n=>n.children.includes('AIが読み取った内容')));
   assert.ok(all(root).some(n=>n.children.includes('保存済みの確認事項')));
-  const start=all(root).find(n=>n.textContent === '学習を始める');
+  const start=all(root).find(n=>n.textContent === 'この内容で学習を始める');
   const pending=start.events.click(); await new Promise(resolve=>setImmediate(resolve));
   assert.ok(all(root).some(n=>n.children.includes('学習の開始を確認しています')));
   assert.ok(!all(root).some(n=>n.children.includes('解釈案の確認待ち')));
@@ -52,6 +52,32 @@ test('古い確認待ちは希望を引き継ぎ、再開始の応答待ちに�
   assert.ok(all(root).some(n=>n.children.includes('学習の開始を確認しています')));
   assert.ok(!all(root).some(n=>n.children.includes('できました')));
   release(job); await repeat; cleanup.forEach(fn=>fn());
+});
+
+test('質問のない採用案は承認操作にせず、学習中・完了後も説明を残す', async () => {
+  const rec = {key:'one-action',created:'now',samples:[],lora_name:''};
+  const proposal = {training_samples:[],observations:[],questions:[],changes:[{feature:'outfit',scope:'persistent',reason_ja:'衣装を素材から採用'}]};
+  const job = {job_id:'reading',stage:'training',references:[],record_kind:'character',record_key:rec.key,record_created:'now',kind:'intent',status:'awaiting_confirmation',learning_steps:3,proposal};
+  API.character = async () => rec; API.commentIntents = async () => []; API.jobs = async () => [job];
+  const root = new FakeNode('root'), cleanup=[];
+  await learning(root,'character','一回で開始',cleanup,()=>{});
+  assert.ok(!all(root).some(n=>n.children.includes('読み取った希望の確認')));
+  assert.ok(all(root).some(n=>n.children.includes('衣装を素材から採用')));
+  const start=all(root).find(n=>n.textContent === 'この内容で学習を始める');
+  let calls=0, release;
+  API.startLearning=()=>{ calls++; job.status='running'; return new Promise(resolve=>{release=resolve;}); };
+  const pending=start.events.click(); await new Promise(resolve=>setImmediate(resolve));
+  const {refreshJobs}=await import('../web/jobs.js?v=studio-2'); await refreshJobs();
+  assert.equal(calls,1); assert.equal(start.disabled,true);
+  assert.ok(all(root).some(n=>n.children.includes('読み取りが終わると、教材を準備して学習へ進みます。回答が必要な質問がある場合だけお知らせします。')));
+  job.status='confirmed'; job.accepted=proposal; job.training_job_id='train';
+  const child={job_id:'train',kind:'lora_train',status:'running',progress:{step:1,total:3}};
+  API.jobs=async()=>[child,job]; await refreshJobs();
+  assert.ok(all(root).some(n=>n.children.includes('衣装を素材から採用')));
+  assert.ok(all(root).some(n=>n.tag === 'progress'));
+  child.status='completed'; release(job); await pending;
+  assert.ok(all(root).some(n=>n.children.includes('衣装を素材から採用')));
+  cleanup.forEach(fn=>fn());
 });
 
 for (const kind of ['character', 'style']) test(`${kind}：画像選択だけで追加し、完了まで次へ進めない`, async t => {

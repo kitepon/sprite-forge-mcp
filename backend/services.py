@@ -635,7 +635,7 @@ class Services(IntentServices, LayoutServices):
                 for stage in ("samples", "training")}
 
     async def start_learning(self, name: str, kind: str = "character", steps: int = 1200) -> dict:
-        """画像の読取りから学習まで進める。希望の解釈・質問がある場合だけ確認で止まる。"""
+        """画像の読取りから学習まで進める。未回答の質問がある場合だけ止まる。"""
         if kind not in ("character", "style") or steps < 1:
             raise ValueError("学習対象とステップ数を確認してください。")
         record = self._intent_record(name, kind)
@@ -655,7 +655,7 @@ class Services(IntentServices, LayoutServices):
         self.events.save_job(job)
         job = await self.interpret_saved_comment(job["job_id"])
         proposal = Proposal.model_validate(job["proposal"])
-        if proposal.questions or proposal.changes or any(s.priority != "normal" for s in proposal.training_samples):
+        if proposal.questions:
             return job
         return await self.confirm_learning(job["job_id"], proposal)
 

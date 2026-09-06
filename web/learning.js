@@ -33,7 +33,7 @@ export async function learning(target, kind, name, cleanup, changed) {
     catch (error) { notice(`学習の応答を確認できませんでした：${error.message}。保存された制作状況を確認します。`, true); }
     finally { busy = false; await refreshJobs(); paint(); }
   };
-  const start = button(rec.lora_name ? '今の画像でもう一度学習する' : '学習を始める', () => execute(() => {
+  const start = button(rec.lora_name ? '今の画像でもう一度学習する' : 'この内容で学習を始める', () => execute(() => {
     if (!steps.reportValidity()) throw new Error('学習ステップを確認してください。');
     return API.startLearning(name, kind, Number(steps.value));
   }));
@@ -48,8 +48,8 @@ export async function learning(target, kind, name, cleanup, changed) {
     const parent = candidates.find(j => j.learning_steps !== undefined);
     const child = parent?.training_job_id ? jobs.find(j => j.job_id === parent.training_job_id) : candidates.find(j => j.kind === 'lora_train' && ['queued', 'running'].includes(j.status));
     const running = parent?.status === 'running' || child && ['queued', 'running'].includes(child.status);
-    const oldReview = parent?.status === 'awaiting_confirmation' && !parent.proposal?.training_samples && !child;
-    const reviewing = parent?.status === 'awaiting_confirmation' && !!parent.proposal?.training_samples && !child;
+    const reviewing = parent?.status === 'awaiting_confirmation' && !!parent.proposal?.training_samples && !!parent.proposal?.questions.length && !child;
+    const oldReview = parent?.status === 'awaiting_confirmation' && !reviewing && !child;
     const saved = [...candidates, ...history.filter(j => !candidates.some(c => c.job_id === j.job_id))]
       .filter(j => ['samples', 'training'].includes(j.stage) && (j.accepted || j.proposal));
     const visible = saved.filter(j => !reviewing || j.job_id !== parent.job_id);
@@ -70,11 +70,11 @@ export async function learning(target, kind, name, cleanup, changed) {
     (repeating ? repeat : actions).append(start);
     actions.hidden = repeating;
     start.disabled = busy || !!running;
-    start.textContent = busy || running ? '学習の準備・実行中' : reviewing ? '希望を修正して読み取り直す' : complete ? '今の画像でもう一度学習する' : '学習を始める';
+    start.textContent = busy || running ? '学習の準備・実行中' : reviewing ? '希望を修正して読み取り直す' : complete ? '今の画像でもう一度学習する' : 'この内容で学習を始める';
     if (reviewing) start.className = 'quiet'; else start.className = '';
     notes.input.disabled = busy || !!running;
     if (legacy) legacy.input.disabled = busy || !!running;
-    changed(!!complete && !busy && !running && !reviewing, busy || running ? '学習が終わるとプレビューへ進めます。' : reviewing ? '読み取った希望を確認してください。' : complete ? '' : '「学習を始める」を押してください。');
+    changed(!!complete && !busy && !running && !reviewing, busy || running ? '学習が終わるとプレビューへ進めます。' : reviewing ? '希望について質問があります。回答を追記してください。' : complete ? '' : '「この内容で学習を始める」を押してください。');
     const next = JSON.stringify([parent, child, busy, connectionError]);
     if (signature === next) return;
     signature = next; const current = ++version;
@@ -90,7 +90,7 @@ export async function learning(target, kind, name, cleanup, changed) {
         onLearningConfirm: proposal => execute(() => API.confirmLearning(parent.job_id, proposal)) }).then(() => {
         if (disposed || current !== version) review.remove();
       }).catch(error => { if (!disposed && current === version) notice(error.message, true); });
-    } else if (oldReview) output.append(h('p', {class:'muted small'}, '保存した画像と希望を引き継ぎます。「学習を始める」で、画像ごとの使い方を確認して学習へ進みます。'));
+    } else if (oldReview) output.append(h('p', {class:'muted small'}, '保存した画像と希望を引き継ぎます。「この内容で学習を始める」を押すと、読み取りから学習まで続けて進みます。'));
     else if (failed) output.append(jobView(parent, { title: '学習の準備' }));
     else if (complete) output.append(h('p', { class: 'callout' }, '学習済みです。次のプレビューで顔や体形、衣装を確かめられます。'));
   }

@@ -46,15 +46,14 @@ def test_learning_runs_reading_materials_and_training_from_one_action(tmp_path, 
     asyncio.run(scenario())
 
 
-def test_wishes_are_reviewed_once_then_training_starts(tmp_path, monkeypatch):
+def test_wishes_are_applied_without_another_confirmation(tmp_path, monkeypatch):
     service, _ = make(tmp_path, monkeypatch)
     async def scenario():
         await setup(service, tmp_path, wish=True)
         job = await service.start_learning("検証用", steps=3)
-        assert job["status"] == "awaiting_confirmation"
-        assert not (await service.character_info("検証用"))["lora_name"]
-        job = await service.confirm_learning(job["job_id"], Proposal.model_validate(job["proposal"]))
         assert service.events.load_job(job["training_job_id"])["status"] == "completed"
+        assert job["accepted"]["changes"][0]["reason_ja"] == "この衣装を採用"
+        assert job["accepted_observations"][0]["appearance_ja"] == "赤いコートの成人女性"
         assert (await service.character_info("検証用"))["intent_conditions"]["outfit"]["description_en"] == "red coat"
     asyncio.run(scenario())
 
@@ -63,8 +62,11 @@ def test_wishes_are_reviewed_once_then_training_starts(tmp_path, monkeypatch):
 def test_unanswered_or_changed_input_does_not_start_training(tmp_path, monkeypatch, change):
     service, _ = make(tmp_path, monkeypatch)
     async def scenario():
-        await setup(service, tmp_path, wish=True, questions=change == "question")
+        await setup(service, tmp_path, wish=True, questions=True)
         job = await service.start_learning("検証用", steps=3)
+        assert job["status"] == "awaiting_confirmation"
+        if change != "question":
+            job["proposal"]["questions"] = []
         if change == "comment":
             await service.save_comment(IntentRequest(name="検証用", stage="samples", comment="希望を変更"))
         if change == "sample":
@@ -73,6 +75,25 @@ def test_unanswered_or_changed_input_does_not_start_training(tmp_path, monkeypat
             await service.confirm_learning(job["job_id"], Proposal.model_validate(job["proposal"]))
         assert not (await service.character_info("検証用"))["lora_name"]
         assert not any(j["kind"] == "lora_train" for j in service.events.list_jobs())
+    asyncio.run(scenario())
+
+
+def test_answering_a_question_continues_without_another_approval(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+    async def scenario():
+        await setup(service, tmp_path, wish=True, questions=True)
+        paused = await service.start_learning("検証用", steps=3)
+        assert paused["status"] == "awaiting_confirmation"
+        assert not any(j["kind"] == "lora_train" for j in service.events.list_jobs())
+        interpret = service.intent_interpreter
+        async def answered(job, images):
+            proposal = await interpret(job, images)
+            proposal["questions"] = []
+            return proposal
+        service.intent_interpreter = answered
+        await service.save_comment(IntentRequest(name="検証用", stage="samples", comment="顔立ちを保つ。この画像の衣装を使う"))
+        job = await service.start_learning("検証用", steps=3)
+        assert service.events.load_job(job["training_job_id"])["status"] == "completed"
     asyncio.run(scenario())
 
 
@@ -120,8 +141,6 @@ def test_source_style_is_learned_without_selecting_existing_style(tmp_path, monk
                                  "description_en": "", "avoid_en": "", "avoid_ja": "", "reason_ja": "画像3の画風を優先して学習", "style_name": None, "style_deferred": False}]}
         service.intent_interpreter = interpret
         job = await service.start_learning("検証用", kind, steps=3)
-        assert job["status"] == "awaiting_confirmation"
-        job = await service.confirm_learning(job["job_id"], Proposal.model_validate(job["proposal"]))
         trained = service.events.load_job(job["training_job_id"])
         assert trained["status"] == "completed" and trained["images"] == 2
         assert {m["reference"]["sample_index"] for m in trained["materials"]} == {1, 2}
@@ -150,9 +169,10 @@ def test_source_style_is_learned_without_selecting_existing_style(tmp_path, monk
 def test_invalid_selection_never_starts_or_saves_observations(tmp_path, monkeypatch, case):
     service, _ = make(tmp_path, monkeypatch)
     async def scenario():
-        await setup(service, tmp_path, wish=True)
+        await setup(service, tmp_path, wish=True, questions=True)
         job = await service.start_learning("検証用", steps=3)
         value = job["proposal"]
+        value["questions"] = []
         if case == "missing": value["training_samples"] = None
         if case == "duplicate": value["training_samples"] *= 2
         if case == "all_reference": value["training_samples"][0]["priority"] = "reference"
