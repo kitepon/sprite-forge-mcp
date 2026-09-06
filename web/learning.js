@@ -5,7 +5,7 @@ import { subscribe, jobs, refreshJobs, jobView, connectionError } from './jobs.j
 import { trainingMaterials } from './training.js?v=studio-2';
 import { draft, saveDraft } from './drafts.js?v=studio-2';
 
-export async function learning(target, kind, name, cleanup, changed) {
+export async function learning(target, kind, name, cleanup, changed, actionTarget = target) {
   const rec = await (kind === 'character' ? API.character(name) : API.style(name));
   let busy = false, disposed = false, signature = '', explanationSignature = '', version = 0;
   const summary = h('div', { class: 'learning-summary stack' }, h('strong', {}, `${rec.samples.length} 枚の画像から学習します`),
@@ -39,9 +39,10 @@ export async function learning(target, kind, name, cleanup, changed) {
   }));
   const actions = h('div', { class: 'actions' }, start);
   const repeat = h('details', {}, h('summary', {}, '学習をやり直す'));
-  target.append(actions, output, explanations, repeat,
+  target.append(output, explanations, repeat,
     h('details', { class: 'advanced' }, h('summary', {}, '詳細設定・学習の記録'), field('学習ステップ', steps),
       rec.train_job ? trainingMaterials(jobs.find(j => j.job_id === rec.train_job), '前回学習した教材') : null));
+  actionTarget.append(actions);
   function paint() {
     if (disposed) return;
     const candidates = jobs.filter(j => j.record_kind === kind && j.record_key === rec.key && j.record_created === rec.created);

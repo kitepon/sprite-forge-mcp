@@ -235,11 +235,15 @@ export function flow(root, id) {
   const crumbs = h('ol', { class: 'steps', 'aria-label': '制作の工程' }); const body = h('section', { class: 'step-body stack' }); const aside = h('aside', { class: 'context-card' }); const nav = h('footer', { class: 'step-navigation' });
   const isStyle = ['style', 'styleonly'].includes(id);
   const keyKind = isStyle ? 'style' : 'character';
-  let nextButton, nextHint, canAdvance = false, furthest = 0;
+  let nextButton, nextHint, learningActions, canAdvance = false, furthest = 0;
   const availability = (ready, reason = '') => {
     canAdvance = ready;
-    if (nextButton) nextButton.disabled = !ready;
+    if (nextButton) {
+      nextButton.disabled = !ready;
+      nextButton.hidden = ['sheet', 'style'].includes(id) && index === 2 && !ready;
+    }
     if (nextHint) nextHint.textContent = reason;
+    if (learningActions) learningActions.hidden = ready;
     crumbs.querySelectorAll('button').forEach((control, step) => { control.disabled = step > index && (!ready || step > furthest); });
   };
   const hints = { sheet: ['まず、作りたい子を選びましょう。', '画像と説明を一枚ずつ確かめましょう。', 'ここで初めて学習を始めます。', '顔や衣装を見て、先へ進むか決めましょう。', '全体を見て、気になるパネルを直せます。'], draw: ['描きたいキャラクターを選びましょう。', '思い浮かべた場面を、言葉にしてみましょう。'], restyle: ['画風を変えたいキャラクターを選びましょう。', '試してみたい画風を選びましょう。', '顔と衣装が保たれているか確かめましょう。', '選んだ画風で設定画も作れます。'], style: ['この画風に、名前をつけましょう。', '好きな線や色づかいが伝わる画像を。', '画像の描き方を覚えます。', '別の被写体でも、好きな絵になりますか？'], styleonly: ['使いたい画風を選びましょう。', '被写体は自由に。言葉から描いてみましょう。'] };
@@ -274,7 +278,8 @@ export function flow(root, id) {
     const content = h('div', { class: 'stack' }); body.append(content);
     nextButton = index < spec.steps.length - 1 ? button([`次へ：${spec.steps[index + 1]}`, icon('arrow', 18)], () => move(index + 1)) : null;
     nextHint = h('p', { class: 'small muted', role: 'status' });
-    nav.replaceChildren(index > 0 ? button('← 前の工程', () => move(index - 1), 'quiet') : link('スタジオへ', '#/', 'text-link'), h('div', { class: 'next-step' }, nextHint, nextButton || link(['作品を見る', icon('arrow')], '#/library')));
+    learningActions = ['sheet', 'style'].includes(id) && index === 2 ? h('div') : null;
+    nav.replaceChildren(index > 0 ? button('← 前の工程', () => move(index - 1), 'quiet') : link('スタジオへ', '#/', 'text-link'), h('div', { class: 'next-step' }, nextHint, learningActions, nextButton || link(['作品を見る', icon('arrow')], '#/library')));
     availability(false, '読み込んでいます…');
     try {
       await refreshContext(); if (disposed || current !== version) return;
@@ -284,7 +289,7 @@ export function flow(root, id) {
       if (index === 0) await choose(content, keyKind, ctx, ['sheet', 'style'].includes(id), () => refreshContext().catch(error => notice(error.message, true)));
       else if (id === 'restyle' && index === 1) await choose(content, 'style', ctx, false, () => {});
       else if (['sheet', 'style'].includes(id) && index === 1) nextSave = await samples(content, keyKind, ctx[keyKind], ownedCleanup, rec => refreshContext(rec).catch(error => notice(error.message, true)), setReady);
-      else if (['sheet', 'style'].includes(id) && index === 2) nextSave = await learning(content, keyKind, ctx[keyKind], ownedCleanup, setReady);
+      else if (['sheet', 'style'].includes(id) && index === 2) nextSave = await learning(content, keyKind, ctx[keyKind], ownedCleanup, setReady, learningActions);
       else if (id === 'sheet' && index === 3 || id === 'restyle' && index === 2) nextSave = await previewStep(content, ctx, id === 'restyle', ownedCleanup);
       else if (id === 'sheet' && index === 4 || id === 'restyle' && index === 3) nextSave = await sheet(content, ctx, id === 'restyle', ownedCleanup);
       else nextSave = await drawing(content, ctx, keyKind, ownedCleanup);

@@ -59,11 +59,16 @@ test('質問のない採用案は承認操作にせず、学習中・完了後�
   const proposal = {training_samples:[],observations:[],questions:[],changes:[{feature:'outfit',scope:'persistent',reason_ja:'衣装を素材から採用'}]};
   const job = {job_id:'reading',stage:'training',references:[],record_kind:'character',record_key:rec.key,record_created:'now',kind:'intent',status:'awaiting_confirmation',learning_steps:3,proposal};
   API.character = async () => rec; API.commentIntents = async () => []; API.jobs = async () => [job];
-  const root = new FakeNode('root'), cleanup=[];
-  await learning(root,'character','一回で開始',cleanup,()=>{});
+  const root = new FakeNode('root'), content = new FakeNode('content'), footer = new FakeNode('footer'), cleanup=[];
+  root.append(content, footer);
+  let ready = false;
+  await learning(content,'character','一回で開始',cleanup,value=>{ready=value;},footer);
   assert.ok(!all(root).some(n=>n.children.includes('読み取った希望の確認')));
   assert.ok(all(root).some(n=>n.children.includes('衣装を素材から採用')));
   const start=all(root).find(n=>n.textContent === 'この内容で学習を始める');
+  assert.ok(all(footer).includes(start));
+  assert.ok(!all(content).includes(start));
+  assert.equal(ready,false);
   let calls=0, release;
   API.startLearning=()=>{ calls++; job.status='running'; return new Promise(resolve=>{release=resolve;}); };
   const pending=start.events.click(); await new Promise(resolve=>setImmediate(resolve));
@@ -76,6 +81,9 @@ test('質問のない採用案は承認操作にせず、学習中・完了後�
   assert.ok(all(root).some(n=>n.children.includes('衣装を素材から採用')));
   assert.ok(all(root).some(n=>n.tag === 'progress'));
   child.status='completed'; release(job); await pending;
+  assert.equal(ready,true);
+  assert.equal(footer.children[0].hidden,true);
+  assert.ok(all(content).includes(start));
   assert.ok(all(root).some(n=>n.children.includes('衣装を素材から採用')));
   cleanup.forEach(fn=>fn());
 });
