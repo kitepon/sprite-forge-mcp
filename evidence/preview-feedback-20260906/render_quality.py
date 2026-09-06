@@ -42,7 +42,7 @@ if review:
 document = f'''<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>LoRA修正の品質比較</title>
 <style>body{{font-family:system-ui;margin:24px;background:#f5f6f0;color:#24362c}}table{{width:100%;border-collapse:collapse}}td{{width:32%;vertical-align:top}}th,td{{padding:8px;border:1px solid #ccd3c8}}img{{width:100%;height:auto}}.table{{overflow:auto}}p{{line-height:1.6}}</style>
 <h1>LoRA修正の品質比較</h1><p>学習画像のseed：{escape(data['training_seeds'])}。比較用seed：{escape(data['evaluation_seeds'])}。追加学習：{data['steps']} step。</p>
-<p>各条件10枚を同じ生成設定で比較します。現在は{states[data['status']]}。少数画像で改善の保証はしません。</p>{assessment}
+<p>各条件10枚を同じ生成設定で比較します。{escape(review['summary']) if review and 'summary' in review else states[data['status']]}。少数画像で改善の保証はしません。</p>{assessment}
 <p>{escape(data.get('error', ''))}</p><ul>{''.join(metrics)}</ul><div class="table"><table><thead><tr><th>seed</th>{''.join(f'<th>{names[c["condition"]]}</th>' for c in data['conditions'])}</tr></thead><tbody>{''.join(rows)}</tbody></table></div></html>'''
 output = args.report.with_suffix('.html')
 output.write_text(document)
