@@ -19,6 +19,8 @@ parser.add_argument('--pipeline', type=Path, required=True)
 parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--steps', type=int, default=20)
 parser.add_argument('--resume', action='store_true', help='保存済みの比較記録から中断した条件を再開する')
+parser.add_argument('--conditions', nargs='+', choices=('before', 'ok_only', 'preference'),
+                    default=['before', 'ok_only', 'preference'], help='今回実測する条件')
 args = parser.parse_args()
 
 
@@ -40,7 +42,7 @@ async def main():
         (root / 'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2))
 
     try:
-        for condition in ('before', 'ok_only', 'preference'):
+        for condition in args.conditions:
             row = next((c for c in report['conditions'] if c['condition'] == condition), None)
             if row and row['status'] == 'completed':
                 continue
