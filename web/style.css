@@ -284,3 +284,16 @@
 .intent-defer { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; cursor: pointer; }
 .intent-defer input[type="checkbox"] { flex: 0 0 20px; width: 20px; height: 20px; min-height: 20px; margin: 3px 0 0; padding: 0; accent-color: var(--ink); }
 .layout-part { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.preview-review-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.preview-review-card { min-width: 0; padding: 20px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface, #fff); }
+.preview-review-card .picture { width: 100%; height: 360px; }
+.preview-review-card img { object-fit: contain; }
+.preview-review-card textarea { width: 100%; max-width: 100%; }
+.review-rating button[aria-pressed="true"] { background: var(--ink); color: white; }
+.review-focus button[aria-pressed="true"] { border-color: var(--ink); background: var(--bg); }
+.review-rating, .review-focus { flex-wrap: wrap; }
+.review-question { padding: 12px; background: #fff3cf; border-radius: 10px; }
+.review-meaning { font-size: .9rem; overflow-wrap: anywhere; }
+.preview-comparison .picture { height: 260px; }
+.preview-comparison figure { margin: 0; min-width: 0; }
+@media (max-width: 700px) { .preview-review-grid { grid-template-columns: 1fr; } .preview-review-card { padding: 14px; } .preview-review-card .picture { height: 320px; } }

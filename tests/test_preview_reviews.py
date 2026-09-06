@@ -79,3 +79,22 @@ def test_old_preview_can_be_rated_but_explains_missing_training_context(tmp_path
         await service.save_preview_review('old', job['job_id'], image, PreviewReview(rating='ng', revision=0))
         assert (await service.preview_reviews('old', job['job_id']))['pictures'][0]['review']['rating'] == 'ng'
     asyncio.run(scenario())
+
+
+def test_adopted_lora_is_used_by_setting_sheet_and_old_version_can_be_restored(tmp_path, monkeypatch):
+    service, comfy = make(tmp_path, monkeypatch)
+    async def scenario():
+        await service.create_character('probe', 'she/her', lora_name='old.safetensors')
+        old = await service.preview_character('probe', count=1)
+        new = {**old, 'job_id': 'new-preview', 'loras': [['new.safetensors', .65]]}
+        service.events.save_job(new)
+        adopted = await service.adopt_preview_lora('probe', new['job_id'])
+        assert adopted['lora_name'] == 'new.safetensors' and adopted['character_strength'] == .65
+        assert await service.adopt_preview_lora('probe', new['job_id']) == adopted
+        comfy.submitted.clear()
+        await service.generate_character_bible('probe')
+        assert comfy.submitted and all(graph['4']['inputs']['lora_name'] == 'new.safetensors' for graph in comfy.submitted)
+        restored = await service.adopt_preview_lora('probe', old['job_id'])
+        assert restored['lora_name'] == 'old.safetensors'
+        assert restored['lora_history'][-1]['lora_name'] == 'new.safetensors'
+    asyncio.run(scenario())

@@ -7,6 +7,7 @@ import { draft, saveDraft, clearDraft, pendingFiles } from './drafts.js?v=studio
 import { commentEditor, referenceNotes, flushCaptions, saveCaption } from './intent.js?v=studio-2';
 import { learning } from './learning.js?v=studio-2';
 import { characterStrength } from './strength.js?v=studio-2';
+import { previewGallery } from './preview.js?v=studio-2';
 
 export const FLOWS = [
   { id: 'sheet', title: 'キャラクターを育てる', desc: '参考画像から、その子らしい設定画へ。', icon: 'layers', steps: ['キャラクター', '参考画像', '学習', 'プレビュー', '設定画'] },
@@ -150,20 +151,21 @@ async function styleSelect(ctx, key) {
   const select = h('select', { onchange: event => saveDraft(`${key}:style`, event.target.value) }, h('option', { value: '' }, 'キャラクターの設定を使う'), styles.filter(s => s.lora_name).map(s => h('option', { value: s.name }, s.name)));
   select.value = draft(`${key}:style`, ''); return select;
 }
-async function previewStep(target, ctx, styled, cleanup) {
+async function previewStep(target, ctx, styled, cleanup, setReady, next) {
   const name = ctx.character, style = styled ? ctx.style : ''; const key = `preview:${name}:${style}`;
-  const wishes = h('details', { class: 'optional-wishes' }, h('summary', {}, '顔・体形・衣装を調整する（任意）'));
+  const wishes = h('section', { class: 'stack' }, h('h3', {}, '全体への注文'), h('p', { class: 'muted small' }, 'ここでは元の参考画像を参照して、生成する内容を指定します。生成画像への指摘は、その画像のOK・NGと理由欄へ書いてください。'));
   const editor = await commentEditor(wishes, { name, kind: 'character', stage: 'preview', cleanup });
-  wishes.open = !!wishes.querySelector('textarea').value;
-  target.append(h('p', {}, 'まず2枚描いて、参考画像の顔立ち・体形・衣装が引き継がれているか確かめます。'), wishes);
+  target.append(h('p', {}, '10枚の生成画像を見て、OK・NGを指定します。両方の判定でLoRAを修正し、結果を確かめてから設定画へ進めます。'), wishes);
+  let gallery;
   const tags = input(`${key}:tags`, 'full body, standing, front view, looking at viewer', { multiline: true, rows: 3 }); const seed = seedControl(key);
   target.append(advanced(characterStrength(await API.character(name)), field('英語の自由入力（解釈した注文を使わない場合）', tags, '注文を解釈して使う場合は既定値のままにします。姿勢などは上の制作への注文へ書いてください。'), field('Seed', seed, '同じ数値で構図を比較できます。')),
-    taskPanel({ kind: 'preview', name, style }, 'プレビュー', '2 枚で確かめる', async () => { await editor.save(); const content = requireText(tags, '内容'); return API.previewCharacter(name, content, number(seed), 2, style, previewIntentJob(editor, content)); }, cleanup));
+    taskPanel({ kind: 'preview', name, style }, 'プレビュー', '10枚のプレビューを生成する', async () => { await editor.save(); await gallery?.flush(); gallery?.followNext(); const content = requireText(tags, '内容'); return API.previewCharacter(name, content, number(seed), 10, style, previewIntentJob(editor, content)); }, cleanup, job => gallery?.select(job.job_id), { hideImages: true }));
+  gallery = await previewGallery(target, name, style, cleanup, setReady, next);
   if (styled) {
     const strength = input(`${key}:strength`, '0.7', { type: 'number', min: 0.1, max: 2, step: 0.1 });
     target.append(h('div', { class: 'callout stack' }, h('h3', {}, 'この組み合わせを、今後も使う'), h('p', { class: 'muted' }, 'プレビューは保存済みの強さ（未設定なら 0.7）で生成します。ここで変えた強さは、保存後の生成から反映されます。'), field('画風の強さ', strength), button('キャラクターの画風として保存', e => action(e.currentTarget, async () => { await API.setCharacterStyle(name, style, number(strength)); notice('今後使う画風を保存しました'); }), 'quiet')));
   }
-  return editor.save;
+  return async () => { await editor.save(); await gallery.flush(); };
 }
 export function drawingInput(editor, mode, text) {
   if (mode === 'intent') return { prompt: '', intentJobId: editor.confirmedJob() };
@@ -285,7 +287,7 @@ export function flow(root, id) {
       else if (id === 'restyle' && index === 1) await choose(content, 'style', ctx, false, () => {});
       else if (['sheet', 'style'].includes(id) && index === 1) nextSave = await samples(content, keyKind, ctx[keyKind], ownedCleanup, rec => refreshContext(rec).catch(error => notice(error.message, true)), setReady);
       else if (['sheet', 'style'].includes(id) && index === 2) nextSave = await learning(content, keyKind, ctx[keyKind], ownedCleanup, setReady);
-      else if (id === 'sheet' && index === 3 || id === 'restyle' && index === 2) nextSave = await previewStep(content, ctx, id === 'restyle', ownedCleanup);
+      else if (id === 'sheet' && index === 3 || id === 'restyle' && index === 2) nextSave = await previewStep(content, ctx, id === 'restyle', ownedCleanup, setReady, () => move(index + 1));
       else if (id === 'sheet' && index === 4 || id === 'restyle' && index === 3) nextSave = await sheet(content, ctx, id === 'restyle', ownedCleanup);
       else nextSave = await drawing(content, ctx, keyKind, ownedCleanup);
       if (!disposed && current === version) saveStep = nextSave;

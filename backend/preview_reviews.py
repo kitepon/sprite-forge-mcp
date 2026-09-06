@@ -17,6 +17,23 @@ class PreviewReview(BaseModel):
 
 
 class PreviewReviews:
+    async def adopt_preview_lora(self, name: str, job_id: str) -> dict:
+        """確認したプレビューのLoRA版を、次の設定画で使う版として採用する。"""
+        job = self._preview_review_source(name, job_id)
+        if job['status'] != 'completed':
+            raise ValueError('生成が完了したプレビューを指定してください。')
+        record = self._load_character(name)
+        if record.get('adopted_preview_job_id') == job_id and record['lora_name'] == job['loras'][0][0]:
+            return record
+        record.setdefault('lora_history', []).append({'lora_name': record['lora_name'], 'preview_job_id': record.get('adopted_preview_job_id')})
+        record['lora_name'] = job['loras'][0][0]
+        record['character_strength'] = job['loras'][0][1]
+        record['style'] = job.get('style', '')
+        if len(job['loras']) > 1:
+            record['style_strength'] = job['loras'][1][1]
+        record['adopted_preview_job_id'] = job_id
+        return self._save_character(record)
+
     def _preview_review_source(self, name, job_id):
         record = self._load_character(name)
         job = self.events.load_job(job_id)
