@@ -2,7 +2,6 @@
 import argparse
 import html
 import json
-import os
 from pathlib import Path
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -17,7 +16,7 @@ for seed in data['evaluation_seeds']:
     for condition in data['conditions']:
         picture = next((p for p in condition.get('pictures', []) if p['seed'] == seed), None)
         if picture:
-            path = escape(os.path.relpath(picture['path'], args.report.parent))
+            path = escape(f"generated/{Path(picture['path']).name}")
             cells.append(f'<td><a href="{path}"><img src="{path}" alt="{escape(names[condition["condition"]])} seed {seed}"></a></td>')
         else:
             cells.append('<td>未生成</td>')

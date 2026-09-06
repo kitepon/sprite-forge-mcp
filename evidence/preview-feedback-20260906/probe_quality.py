@@ -18,6 +18,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--pipeline', type=Path, required=True)
 parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--steps', type=int, default=20)
+parser.add_argument('--resume', action='store_true', help='保存済みの比較記録から中断した条件を再開する')
 args = parser.parse_args()
 
 
@@ -30,17 +31,28 @@ async def main():
                        characters_root=root / 'characters', styles_root=root / 'styles', uploads_root=root / 'uploads')
     report = {'training_seeds': [1, 2], 'evaluation_seeds': list(range(21, 31)), 'steps': args.steps,
               'source_job_id': source['job_id'], 'conditions': [], 'status': 'running'}
+    if args.resume:
+        report = json.loads((root / 'report.json').read_text())
+        args.steps = report['steps']
+        report['status'] = 'running'
 
     def save():
         (root / 'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2))
 
     try:
         for condition in ('before', 'ok_only', 'preference'):
-            row = {'condition': condition, 'status': 'running'}
-            report['conditions'].append(row); save()
+            row = next((c for c in report['conditions'] if c['condition'] == condition), None)
+            if row and row['status'] == 'completed':
+                continue
+            if row is None:
+                row = {'condition': condition, 'status': 'running'}
+                report['conditions'].append(row)
+            if row.get('preview_job_id'):
+                row.setdefault('interrupted_previews', []).append(row['preview_job_id'])
+            row['status'] = 'running'; save()
             started = time.monotonic()
-            lora = source['loras'][0][0]
-            if condition != 'before':
+            lora = row.get('lora_name', source['loras'][0][0])
+            if condition != 'before' and 'training_result' not in row:
                 response = await service.comfy.client.post(f'{service.comfy.base_url}/free', json={'unload_models': True, 'free_memory': True})
                 response.raise_for_status()
                 lora = f'quality_{condition}_{uuid.uuid4().hex[:8]}.safetensors'
