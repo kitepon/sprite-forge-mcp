@@ -34,9 +34,10 @@ from .intent import IntentRequest, Proposal, PREVIEW_TAGS, drawing_content, gene
 from .panel_intent import resolve_panel, saved_corrections
 from .sheet_layout import LayoutServices, layout_for, matching_keys, panel_from
 from .preview_reviews import PreviewReviews
+from .preview_learning import PreviewLearning
 
 
-class Services(IntentServices, LayoutServices, PreviewReviews):
+class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
     def __init__(self, comfy: Comfy | None = None, events: EventStore | None = None,
                  generated_root: Path | None = None, uploads_root: Path | None = None,
                  characters_root: Path | None = None, styles_root: Path | None = None):
@@ -359,13 +360,25 @@ class Services(IntentServices, LayoutServices, PreviewReviews):
                              'vae': graph['3']['inputs']['vae_name'], 'width': 832, 'height': 1216, 'turbo': turbo,
                              **{k: graph['23']['inputs'][k] for k in ('steps', 'cfg', 'sampler_name', 'scheduler', 'denoise')}}
         self.events.save_job(job); self._record_call("preview_character", job_id, {"name": name, "seed": seed, "count": count})
+        return await self._generate_preview_images(job)
+
+    async def _generate_preview_images(self, job):
+        job_id = job['job_id']
+        self.events.save_job(job)
         with self._job_errors(job):
             pictures = []
-            for offset in range(max(1, count)):
-                content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
-                    prompt, seed + offset, turbo=turbo, loras=chain, negative=negative, width=832, height=1216))
+            for offset in range(job['total_images']):
+                seed = job['seed'] + offset
+                graph = workflows.anima_txt2img(
+                    job['prompt'], seed, turbo=job['generation']['turbo'], loras=job['loras'], negative=job['negative'],
+                    width=job['generation']['width'], height=job['generation']['height'])
+                for node, field, saved in [('1', 'unet_name', 'model'), ('2', 'clip_name', 'text_encoder'), ('3', 'vae_name', 'vae')]:
+                    graph[node]['inputs'][field] = job['generation'][saved]
+                for key in ('steps', 'cfg', 'sampler_name', 'scheduler', 'denoise'):
+                    graph['23']['inputs'][key] = job['generation'][key]
+                content, elapsed = await self._run_edit(job_id, graph)
                 path = self._write_generated(f"{job_id}-preview-{offset}.png", content)
-                pictures.append({"id": path.stem, "path": str(path), "seed": seed + offset, "elapsed_s": elapsed,
+                pictures.append({"id": path.stem, "path": str(path), "seed": seed, "elapsed_s": elapsed,
                                  "sha256": hashlib.sha256(content).hexdigest()})
                 job.update(status="running", pictures=list(pictures))
                 self.events.save_job(job)

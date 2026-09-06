@@ -37,21 +37,24 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Launch Windows-native Anima LoRA training with kohya sd-scripts."
     )
-    parser.add_argument("--dataset-config", required=True, type=Path,
+    dataset = parser.add_mutually_exclusive_group(required=True)
+    dataset.add_argument("--dataset-config", type=Path,
                         help="kohya dataset TOML")
+    dataset.add_argument('--preference-config', type=Path, help='OK／NGと元LoRAを記録したJSON')
     parser.add_argument("--output-name", required=True,
                         help="output safetensors stem")
-    parser.add_argument("--pretrained-model-name-or-path", required=True, type=Path,
+    parser.add_argument("--pretrained-model-name-or-path", type=Path,
                         help="Anima base-model directory or checkpoint")
-    parser.add_argument("--qwen3", required=True, type=Path,
+    parser.add_argument("--qwen3", type=Path,
                         help="Qwen3-0.6B text-encoder model or directory")
-    parser.add_argument("--vae", required=True, type=Path,
+    parser.add_argument("--vae", type=Path,
                         help="Qwen-Image VAE model")
     parser.add_argument("--output-dir", type=Path, default=ROOT / "output")
     parser.add_argument("--max-train-steps", type=int, default=1500)
     parser.add_argument("--network-dim", type=int, default=16)
     parser.add_argument("--network-alpha", type=int, default=8)
     parser.add_argument("--learning-rate", default="1e-4")
+    parser.add_argument('--preference-beta', type=float, default=1.)
     parser.add_argument("--mixed-precision", choices=("bf16",), default="bf16")
     parser.add_argument("--comfy-url", default="http://127.0.0.1:8188")
     return parser
@@ -59,6 +62,14 @@ def _parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = _parser().parse_args()
+    if args.preference_config:
+        _free_comfy(args.comfy_url)
+        command = [str(VENV / 'Scripts' / 'python.exe'), str(ROOT / 'preference_train.py'),
+                   '--sd-scripts', str(SDSCRIPTS), '--input', str(args.preference_config),
+                   '--output', str(args.output_dir / f'{args.output_name}.safetensors'),
+                   '--steps', str(args.max_train_steps), '--learning-rate', args.learning_rate,
+                   '--beta', str(args.preference_beta)]
+        return subprocess.run(command, cwd=ROOT, check=False).returncode
     accelerate = VENV / "Scripts" / "accelerate.exe"
     trainer = SDSCRIPTS / "anima_train_network.py"
     if not accelerate.is_file():
@@ -69,7 +80,7 @@ def main() -> int:
         raise SystemExit(f"dataset TOML is missing: {args.dataset_config}")
     for label, path in (("base model", args.pretrained_model_name_or_path),
                         ("Qwen3 text encoder", args.qwen3), ("VAE", args.vae)):
-        if not path.exists():
+        if path is None or not path.exists():
             raise SystemExit(f"{label} is missing: {path}")
 
     args.output_dir.mkdir(parents=True, exist_ok=True)

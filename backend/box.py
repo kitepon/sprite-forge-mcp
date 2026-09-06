@@ -32,6 +32,12 @@ async def copy_tree_to_box(local: Path, remote: str, *, ssh: str = BOX_SSH) -> t
     return process.returncode or 0, output.decode(errors="replace")
 
 
+async def copy_from_box(remote: str, local: Path, *, ssh: str = BOX_SSH) -> tuple[int, str]:
+    process = await asyncio.create_subprocess_exec('scp', f'{ssh}:{remote}', str(local), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+    output, _ = await process.communicate()
+    return process.returncode or 0, output.decode(errors='replace')
+
+
 async def stream_training(dataset_toml: str, output_name: str, model: str, qwen3: str, vae: str,
                           steps: int, output_dir: str, *, ssh: str = BOX_SSH,
                           train: str = BOX_TRAIN) -> AsyncIterator[str]:
@@ -42,6 +48,22 @@ async def stream_training(dataset_toml: str, output_name: str, model: str, qwen3
                "--network-dim", "16", "--network-alpha", "16", "--learning-rate", "1e-4",
                "--mixed-precision", "bf16"]
     process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+    async for line in _training_lines(process):
+        yield line
+
+
+async def stream_preference_training(config: str, output_name: str, steps: int, output_dir: str,
+                                     learning_rate: float, beta: float, *, ssh: str = BOX_SSH,
+                                     train: str = BOX_TRAIN) -> AsyncIterator[str]:
+    command = ['ssh', '-o', 'ConnectTimeout=20', ssh, 'py', '-3.13', train,
+               '--preference-config', config, '--output-name', output_name, '--output-dir', output_dir,
+               '--max-train-steps', str(steps), '--learning-rate', str(learning_rate), '--preference-beta', str(beta)]
+    process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+    async for line in _training_lines(process):
+        yield line
+
+
+async def _training_lines(process) -> AsyncIterator[str]:
     assert process.stdout
     # tqdm progress ends lines with \r, not \n; split on both so progress arrives while training runs.
     buffer = b""

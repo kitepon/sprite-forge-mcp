@@ -1,4 +1,4 @@
-"""foxで一組のOK／NGから既存LoRAを修正する成立確認。画質の合格は判定しない。"""
+"""foxでOK／NGの対から既存LoRAを修正する。画質の合格は判定しない。"""
 from __future__ import annotations
 
 import argparse
@@ -53,6 +53,13 @@ def main():
         adapter.to(device)
     reference.requires_grad_(False)
     policy.requires_grad_(True)
+    fixed = []
+    for item in data['fixed_loras']:
+        adapter, _ = lora_anima.create_network_from_weights(item['strength'], item['path'], None, [encoder], model)
+        adapter.apply_to([encoder], model)
+        adapter.load_state_dict(load_file(item['path']), strict=True)
+        adapter.to(device).requires_grad_(False)
+        fixed.append(adapter)
     # 元LoRAのテキスト重みは双方で保持し、追加学習はDiTだけ行う。
     for layer in policy.text_encoder_loras:
         layer.requires_grad_(False)
@@ -69,13 +76,13 @@ def main():
         argparse.Namespace(vae=data['vae'], vae_chunk_size=None, vae_disable_cache=False),
         device='cpu', disable_mmap=True)
     vae.to(device, dtype=dtype).eval().requires_grad_(False)
-    pixels = []
-    for key in ('ok', 'ng'):
-        with Image.open(data[key]) as source:
+    cached = {}
+    for filename in dict.fromkeys(path for pair in data['pairs'] for path in pair):
+        with Image.open(filename) as source:
             picture = source.convert('RGB').resize(tuple(data['size']), Image.Resampling.LANCZOS)
-            pixels.append(torch.from_numpy(np.array(picture)).permute(2, 0, 1).float() / 127.5 - 1)
-    with torch.no_grad():
-        latents = vae.encode_pixels_to_latents(torch.stack(pixels).to(device, dtype=dtype))
+            pixels = torch.from_numpy(np.array(picture)).permute(2, 0, 1).float() / 127.5 - 1
+        with torch.no_grad():
+            cached[filename] = vae.encode_pixels_to_latents(pixels.unsqueeze(0).to(device, dtype=dtype)).cpu()
     del vae, pixels
     gc.collect()
     torch.cuda.empty_cache()
@@ -97,6 +104,8 @@ def main():
     torch.cuda.reset_peak_memory_stats()
     rows = []
     for step in range(args.steps):
+        pair_index = step % len(data['pairs'])
+        latents = torch.cat([cached[path] for path in data['pairs'][pair_index]]).to(device)
         # OK／NGと固定基準・更新対象で同じ時刻とノイズを使う。
         noise = torch.randn_like(latents[:1]).expand_as(latents)
         times = torch.rand(1, device=device).expand(2)
@@ -117,7 +126,7 @@ def main():
         if not torch.isfinite(loss) or not torch.isfinite(gradient_norm):
             raise RuntimeError('学習の損失または勾配が非有限値になりました。')
         optimizer.step()
-        row = {'step': step + 1, 'loss': loss.item(), 'gradient_norm': gradient_norm.item(),
+        row = {'step': step + 1, 'total': args.steps, 'pair': pair_index, 'loss': loss.item(), 'gradient_norm': gradient_norm.item(),
                'policy_errors': model_errors.detach().tolist(), 'reference_errors': fixed_errors.tolist()}
         rows.append(row)
         print(json.dumps(row), flush=True)

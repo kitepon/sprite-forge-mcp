@@ -12,6 +12,7 @@ import time
 
 from .intent import Proposal
 from .sheet_layout import LayoutProposal
+from .preview_intent import ReviewMeaning
 
 MODEL = "gpt-5.6-terra"
 
@@ -57,7 +58,8 @@ def run(packet: dict) -> dict:
             path.write_bytes(base64.b64decode(encoded, validate=True))
             images.append(path)
         is_layout = packet["input"].get("stage") == "layout"
-        model = LayoutProposal if is_layout else Proposal
+        is_review = packet['input'].get('stage') == 'preview_review'
+        model = ReviewMeaning if is_review else LayoutProposal if is_layout else Proposal
         schema = model.model_json_schema()
         # 保存済みの旧応答の省略は読めるが、新しいCLI出力では全項目を返す。
         def require_properties(value):
@@ -72,7 +74,7 @@ def run(packet: dict) -> dict:
                     require_properties(nested)
         require_properties(schema)
         (root / "schema.json").write_text(json.dumps(schema))
-        instruction = Path(__file__).with_name("layout_instructions.txt" if is_layout else "intent_instructions.txt").read_text()
+        instruction = Path(__file__).with_name('preview_review_instructions.txt' if is_review else "layout_instructions.txt" if is_layout else "intent_instructions.txt").read_text()
         prompt = instruction + "\n入力:\n" + json.dumps(packet["input"], ensure_ascii=False)
         started = time.monotonic()
         result = subprocess.run(command(root, images), input=prompt, text=True,
