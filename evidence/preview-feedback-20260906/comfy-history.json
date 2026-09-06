@@ -1,0 +1,178 @@
+{
+  "01c2db8b-e7d2-40c6-9a5d-cfe4fbb04311": {
+    "prompt": [
+      401,
+      "01c2db8b-e7d2-40c6-9a5d-cfe4fbb04311",
+      {
+        "1": {
+          "class_type": "UNETLoader",
+          "inputs": {
+            "unet_name": "anima-base-v1.0.safetensors",
+            "weight_dtype": "default"
+          }
+        },
+        "2": {
+          "class_type": "CLIPLoader",
+          "inputs": {
+            "clip_name": "qwen_3_06b_base.safetensors",
+            "type": "qwen_image"
+          }
+        },
+        "3": {
+          "class_type": "VAELoader",
+          "inputs": {
+            "vae_name": "qwen_image_vae.safetensors"
+          }
+        },
+        "4": {
+          "class_type": "LoraLoader",
+          "inputs": {
+            "model": [
+              "1",
+              0
+            ],
+            "clip": [
+              "2",
+              0
+            ],
+            "lora_name": "spriteforge-preference-probe.safetensors",
+            "strength_model": 0.8,
+            "strength_clip": 0.8
+          }
+        },
+        "20": {
+          "class_type": "CLIPTextEncode",
+          "inputs": {
+            "text": "ndac1de01, full body, standing, front view, looking at viewer, white cropped top with a fluffy fur collar and diamond chest opening, gold trim and star ornaments, layered white ruffled mini skirt, white fur-trimmed knee-high boots, slim young adult woman with a slightly stylized roughly six-head-tall proportion, simple background, white background",
+            "clip": [
+              "4",
+              1
+            ]
+          }
+        },
+        "21": {
+          "class_type": "CLIPTextEncode",
+          "inputs": {
+            "text": "lowres, bad anatomy, bad hands, text, watermark, multiple views, reference sheet, collage",
+            "clip": [
+              "4",
+              1
+            ]
+          }
+        },
+        "22": {
+          "class_type": "EmptyLatentImage",
+          "inputs": {
+            "width": 416,
+            "height": 608,
+            "batch_size": 1
+          }
+        },
+        "23": {
+          "class_type": "KSampler",
+          "inputs": {
+            "model": [
+              "4",
+              0
+            ],
+            "seed": 37,
+            "steps": 28,
+            "cfg": 4.0,
+            "sampler_name": "euler",
+            "scheduler": "simple",
+            "positive": [
+              "20",
+              0
+            ],
+            "negative": [
+              "21",
+              0
+            ],
+            "latent_image": [
+              "22",
+              0
+            ],
+            "denoise": 1.0
+          }
+        },
+        "24": {
+          "class_type": "VAEDecode",
+          "inputs": {
+            "samples": [
+              "23",
+              0
+            ],
+            "vae": [
+              "3",
+              0
+            ]
+          }
+        },
+        "25": {
+          "class_type": "SaveImage",
+          "inputs": {
+            "images": [
+              "24",
+              0
+            ],
+            "filename_prefix": "sprite-forge/preference-probe"
+          }
+        }
+      },
+      {
+        "client_id": "spriteforge-preference-probe",
+        "create_time": 1788686378771
+      },
+      [
+        "25"
+      ]
+    ],
+    "outputs": {
+      "25": {
+        "images": [
+          {
+            "filename": "preference-probe_00001_.png",
+            "subfolder": "sprite-forge",
+            "type": "output"
+          }
+        ]
+      }
+    },
+    "status": {
+      "status_str": "success",
+      "completed": true,
+      "messages": [
+        [
+          "execution_start",
+          {
+            "prompt_id": "01c2db8b-e7d2-40c6-9a5d-cfe4fbb04311",
+            "timestamp": 1788686378772
+          }
+        ],
+        [
+          "execution_cached",
+          {
+            "nodes": [],
+            "prompt_id": "01c2db8b-e7d2-40c6-9a5d-cfe4fbb04311",
+            "timestamp": 1788686378773
+          }
+        ],
+        [
+          "execution_success",
+          {
+            "prompt_id": "01c2db8b-e7d2-40c6-9a5d-cfe4fbb04311",
+            "timestamp": 1788686382025
+          }
+        ]
+      ]
+    },
+    "meta": {
+      "25": {
+        "node_id": "25",
+        "display_node": "25",
+        "parent_node": null,
+        "real_node_id": "25"
+      }
+    }
+  }
+}

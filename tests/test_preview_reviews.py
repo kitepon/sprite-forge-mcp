@@ -1,0 +1,81 @@
+"""プレビュー画像と判定の対応、逐次生成中の保存、競合を確認する。"""
+import asyncio
+import hashlib
+from pathlib import Path
+
+import pytest
+
+from backend.preview_reviews import PreviewReview
+from tests.test_style import make
+
+
+def test_ten_previews_keep_ratings_during_generation_and_reload(tmp_path, monkeypatch):
+    service, comfy = make(tmp_path, monkeypatch)
+
+    async def scenario():
+        await service.create_character('ベル', 'she/her', lora_name='person.safetensors')
+        run_edit = service._run_edit
+        async def generate(job_id, graph):
+            prior = service.events.load_job(job_id)['pictures']
+            if len(prior) == 1:
+                await service.save_preview_review('ベル', job_id, prior[0]['id'], PreviewReview(rating='ok', revision=0))
+            return await run_edit(job_id, graph)
+        service._run_edit = generate
+        job = await service.preview_character('ベル', seed=7)
+        assert len(job['pictures']) == 10
+        assert [p['seed'] for p in job['pictures']] == list(range(7, 17))
+        assert len({p['id'] for p in job['pictures']}) == 10
+        assert all(p['sha256'] == hashlib.sha256(Path(p['path']).read_bytes()).hexdigest() for p in job['pictures'])
+        assert job['generation']['steps'] == comfy.submitted[0]['23']['inputs']['steps']
+        assert job['loras'] == [('person.safetensors', .8)]
+        result = await service.preview_reviews('ベル', job['job_id'])
+        assert result['pictures'][0]['review']['rating'] == 'ok'
+        assert all(not p['review']['rating'] for p in result['pictures'][1:])
+        image = result['pictures'][1]['id']
+        await service.save_preview_review('ベル', job['job_id'], image,
+                                          PreviewReview(rating='ng', revision=0, comment='髪が違う。衣装は合っている', focus=['hair']))
+        saved = await service.save_preview_review('ベル', job['job_id'], image, PreviewReview(rating='', revision=1))
+        assert saved['comment'] == '髪が違う。衣装は合っている'
+        assert saved['history'][0]['rating'] == 'ng'
+        fresh, _ = make(tmp_path, monkeypatch)
+        reloaded = await fresh.preview_reviews('ベル', job['job_id'])
+        assert reloaded['pictures'][1]['review'] == saved
+        assert reloaded['relearning_unavailable_reason'] == ''
+        assert fresh._load_character('ベル')['samples'] == []
+    asyncio.run(scenario())
+
+
+def test_conflicts_wrong_images_and_recreated_characters(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+    async def scenario():
+        await service.create_character('first', 'she/her', lora_name='person.safetensors')
+        await service.create_character('other', 'she/her', lora_name='other.safetensors')
+        job = await service.preview_character('first', count=2)
+        image = job['pictures'][0]['id']
+        await service.save_preview_review('first', job['job_id'], image, PreviewReview(rating='ok', revision=0))
+        with pytest.raises(ValueError, match='別の画面'):
+            await service.save_preview_review('first', job['job_id'], image, PreviewReview(rating='ng', revision=0))
+        with pytest.raises(ValueError, match='含まれる画像'):
+            await service.save_preview_review('first', job['job_id'], 'unknown', PreviewReview(rating='ng', revision=0))
+        with pytest.raises(ValueError, match='このキャラクター'):
+            await service.preview_reviews('other', job['job_id'])
+        await service.create_character('first', 'new character', lora_name='new.safetensors')
+        with pytest.raises(ValueError, match='作り直す前'):
+            await service.preview_reviews('first', job['job_id'])
+    asyncio.run(scenario())
+
+
+def test_old_preview_can_be_rated_but_explains_missing_training_context(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+    async def scenario():
+        await service.create_character('old', 'she/her', lora_name='person.safetensors')
+        job = await service.preview_character('old', count=1)
+        del job['generation'], job['character_created']
+        del job['pictures'][0]['id'], job['pictures'][0]['sha256']
+        service.events.save_job(job)
+        view = await service.preview_reviews('old', job['job_id'])
+        assert '新しくプレビュー' in view['relearning_unavailable_reason']
+        image = view['pictures'][0]['id']
+        await service.save_preview_review('old', job['job_id'], image, PreviewReview(rating='ng', revision=0))
+        assert (await service.preview_reviews('old', job['job_id']))['pictures'][0]['review']['rating'] == 'ng'
+    asyncio.run(scenario())

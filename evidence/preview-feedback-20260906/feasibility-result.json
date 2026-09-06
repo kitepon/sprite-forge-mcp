@@ -1,0 +1,43 @@
+{
+  "steps": [
+    {
+      "step": 1,
+      "loss": 0.6931471824645996,
+      "gradient_norm": 0.04074811190366745,
+      "policy_errors": [
+        0.13645799458026886,
+        0.09016668051481247
+      ],
+      "reference_errors": [
+        0.13645799458026886,
+        0.09016668051481247
+      ]
+    }
+  ],
+  "source_sha256": "cfce144cab9dd729f81b20ae91dc526a4d0bbca7e809451386ca0d68dbed9a87",
+  "lora_delta_squared": 0.002031281387388617,
+  "reference_unchanged": true,
+  "reload_max_error": 0.0,
+  "elapsed_seconds": 10.159747899975628,
+  "peak_allocated_bytes": 9622857728,
+  "input": {
+    "model": "C:/Users/kite_/ComfyUI/ComfyUI/models/diffusion_models/anima-base-v1.0.safetensors",
+    "qwen3": "C:/Users/kite_/ComfyUI/ComfyUI/models/text_encoders/qwen_3_06b_base.safetensors",
+    "vae": "C:/Users/kite_/ComfyUI/ComfyUI/models/vae/qwen_image_vae.safetensors",
+    "lora": "C:/Users/kite_/ComfyUI/ComfyUI/models/loras/ndac1de01_97404490.safetensors",
+    "strength": 0.8,
+    "prompt": "ndac1de01, full body, standing, front view, looking at viewer, white cropped top with a fluffy fur collar and diamond chest opening, gold trim and star ornaments, layered white ruffled mini skirt, white fur-trimmed knee-high boots, slim young adult woman with a slightly stylized roughly six-head-tall proportion, simple background, white background",
+    "negative": "lowres, bad anatomy, bad hands, text, watermark, multiple views, reference sheet, collage",
+    "seed": 37,
+    "size": [
+      416,
+      608
+    ],
+    "ok": "C:/sf/preview-feedback-probe/ok.png",
+    "ng": "C:/sf/preview-feedback-probe/ng.png",
+    "source_job": "f0e53145-c159-4c0e-81ce-d58723746656"
+  },
+  "learning_rate": 1e-05,
+  "beta": 1.0,
+  "output": "C:\\sf\\preview-feedback-probe\\result.safetensors"
+}

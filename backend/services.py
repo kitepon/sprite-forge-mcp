@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+import hashlib
 import asyncio
 import base64
 import json
@@ -32,9 +33,10 @@ from .intent_runner import interpret
 from .intent import IntentRequest, Proposal, PREVIEW_TAGS, drawing_content, generation_negative, preview_content, validate_proposal
 from .panel_intent import resolve_panel, saved_corrections
 from .sheet_layout import LayoutServices, layout_for, matching_keys, panel_from
+from .preview_reviews import PreviewReviews
 
 
-class Services(IntentServices, LayoutServices):
+class Services(IntentServices, LayoutServices, PreviewReviews):
     def __init__(self, comfy: Comfy | None = None, events: EventStore | None = None,
                  generated_root: Path | None = None, uploads_root: Path | None = None,
                  characters_root: Path | None = None, styles_root: Path | None = None):
@@ -334,7 +336,7 @@ class Services(IntentServices, LayoutServices):
         return {"name": record["name"], "deleted": True, "backup_path": str(backup)}
 
     async def preview_character(self, name: str, tags: str = PREVIEW_TAGS,
-                                seed: int = 1, count: int = 1, style: str = "", turbo: bool = False,
+                                seed: int = 1, count: int = 10, style: str = "", turbo: bool = False,
                                 intent_job_id: str = "") -> dict[str, Any]:
         """Stage 2 check: a few seconds per picture with the trained LoRA. Look, then decide whether
         to retrain (fix samples / captions / steps) or go on to the bible."""
@@ -350,7 +352,12 @@ class Services(IntentServices, LayoutServices):
         prompt = ", ".join(part for part in (record["trigger"], style_word, subject, content, background) if part)
         negative = generation_negative(intent["intent_conditions"])
         job = {"job_id": job_id, "kind": "preview", "status": "queued", "name": name, "prompt": prompt, "seed": seed, "loras": chain,
-               "style": style, "total_images": max(1, count), "pictures": [], "negative": negative, **intent}
+               "style": style, "total_images": max(1, count), "pictures": [], "negative": negative,
+               "character_created": record['created'], **intent}
+        graph = workflows.anima_txt2img(prompt, seed, turbo=turbo, loras=chain, negative=negative, width=832, height=1216)
+        job['generation'] = {'model': graph['1']['inputs']['unet_name'], 'text_encoder': graph['2']['inputs']['clip_name'],
+                             'vae': graph['3']['inputs']['vae_name'], 'width': 832, 'height': 1216, 'turbo': turbo,
+                             **{k: graph['23']['inputs'][k] for k in ('steps', 'cfg', 'sampler_name', 'scheduler', 'denoise')}}
         self.events.save_job(job); self._record_call("preview_character", job_id, {"name": name, "seed": seed, "count": count})
         with self._job_errors(job):
             pictures = []
@@ -358,7 +365,8 @@ class Services(IntentServices, LayoutServices):
                 content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
                     prompt, seed + offset, turbo=turbo, loras=chain, negative=negative, width=832, height=1216))
                 path = self._write_generated(f"{job_id}-preview-{offset}.png", content)
-                pictures.append({"path": str(path), "seed": seed + offset, "elapsed_s": elapsed})
+                pictures.append({"id": path.stem, "path": str(path), "seed": seed + offset, "elapsed_s": elapsed,
+                                 "sha256": hashlib.sha256(content).hexdigest()})
                 job.update(status="running", pictures=list(pictures))
                 self.events.save_job(job)
             job.update(status="completed", pictures=pictures)
