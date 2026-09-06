@@ -189,7 +189,7 @@ def test_style_course_can_defer_wish_but_cannot_replace_its_own_lora(tmp_path, m
         value["changes"] += proposal(scope="this_run", feature="subject", text="a forest")["changes"]
         job.update(status="awaiting_confirmation", proposal=value)
         service.events.save_job(job)
-        with pytest.raises(ValueError, match="教材と学習"):
+        with pytest.raises(ValueError, match="素材と学習"):
             await service.confirm_comment_intent(job["job_id"], Proposal.model_validate(value))
         value["changes"][0].update(style_name=None, style_deferred=True)
         await service.confirm_comment_intent(job["job_id"], Proposal.model_validate(value))

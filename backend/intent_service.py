@@ -230,9 +230,9 @@ class IntentServices:
         styles = [c for c in proposal.changes if c.feature == "style" and not c.style_deferred]
         for change in styles:
             if change.style_name is None:
-                raise ValueError("画風が未解決です。学習済みの画風を選ぶか、画風を保留して他の注文を採用すると明示してください。")
+                raise ValueError("画風の希望はまだ反映できません。使う画風を選ぶか、確認画面で「今回は画風の希望を反映しない」を選んでください。")
             if job["record_kind"] != "character":
-                raise ValueError("画風そのものの変更は教材と学習で扱います。ここでは希望を保留してください。")
+                raise ValueError("画風そのものの変更は素材と学習の工程で扱います。この注文を使わずに進める場合は「今回は画風の希望を反映しない」を選んでください。")
             if change.style_name:
                 if change.style_name not in {s["name"] for s in job.get("available_styles", [])}:
                     raise ValueError("注文時の候補にない画風です。注文を読み直してください。")

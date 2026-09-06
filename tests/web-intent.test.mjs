@@ -64,7 +64,7 @@ test('特徴ごとの参照画像を、文章の説明に依存せず表示す�
   assert.ok(texts.includes('衣装の参照元：画像 4'));
 });
 
-test('画風は全体の選択として表示し、明示保留でも衣装の訂正を採用できる', async t => {
+test('画風を今回反映しない意味を表示し、明示選択後に衣装の訂正を採用できる', async t => {
   t.mock.method(globalThis, 'setTimeout', () => 0);
   let saved = {job_id:'style-order',status:'awaiting_confirmation',stage:'sheet',panel:'',original_comment:'画風と衣装の注文',references:[],
     available_styles:[{name:'水彩',note:'登録済み',lora_name:'water.safetensors'}],
@@ -77,19 +77,50 @@ test('画風は全体の選択として表示し、明示保留でも衣装の�
   const root = new FakeNode('root');
   await commentEditor(root,{name:'確認用',kind:'character',stage:'sheet'});
   const nodes=all(root);
-  assert.ok(nodes.find(n=>n.attrs['aria-label']==='採用する画風'));
-  assert.ok(nodes.some(n=>n.tag==='option' && n.attrs.value==='""' && n.children.includes('追加の画風を使わない（キャラクターLoRAのみ）')));
+  assert.ok(nodes.find(n=>n.attrs['aria-label']==='他の画風を使いたい場合はこちらから選択'));
+  assert.ok(nodes.some(n=>n.tag==='option' && n.attrs.value==='""' && n.children.includes('追加の画風を使わない（キャラクターの画風を使う）')));
+  assert.equal(nodes.find(n=>n.tag==='button'&&n.children.includes('この内容を採用')).disabled,true);
+  assert.ok(nodes.some(n=>n.children.some(c=>typeof c==='string'&&c.includes('後から自動で反映されることはありません'))));
   assert.ok(!nodes.find(n=>n.attrs['aria-label']==='描き方の対象パネル'));
   assert.ok(!nodes.find(n=>n.attrs['aria-label']==='描き方の生成文'));
   const scope=nodes.find(n=>n.attrs['aria-label']==='画風の適用範囲');
   assert.ok(!scope.children.some(n=>n.attrs?.value==='panel'));
   nodes.find(n=>n.attrs['aria-label']==='衣装の生成文').events.input({target:{value:'navy coat'}});
-  nodes.find(n=>n.attrs['aria-label']==='画風の希望を保留する').events.change({target:{checked:true}});
+  nodes.find(n=>n.attrs['aria-label']==='今回は画風の希望を反映しない').events.change({target:{checked:true}});
   const button=all(root).find(n=>n.tag==='button'&&n.children.includes('この内容を採用'));
+  assert.equal(button.disabled,false);
   await button.events.click({currentTarget:button});
   assert.equal(saved.accepted.changes[0].style_deferred,true);
   assert.equal(saved.accepted.changes[1].description_en,'navy coat');
-  assert.ok(all(root).some(n=>n.textContent === '採用済みです。画風の希望は保留中です'));
+  assert.ok(all(root).some(n=>n.textContent === '画風の希望は今回反映していません。ほかの希望は採用済みです。'));
+});
+
+test('学習画面では画風選択の用途と未対応を示し、選択を訂正してから開始できる', async () => {
+  const reference = {record_key:'probe',sample_index:0,path:'one.png'};
+  const job = {job_id:'learn-style',status:'awaiting_confirmation',stage:'training',panel:'',original_comment:'素材の画風を使いたい',references:[reference],
+    existing_settings:{style:'線画'}, available_styles:[{name:'水彩',lora_name:'water.safetensors'}],
+    proposal:{questions:[],observations:[{reference,appearance_ja:'白い服',caption_en:'white outfit'}],changes:[
+      {feature:'style',scope:'persistent',panel_key:null,reference,description_en:'',avoid_en:'',avoid_ja:'',reason_ja:'素材の画風を採用',style_name:null,style_deferred:false}]}};
+  let accepted = null;
+  const root = new FakeNode('root');
+  await commentEditor(root,{name:'確認用',kind:'character',stage:'training',learningJob:job,onLearningConfirm:async p=>{accepted=p;}});
+  const field = label => all(root).find(n=>n.attrs['aria-label']===label);
+  const start = () => all(root).find(n=>n.tag==='button'&&n.children.includes('この内容で学習を始める'));
+  const texts = all(root).flatMap(n=>n.children.filter(c=>typeof c==='string'));
+  assert.ok(texts.some(c=>c.includes('教材や今回の学習内容は変わりません')));
+  assert.ok(texts.some(c=>c.includes('現在の画風設定（線画）')));
+  assert.equal(start().disabled,true);
+  field('画像 1 の教材説明').events.input({target:{value:'white coat'}});
+  field('今回は画風の希望を反映しない').events.change({target:{checked:true}});
+  assert.equal(start().disabled,false);
+  field('今回は画風の希望を反映しない').events.change({target:{checked:false}});
+  assert.equal(start().disabled,true);
+  field('他の画風を使いたい場合はこちらから選択').events.change({target:{value:JSON.stringify('水彩')}});
+  assert.equal(start().disabled,false);
+  await start().events.click({currentTarget:start()});
+  assert.equal(accepted.changes[0].style_name,'水彩');
+  assert.equal(accepted.changes[0].style_deferred,false);
+  assert.equal(accepted.observations[0].caption_en,'white coat');
 });
 
 test('保存応答が逆転しても、新しい原文と解釈対象を維持する', async () => {
