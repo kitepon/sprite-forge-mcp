@@ -57,16 +57,18 @@ test('古い確認待ちは希望を引き継ぎ、再開始の応答待ちに�
 test('質問のない採用案は承認操作にせず、学習中・完了後も説明を残す', async () => {
   const rec = {key:'one-action',created:'now',samples:[],lora_name:''};
   const proposal = {training_samples:[],observations:[],questions:[],changes:[{feature:'outfit',scope:'persistent',reason_ja:'衣装を素材から採用'}]};
-  const job = {job_id:'reading',stage:'training',references:[],record_kind:'character',record_key:rec.key,record_created:'now',kind:'intent',status:'awaiting_confirmation',learning_steps:3,proposal};
+  const job = {job_id:'reading',stage:'training',references:[],record_kind:'character',record_key:rec.key,record_created:'now',kind:'intent',status:'awaiting_confirmation',learning_steps:3,proposal,interpreter:{model:'試験用',elapsed_seconds:1}};
   API.character = async () => rec; API.commentIntents = async () => []; API.jobs = async () => [job];
   const root = new FakeNode('root'), cleanup=[];
   let ready = false;
   await learning(root,'character','一回で開始',cleanup,value=>{ready=value;});
-  assert.ok(!all(root).some(n=>n.children.includes('読み取った希望の確認')));
+  assert.ok(all(root).some(n=>n.children.includes('読み取った希望の確認')));
   assert.ok(all(root).some(n=>n.children.includes('衣装を素材から採用')));
   const start=all(root).find(n=>n.textContent === 'この内容で学習を始める');
-  const explanation = all(root).find(n=>n.tag === 'section' && all(n).some(c=>c.children.includes('AIが読み取った内容')));
-  assert.ok(all(explanation.lastChild).includes(start));
+  const proposalBox = all(root).find(n=>n.className === 'intent-proposal stack');
+  assert.ok(all(proposalBox.children.at(-2)).includes(start));
+  assert.ok(proposalBox.lastChild.children.some(n=>n.children?.includes('処理の記録')));
+  assert.ok(!all(root).some(n=>n.children.includes('「この内容で学習を始める」を押してください。')));
   assert.equal(ready,false);
   let calls=0, release;
   API.startLearning=()=>{ calls++; job.status='running'; return new Promise(resolve=>{release=resolve;}); };

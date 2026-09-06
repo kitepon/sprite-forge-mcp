@@ -80,7 +80,7 @@ export async function referenceNotes(target, { name, kind, stage = 'samples' }) 
   return { save, input };
 }
 
-export async function commentEditor(target, { name, kind, stage, panel = '', interpretEnabled = true, learningJob = null, onLearningConfirm = null, cleanup = [] }) {
+export async function commentEditor(target, { name, kind, stage, panel = '', interpretEnabled = true, learningJob = null, learningActions = null, onLearningConfirm = null, cleanup = [] }) {
   const key = `intent:${kind}:${name}:${stage}:${panel}`;
   let job = null, savedText = '', busy = false, saveVersion = 0;
   const input = h('textarea', { rows: 3, placeholder: '例：4枚目の衣装を今後も使って。顔と髪はそのままで。', 'aria-label': '制作への注文' });
@@ -177,7 +177,8 @@ export async function commentEditor(target, { name, kind, stage, panel = '', int
     } else if (observations.length) output.append(h('details', {}, h('summary', {}, '画像から読み取った内容'), observations.map(item => h('p', {}, item.appearance_ja))));
     const needsStyleChoice = !learningStage && proposal.changes.some(c => c.feature === 'style' && c.style_name == null && !c.style_deferred);
     if (job.status === 'awaiting_confirmation' && needsStyleChoice) output.append(h('p', {class:'muted small', role:'status'}, '画風の希望はまだ反映できません。上の画風欄で、使う画風を選ぶか「今回は画風の希望を反映しない」を選んでください。'));
-    if (learningJob && job.status === 'awaiting_confirmation' && !proposal.questions.length) {
+    if (learningJob && learningActions) output.append(learningActions);
+    else if (learningJob && job.status === 'awaiting_confirmation' && !proposal.questions.length) {
       const confirm = button('この内容で学習を始める', e => action(e.currentTarget, () => onLearningConfirm({ ...proposal, observations })));
       confirm.disabled = needsStyleChoice;
       output.append(confirm);

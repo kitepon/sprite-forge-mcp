@@ -38,7 +38,7 @@ export async function learning(target, kind, name, cleanup, changed) {
     if (!steps.reportValidity()) throw new Error('学習ステップを確認してください。');
     return API.startLearning(name, kind, Number(steps.value));
   }));
-  const actions = h('div', { class: 'actions' }, start);
+  const actions = h('div', { class: 'stack' }, start);
   const repeat = h('details', {}, h('summary', {}, '学習をやり直す'));
   target.append(output, explanations, repeat,
     h('details', { class: 'advanced' }, h('summary', {}, '詳細設定・学習の記録'), field('学習ステップ', steps),
@@ -50,21 +50,22 @@ export async function learning(target, kind, name, cleanup, changed) {
     const child = parent?.training_job_id ? jobs.find(j => j.job_id === parent.training_job_id) : candidates.find(j => j.kind === 'lora_train' && ['queued', 'running'].includes(j.status));
     const running = parent?.status === 'running' || child && ['queued', 'running'].includes(child.status);
     const reviewing = parent?.status === 'awaiting_confirmation' && !!parent.proposal?.training_samples && !!parent.proposal?.questions.length && !child;
-    const oldReview = parent?.status === 'awaiting_confirmation' && !reviewing && !child;
+    const showReview = parent?.status === 'awaiting_confirmation' && !!parent.proposal?.training_samples && !child;
+    const oldReview = parent?.status === 'awaiting_confirmation' && !showReview && !child;
     const saved = [...candidates, ...history.filter(j => !candidates.some(c => c.job_id === j.job_id))]
       .filter(j => ['samples', 'training'].includes(j.stage) && (j.accepted || j.proposal));
-    const visible = saved.filter(j => !reviewing || j.job_id !== parent.job_id);
-    const explanationKey = JSON.stringify([reviewing, visible.map(j => [j.job_id, j.accepted || j.proposal, j.accepted_observations])]);
+    const visible = saved.filter(j => !showReview || j.job_id !== parent.job_id);
+    const explanationKey = JSON.stringify([showReview, visible.map(j => [j.job_id, j.accepted || j.proposal, j.accepted_observations])]);
     if (explanationSignature !== explanationKey) {
       explanationSignature = explanationKey;
       explanations.replaceChildren();
       latestExplanation = null;
       if (visible.length) {
-        if (!reviewing) {
+        if (!showReview) {
           latestExplanation = savedLearningExplanation(visible[0]);
           explanations.append(latestExplanation);
         }
-        const earlier = reviewing ? visible : visible.slice(1);
+        const earlier = showReview ? visible : visible.slice(1);
         if (earlier.length) explanations.append(h('details', {}, h('summary', {}, `以前の読み取り結果（${earlier.length}件）`), earlier.map(savedLearningExplanation)));
       }
     }
@@ -72,7 +73,7 @@ export async function learning(target, kind, name, cleanup, changed) {
     const complete = child?.status === 'completed' || !!rec.lora_name;
     const repeating = complete && !busy && !running && !reviewing;
     repeat.hidden = !repeating;
-    (reviewing && reviewBox || latestExplanation || target).append(actions);
+    if (!showReview || !reviewBox) (latestExplanation || target).append(actions);
     (repeating ? repeat : actions).append(start);
     actions.hidden = repeating;
     start.disabled = busy || !!running;
@@ -80,7 +81,7 @@ export async function learning(target, kind, name, cleanup, changed) {
     if (reviewing) start.className = 'quiet'; else start.className = '';
     notes.input.disabled = busy || !!running;
     if (legacy) legacy.input.disabled = busy || !!running;
-    changed(!!complete && !busy && !running && !reviewing, busy || running ? '学習が終わるとプレビューへ進めます。' : reviewing ? '希望について質問があります。回答を追記してください。' : complete ? '' : '「この内容で学習を始める」を押してください。');
+    changed(!!complete && !busy && !running && !reviewing, complete && !busy && !running && !reviewing ? '' : '学習が完了するとプレビューへ進めます。');
     const next = JSON.stringify([parent, child, busy, connectionError]);
     if (signature === next) return;
     signature = next; const current = ++version;
@@ -91,12 +92,11 @@ export async function learning(target, kind, name, cleanup, changed) {
     else if (child) {
       output.append(jobView(child, { title: '学習', startedAt: child.created_at }), h('details', {}, h('summary', {}, '学習する画像と説明を見る'), trainingMaterials(child)));
     } else if (running) output.append(jobView(parent, { title: '画像と希望を読み取っています', startedAt: parent.created_at }));
-    else if (reviewing) {
+    else if (showReview) {
       const review = h('div'); output.append(review);
-      commentEditor(review, { name, kind, stage: 'training', learningJob: parent,
-        onLearningConfirm: proposal => execute(() => API.confirmLearning(parent.job_id, proposal)) }).then(() => {
+      commentEditor(review, { name, kind, stage: 'training', learningJob: parent, learningActions: actions }).then(() => {
         if (disposed || current !== version) review.remove();
-        else { reviewBox = review.children[0]; reviewBox.append(actions); }
+        else { reviewBox = review.children[0]; }
       }).catch(error => { if (!disposed && current === version) notice(error.message, true); });
     } else if (oldReview) output.append(h('p', {class:'muted small'}, '保存した画像と希望を引き継ぎます。「この内容で学習を始める」を押すと、読み取りから学習まで続けて進みます。'));
     else if (failed) output.append(jobView(parent, { title: '学習の準備' }));
