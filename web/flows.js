@@ -4,8 +4,8 @@ import { state } from './state.js?v=studio-2';
 import { h, icon, field, button, link, picture, empty, notice, action, pageHead, errorState, confirmAction } from './ui.js?v=studio-2';
 import { taskPanel } from './jobs.js?v=studio-2';
 import { draft, saveDraft, clearDraft, pendingFiles } from './drafts.js?v=studio-2';
-import { commentEditor, flushCaptions } from './intent.js?v=studio-2';
-import { trainingMaterials } from './training.js?v=studio-2';
+import { commentEditor, referenceNotes, flushCaptions, saveCaption } from './intent.js?v=studio-2';
+import { learning } from './learning.js?v=studio-2';
 import { characterStrength } from './strength.js?v=studio-2';
 
 export const FLOWS = [
@@ -43,8 +43,8 @@ async function choose(target, kind, ctx, createAllowed, changed) {
   })); paint();
   target.append(items.length ? grid : empty(`${noun}を登録しましょう`, createAllowed ? '名前を決めたら、参考にしたい画像を追加できます。' : '先に画像を集めて、学習を済ませてください。', !createAllowed ? link(`${noun}を作る`, `#/flow/${isChar ? 'sheet' : 'style'}`) : null));
   if (!createAllowed) return;
-  const name = h('input', { required: true, placeholder: isChar ? '例：ベル' : '例：淡い水彩', autocomplete: 'off', maxlength: 100 });
-  const desc = h('textarea', { rows: 3, placeholder: isChar ? '例：she/her, silver twin-tail idol, white and gold outfit' : 'どんな線や色づかいが好きですか？' });
+  const name = h('input', { required: true, placeholder: isChar ? 'キャラクターの名前' : '例：淡い水彩', autocomplete: 'off', maxlength: 100 });
+  const desc = h('textarea', { rows: 2, placeholder: isChar ? '例：銀髪の成人女性。旅人で、青いコートを着ている。' : 'どんな線や色づかいが好きですか？' });
   const trigger = h('input', { placeholder: '空欄なら自動で決めます' });
   const attr = h('input', { placeholder: '設定画に添える短いメモ' });
   const create = button([icon('plus'), `${noun}を登録`], e => action(e.currentTarget, async () => {
@@ -53,107 +53,97 @@ async function choose(target, kind, ctx, createAllowed, changed) {
     const rec = await (isChar ? API.createCharacter(value, requireText(desc, 'キャラクターの説明'), attr.value, trigger.value) : API.createStyle(value, desc.value));
     items.push(rec); ctx[kind] = rec.name; state.saveFlow(); paint(); changed(); details.open = false; notice(`${rec.name}を登録しました。参考画像へ進めます。`);
   }));
-  const details = h('details', { class: 'create-card', open: !items.length }, h('summary', {}, icon('plus'), `新しい${noun}を作る`), h('div', { class: 'stack' }, field('名前', name), field(isChar ? 'キャラクターの説明' : '画風のメモ', desc, isChar ? '本人の特徴・衣装・代名詞（she/her など）を英語で。画像ごとの説明は次の工程で書けます。' : ''), isChar ? advanced(field('呼び出し語', trigger), field('属性メモ', attr)) : null, create));
+  const details = h('details', { class: 'create-card', open: !items.length }, h('summary', {}, icon('plus'), `新しい${noun}を作る`), h('div', { class: 'stack' }, field('名前', name), field(isChar ? 'どんなキャラクター？' : '画風のメモ', desc, isChar ? '短い説明で大丈夫です。画像ごとの希望は次に書けます。' : ''), isChar ? advanced(field('呼び出し語', trigger), field('属性メモ', attr)) : null, create));
   target.append(details);
 }
 
-async function samples(target, kind, name, cleanup, changed) {
+export async function samples(target, kind, name, cleanup, changed, availability = () => {}) {
   const isChar = kind === 'character'; const key = `${kind}:${name}`;
   const load = () => isChar ? API.character(name) : API.style(name);
-  const setCaption = isChar ? API.setCaption : API.setStyleCaption;
   const removeSample = isChar ? API.removeSample : API.removeStyleSample;
   const addSample = isChar ? API.addSamples : API.addStyleSamples;
   const list = h('div', { class: 'sample-grid' }); const count = h('span', { class: 'badge' });
-  target.append(h('div', { class: 'section-heading' }, h('h3', {}, '集めた画像'), count), h('p', { class: 'muted' }, '一枚ごとに衣装や構図を書き分けます。4 枚以上を目安に、本人らしさが分かる画像を。'), list);
+  const heading = h('div', { class: 'section-heading' }, h('h3', {}, '参考画像'), count);
+  target.append(heading, h('p', { class: 'muted' }, '画像を選ぶと自動で追加されます。4枚以上を目安に、特徴が分かる画像を選んでください。'), list);
   const paint = rec => {
+    record = rec;
     count.textContent = `${rec.samples.length} 枚`;
     list.replaceChildren(...rec.samples.map((sample, index) => {
       const capKey = `${key}:caption:${sample.index}:${sample.path}`;
-      const cap = h('textarea', { rows: 3, placeholder: 'この絵の衣装・ポーズ・構図など', 'aria-label': `画像 ${index + 1} の説明` }, draft(capKey, sample.caption || ''));
+      const cap = h('textarea', { rows: 2, placeholder: '例：この画像の顔立ちを使いたい（任意）', 'aria-label': `画像 ${index + 1} の説明` }, draft(capKey, sample.caption || ''));
       const saved = h('span', { class: 'draft-status' }, cap.value !== (sample.caption || '') ? '未保存' : '保存済み');
       cap.addEventListener('input', () => { saveDraft(capKey, cap.value); saved.textContent = cap.value !== (sample.caption || '') ? '未保存' : '保存済み'; });
-      const save = button('説明を保存', e => action(e.currentTarget, async () => {
-        const value = cap.value; await setCaption(name, sample.index, value); sample.caption = value;
-        if (cap.value === value) { clearDraft(capKey); saved.textContent = '保存済み'; } notice(`画像 ${index + 1} の説明を保存しました`);
-      }), 'quiet small-button');
+      cap.addEventListener('blur', async () => {
+        const value = cap.value;
+        if (value === (sample.caption || '')) return;
+        saved.textContent = '保存中…';
+        try {
+          await saveCaption(kind, name, sample, value); sample.caption = value;
+          if (cap.value === value) { clearDraft(capKey); saved.textContent = '保存済み'; }
+        } catch (error) { saved.textContent = '保存できませんでした'; notice(error.message, true); }
+      });
       const remove = button('外す', e => action(e.currentTarget, async () => {
         if (!await confirmAction(`画像 ${index + 1} を参考画像から外しますか？`)) return;
-        const rec = await removeSample(name, sample.index); clearDraft(capKey); paint(rec); changed(rec); notice('参考画像から外しました。元のアップロード画像は残っています。');
+        const rec = await removeSample(name, sample.index); clearDraft(capKey); paint(rec); renderPending(); changed(rec); notice('参考画像から外しました。元のアップロード画像は残っています。');
       }), 'text-button danger');
-      return h('article', { class: 'sample-card' }, picture(sample.path, `参考画像 ${index + 1}`), h('div', { class: 'sample-content stack' }, h('div', { class: 'section-heading' }, h('strong', {}, `画像 ${index + 1}`), saved), cap, h('div', { class: 'actions' }, save, remove)));
+      return h('article', { class: 'sample-card' }, picture(sample.path, `参考画像 ${index + 1}`), h('div', { class: 'sample-content stack' }, h('div', { class: 'section-heading' }, h('strong', {}, `画像 ${index + 1}`), saved), field('この画像への希望', cap), remove));
     }));
-    if (!rec.samples.length) list.append(empty('まだ画像がありません', '下の枠から、最初の参考画像を選んでください。'));
+    if (!rec.samples.length) list.append(empty('まだ画像がありません', '上の「画像を選ぶ」から追加してください。'));
   };
-  paint(await load());
+  let record = await load(); paint(record);
   if (!pendingFiles.has(key)) pendingFiles.set(key, []);
   const pending = pendingFiles.get(key);
   pending.listeners ||= new Set();
   const notifyPending = () => pending.listeners.forEach(fn => fn());
   const tray = h('div', { class: 'sample-grid pending-grid' });
-  const label = h('span');
+  const label = h('p', { class: 'upload-status', role: 'status' });
   const fileInput = h('input', { type: 'file', multiple: true, accept: 'image/*', class: 'sr-only', id: `sample-upload-${kind}`, onchange: () => { addFiles(fileInput.files); fileInput.value = ''; } });
-  const drop = h('label', { class: 'dropzone', for: fileInput.id }, fileInput, h('span', { class: 'upload-symbol' }, icon('upload', 24)), h('strong', {}, '画像を選ぶ'), h('span', { class: 'muted small' }, '複数選択・ドラッグ＆ドロップに対応'));
-  const addFiles = files => { if (pending.busy) return; for (const file of files) pending.push({ file, url: URL.createObjectURL(file), caption: '', status: '追加前' }); notifyPending(); };
+  const drop = h('label', { class: 'dropzone', for: fileInput.id }, fileInput, h('span', { class: 'upload-symbol' }, icon('upload', 24)), h('strong', {}, '画像を選ぶ'), h('span', { class: 'muted small' }, '選択すると追加します・複数選択できます'));
+  const addFiles = files => {
+    if (pending.busy) return;
+    for (const file of files) pending.push({ file, url: URL.createObjectURL(file), caption: '', status: '追加待ち' });
+    if (pending.length) upload();
+  };
   drop.addEventListener('dragover', event => { event.preventDefault(); drop.classList.add('dragging'); });
   drop.addEventListener('dragleave', () => drop.classList.remove('dragging'));
   drop.addEventListener('drop', event => { event.preventDefault(); drop.classList.remove('dragging'); addFiles(event.dataTransfer.files); });
-  const add = button([icon('plus'), '選んだ画像を追加'], e => action(e.currentTarget, async () => {
+  const upload = () => {
     if (!pending.length || pending.busy) return;
-    pending.busy = true; notifyPending(); let added = 0;
+    pending.busy = true; pending.error = ''; notifyPending();
+    pending.promise = (async () => {
     try {
       while (pending.length) {
         const item = pending[0];
         if (!item.path) { item.status = '転送中'; notifyPending(); item.path = (await API.upload([item.file]))[0].path; }
-        item.status = '台帳へ追加中'; notifyPending();
+        item.status = '保存中'; notifyPending();
         const rec = await addSample(name, item.path, item.caption);
-        pending.shift(); URL.revokeObjectURL(item.url); added++; pending.latest = rec; notifyPending(); changed(rec);
+        pending.shift(); URL.revokeObjectURL(item.url); pending.latest = rec; notifyPending();
       }
-      notice(`${added} 枚を参考画像に追加しました`);
     } catch (error) {
       if (pending[0]) pending[0].status = '追加できませんでした';
-      throw new Error(`${added} 枚は追加済みです。残りの画像: ${error.message}`);
+      pending.error = error.message;
+      notice(`画像を追加できませんでした：${error.message}`, true);
     } finally { pending.busy = false; notifyPending(); }
-  }));
+    })();
+  };
+  const retry = button('追加できなかった画像を再送する', upload, 'quiet');
   function renderPending() {
-    label.textContent = pending.length ? `${pending.length} 枚を選択中 · まだ参考画像には追加されていません` : '';
+    label.textContent = pending.busy ? `画像を追加しています… 残り ${pending.length} 枚` : pending.error ? `追加できませんでした：${pending.error}` : `${record.samples.length} 枚を追加済み`;
     tray.replaceChildren(...pending.map((item, index) => {
-      const cap = h('textarea', { rows: 2, disabled: pending.busy, 'aria-label': `${item.file.name} の説明`, placeholder: 'この画像の説明（任意）', oninput: event => { item.caption = event.target.value; } }, item.caption);
-      return h('article', { class: 'sample-card pending' }, h('div', { class: 'picture' }, h('img', { src: item.url, alt: item.file.name })), h('div', { class: 'sample-content stack' }, h('strong', { class: 'truncate' }, item.file.name), h('small', { class: 'muted' }, item.status), cap, button('選択から外す', () => { if (pending.busy) return; pending.splice(index, 1); URL.revokeObjectURL(item.url); notifyPending(); }, 'text-button')));
+      return h('article', { class: 'sample-card pending' }, h('div', { class: 'picture' }, h('img', { src: item.url, alt: item.file.name })), h('div', { class: 'sample-content stack' }, h('strong', { class: 'truncate' }, item.file.name), h('small', { class: 'muted' }, item.status), pending.busy ? null : button('この画像を取り消す', () => { pending.splice(index, 1); URL.revokeObjectURL(item.url); if (!pending.length) pending.error = ''; notifyPending(); }, 'text-button')));
     }));
-    add.hidden = !pending.length; add.disabled = !!pending.busy; fileInput.disabled = !!pending.busy; drop.classList.toggle('uploading', !!pending.busy);
+    retry.hidden = !pending.error; retry.disabled = !!pending.busy; fileInput.disabled = !!pending.busy; drop.classList.toggle('uploading', !!pending.busy);
+    availability(!pending.length && !pending.busy && !!record.samples.length, pending.busy ? '画像を追加しています。完了すると次へ進めます。' : pending.length ? '追加できなかった画像を再送するか、取り消してください。' : record.samples.length ? '' : '画像を選んでください。');
   }
   let lastRecord = pending.latest;
-  const onPending = () => { if (pending.latest && pending.latest !== lastRecord) { lastRecord = pending.latest; paint(pending.latest); } renderPending(); };
+  const onPending = () => { if (pending.latest && pending.latest !== lastRecord) { lastRecord = pending.latest; record = pending.latest; paint(record); changed(record); } renderPending(); };
   pending.listeners.add(onPending); cleanup.push(() => pending.listeners.delete(onPending));
-  renderPending(); target.append(h('div', { class: 'upload-section stack' }, drop, label, tray, h('div', { class: 'actions' }, add)), h('p', { class: 'muted small' }, '説明の下書きはこの端末に保存します。選択中のファイルは、ページを再読み込みすると選び直しになります。'));
-  const editor = await commentEditor(target, { name, kind, stage: 'samples' });
-  return editor.save;
-}
-
-async function training(target, kind, name, cleanup) {
-  const rec = await (kind === 'character' ? API.character(name) : API.style(name));
-  const editor = await commentEditor(target, { name, kind, stage: 'training' });
-  const steps = input(`${kind}:${name}:steps`, '1200', { type: 'number', min: 1, step: 1 });
-  const history = await API.jobs();
-  let prepared = history.find(job => job.kind === 'lora_train' && job.status === 'awaiting_confirmation' && job.record_kind === kind && job.record_key === rec.key && job.record_created === rec.created) || null;
-  const materials = h('div', { class: 'stack' });
-  const execution = h('div');
-  const paint = () => {
-    materials.replaceChildren(...(prepared ? [trainingMaterials(prepared), h('p', { class: 'callout' }, 'この教材は保存した写しです。後から変更した画像・説明・ステップを含めるには、下のボタンで教材を作り直してください。')] : [h('p', { class: 'muted' }, '画像説明を採用してから、学習する教材を表示してください。')]));
-    execution.hidden = !prepared;
-    const start = execution.querySelector('button');
-    if (start) start.disabled = prepared?.status !== 'awaiting_confirmation';
-  };
-  execution.append(taskPanel({ kind: 'lora_train', name, tool: kind === 'character' ? 'train_character_lora' : 'train_style_lora' }, '学習', '表示した教材で学習を開始', async () => {
-    if (!prepared) throw new Error('先に学習する教材を表示してください。');
-    await editor.save();
-    return (kind === 'character' ? API.train : API.trainStyle)(name, prepared.steps, prepared.job_id);
-  }, cleanup, job => { if (prepared?.job_id === job.job_id) { prepared = job; paint(); } }, { existingJob: () => prepared, canStart: () => prepared?.status === 'awaiting_confirmation' }));
-  target.append(advanced(field('学習ステップ', steps, '教材を作る時点の値を保存します。学習は開始ボタンを押すまで始まりません。')), materials,
-    button('学習する教材を表示・作り直す', e => action(e.currentTarget, async () => { await editor.save(); prepared = await API.prepareTraining(name, kind, number(steps)); paint(); })), execution);
-  if (rec.lora_name) target.append(h('details', {}, h('summary', {}, '現在のLoRAが学習した教材'), trainingMaterials(history.find(job => job.job_id === rec.train_job && job.status === 'completed' && job.lora_name === rec.lora_name), '学習時の教材')));
-  paint();
-  return editor.save;
+  const uploading = h('div', { class: 'upload-section stack' }, drop, label, tray, retry);
+  target.insertBefore(uploading, list);
+  renderPending();
+  const notes = await referenceNotes(target, { name, kind });
+  if (pending.length && !pending.busy && !pending.error) upload();
+  return async () => { await pending.promise; if (pending.length) throw new Error('追加できなかった画像を確認してください。'); await flushCaptions(kind, name); await notes.save(); };
 }
 async function styleSelect(ctx, key) {
   const styles = await API.styles();
@@ -162,7 +152,10 @@ async function styleSelect(ctx, key) {
 }
 async function previewStep(target, ctx, styled, cleanup) {
   const name = ctx.character, style = styled ? ctx.style : ''; const key = `preview:${name}:${style}`;
-  const editor = await commentEditor(target, { name, kind: 'character', stage: 'preview' });
+  const wishes = h('details', { class: 'optional-wishes' }, h('summary', {}, '顔・体形・衣装を調整する（任意）'));
+  const editor = await commentEditor(wishes, { name, kind: 'character', stage: 'preview', cleanup });
+  wishes.open = !!wishes.querySelector('textarea').value;
+  target.append(h('p', {}, 'まず2枚描いて、参考画像の顔立ち・体形・衣装が引き継がれているか確かめます。'), wishes);
   const tags = input(`${key}:tags`, 'full body, standing, front view, looking at viewer', { multiline: true, rows: 3 }); const seed = seedControl(key);
   target.append(advanced(characterStrength(await API.character(name)), field('英語の自由入力（解釈した注文を使わない場合）', tags, '注文を解釈して使う場合は既定値のままにします。姿勢などは上の制作への注文へ書いてください。'), field('Seed', seed, '同じ数値で構図を比較できます。')),
     taskPanel({ kind: 'preview', name, style }, 'プレビュー', '2 枚で確かめる', async () => { await editor.save(); const content = requireText(tags, '内容'); return API.previewCharacter(name, content, number(seed), 2, style, previewIntentJob(editor, content)); }, cleanup));
@@ -179,19 +172,21 @@ export function drawingInput(editor, mode, text) {
 }
 async function drawing(target, ctx, kind, cleanup) {
   const name = kind === 'character' ? ctx.character : ctx.style; const key = `draw:${kind}:${name}`;
-  const editor = await commentEditor(target, { name, kind, stage: 'drawing' });
+  const editor = await commentEditor(target, { name, kind, stage: 'drawing', cleanup });
   const prompt = input(`${key}:prompt`, '', { multiline: true, rows: 5, placeholder: '例：standing by the window, morning light, holding a cup' });
   const seed = seedControl(key); const style = kind === 'character' ? await styleSelect(ctx, key) : null;
   const mode = h('select', { 'aria-label': '注文の使い方' }, h('option', { value: 'intent' }, '解釈して採用した注文で描く'), h('option', { value: 'english' }, '英語の自由入力で描く'));
-  target.append(field('注文の使い方', mode, '解釈した注文を使う時は、下の英語欄は使いません。場所やポーズも制作への注文に含めてください。'), ...(style ? [field('合わせる画風', style)] : []),
-    advanced(kind === 'character' ? characterStrength(await API.character(name)) : null, field('英語の自由入力', prompt, '自由入力を選んだ時に使います。共通条件がある場合は併用できないため、内容を制作への注文に含めて解釈してください。'), field('Seed', seed)),
+  target.append(...(style ? [field('合わせる画風', style)] : []),
+    advanced(field('注文の使い方', mode), kind === 'character' ? characterStrength(await API.character(name)) : null, field('英語の自由入力', prompt, '自由入力を選んだ時だけ使います。'), field('Seed', seed)),
     taskPanel(kind === 'character' ? { kind: 'from_bible', name } : { kind: 'image', style: name }, '新しい一枚', 'この内容で描く', async () => { await editor.save(); const selected = drawingInput(editor, mode.value, prompt.value); return kind === 'character' ? API.fromBible(name, selected.prompt, number(seed), style.value, selected.intentJobId) : API.image(selected.prompt, name, number(seed), selected.intentJobId); }, cleanup));
   return editor.save;
 }
 async function sheet(target, ctx, styled, cleanup) {
   const name = ctx.character; const rec = await API.character(name); const seed = seedControl(`sheet:${name}`);
   const layout = await layoutEditor(target, name, cleanup);
-  const editor = await commentEditor(target, { name, kind: 'character', stage: 'sheet' });
+  const wishes = h('details', { class: 'optional-wishes' }, h('summary', {}, '設定画全体の見た目を調整する（任意）'));
+  const editor = await commentEditor(wishes, { name, kind: 'character', stage: 'sheet', cleanup });
+  wishes.open = !!wishes.querySelector('textarea').value; target.append(wishes);
   const existing = h('div', { class: 'stack' }); const edit = h('div', { class: 'stack' }); let editingReady = false; let refreshEditor;
   const showExisting = record => { if (record.bible?.sheet_path) existing.replaceChildren(h('h3', {}, '保存してある設定画'), picture(record.bible.sheet_path, `${name}の設定画`, { version: record.bible.at })); };
   showExisting(rec);
@@ -204,7 +199,7 @@ async function redraw(target, name, rec, cleanup, updated) {
   let panels = await API.panels(name, true); const key = `redraw:${name}`; let selected = panels.find(p => p.key === draft(`${key}:panel`)) || panels[0];
   const picker = h('div', { class: 'panel-picker' }); const selectedTitle = h('h3');
   const commentBox = h('div'); let panelEditor, changing = false;
-  const loadComment = async () => { commentBox.replaceChildren(); panelEditor = await commentEditor(commentBox, { name, kind: 'character', stage: 'panel', panel: selected.key }); };
+  const loadComment = async () => { panelEditor?.dispose(); commentBox.replaceChildren(); panelEditor = await commentEditor(commentBox, { name, kind: 'character', stage: 'panel', panel: selected.key, cleanup }); };
   const mode = h('select', { 'aria-label': 'パネルの注文の使い方' }, h('option', { value: 'intent' }, '解釈して採用した注文で描き直す'), h('option', { value: 'english' }, '英語の自由入力で描き直す'));
   const tags = h('textarea', { rows: 3, oninput: e => saveDraft(`${key}:${selected.key}:tags`, e.target.value) });
   const avoid = h('input', { placeholder: '例：frills, boots', oninput: e => saveDraft(`${key}:${selected.key}:avoid`, e.target.value) }); const seed = seedControl(key);
@@ -240,6 +235,13 @@ export function flow(root, id) {
   const crumbs = h('ol', { class: 'steps', 'aria-label': '制作の工程' }); const body = h('section', { class: 'step-body stack' }); const aside = h('aside', { class: 'context-card' }); const nav = h('footer', { class: 'step-navigation' });
   const isStyle = ['style', 'styleonly'].includes(id);
   const keyKind = isStyle ? 'style' : 'character';
+  let nextButton, nextHint, canAdvance = false, furthest = 0;
+  const availability = (ready, reason = '') => {
+    canAdvance = ready;
+    if (nextButton) nextButton.disabled = !ready;
+    if (nextHint) nextHint.textContent = reason;
+    crumbs.querySelectorAll('button').forEach((control, step) => { control.disabled = step > index && (!ready || step > furthest); });
+  };
   const hints = { sheet: ['まず、作りたい子を選びましょう。', '画像と説明を一枚ずつ確かめましょう。', 'ここで初めて学習を始めます。', '顔や衣装を見て、先へ進むか決めましょう。', '全体を見て、気になるパネルを直せます。'], draw: ['描きたいキャラクターを選びましょう。', '思い浮かべた場面を、言葉にしてみましょう。'], restyle: ['画風を変えたいキャラクターを選びましょう。', '試してみたい画風を選びましょう。', '顔と衣装が保たれているか確かめましょう。', '選んだ画風で設定画も作れます。'], style: ['この画風に、名前をつけましょう。', '好きな線や色づかいが伝わる画像を。', '画像の描き方を覚えます。', '別の被写体でも、好きな絵になりますか？'], styleonly: ['使いたい画風を選びましょう。', '被写体は自由に。言葉から描いてみましょう。'] };
   let contextVersion = 0;
   const refreshContext = async supplied => {
@@ -247,7 +249,9 @@ export function flow(root, id) {
     const current = ++contextVersion;
     const name = ctx[keyKind]; const rec = supplied || (name ? await (isStyle ? API.style(name) : API.character(name)).catch(() => null) : null);
     if (disposed || current !== contextVersion) return;
+    furthest = !rec ? 0 : ['sheet', 'style'].includes(id) ? rec.lora_name ? spec.steps.length - 1 : rec.samples.length ? 2 : 1 : spec.steps.length - 1;
     aside.replaceChildren(h('p', { class: 'eyebrow' }, 'YOUR PROJECT'), rec ? picture(cover(rec), rec.name) : h('div', { class: 'context-placeholder' }, icon(spec.icon, 48)), h('h3', {}, rec?.name || 'これから始まる一枚'), h('p', { class: 'muted small' }, rec ? `${rec.samples.length} 枚の参考画像 · ${rec.lora_name ? '学習済み' : '未学習'}` : '画像を見ながら、一歩ずつ。'), h('hr'), h('p', { class: 'small' }, hints[id][index]), h('p', { class: 'muted small' }, '前の工程へ戻って直せます。学習と生成は、ボタンを押したときに始まります。'));
+    if (index === 0) availability(!!rec && (['sheet', 'style'].includes(id) || !!rec.lora_name), rec ? !['sheet', 'style'].includes(id) && !rec.lora_name ? '学習済みのキャラクター・画風を選んでください。' : '' : '選ぶか、新しく登録してください。');
   };
   const valid = async destination => {
     if (destination === 0) return true;
@@ -260,7 +264,7 @@ export function flow(root, id) {
     if (id === 'restyle' && destination >= 2) { if (!ctx.style || !(await API.style(ctx.style)).lora_name) throw new Error('学習済みの画風を選んでください。'); }
     return true;
   };
-  const move = async destination => { try { await saveStep(); await valid(destination); if (disposed) return; index = destination; await render(); body.focus({ preventScroll: true }); body.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (error) { notice(error.message, true); } };
+  const move = async destination => { if (destination > index && !canAdvance) return; try { await saveStep(); await valid(destination); if (disposed) return; index = destination; await render(); body.focus({ preventScroll: true }); body.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (error) { notice(error.message, true); } };
   async function render() {
     const current = ++version; cleanup.forEach(fn => fn()); const ownedCleanup = []; cleanup = ownedCleanup;
     saveStep = async () => {};
@@ -268,14 +272,19 @@ export function flow(root, id) {
     crumbs.replaceChildren(...spec.steps.map((title, step) => h('li', {}, h('button', { type: 'button', class: `step ${step === index ? 'active' : step < index ? 'past' : ''}`, 'aria-current': step === index ? 'step' : null, onclick: () => move(step) }, h('span', { class: 'step-number' }, step < index ? icon('check', 14) : step + 1), h('span', {}, title)))));
     body.replaceChildren(h('div', { class: 'step-heading' }, h('p', { class: 'eyebrow' }, `STEP ${String(index + 1).padStart(2, '0')} / ${String(spec.steps.length).padStart(2, '0')}`), h('h2', {}, spec.steps[index]), h('p', { class: 'muted' }, hints[id][index])));
     const content = h('div', { class: 'stack' }); body.append(content);
-    nav.replaceChildren(index > 0 ? button('← 前の工程', () => move(index - 1), 'quiet') : link('スタジオへ', '#/', 'text-link'), h('span', { class: 'muted small' }, `${index + 1} / ${spec.steps.length}`), index < spec.steps.length - 1 ? button([`次へ：${spec.steps[index + 1]}`, icon('arrow', 18)], () => move(index + 1)) : link(['作品を見る', icon('arrow')], '#/library'));
+    nextButton = index < spec.steps.length - 1 ? button([`次へ：${spec.steps[index + 1]}`, icon('arrow', 18)], () => move(index + 1)) : null;
+    nextHint = h('p', { class: 'small muted', role: 'status' });
+    nav.replaceChildren(index > 0 ? button('← 前の工程', () => move(index - 1), 'quiet') : link('スタジオへ', '#/', 'text-link'), h('div', { class: 'next-step' }, nextHint, nextButton || link(['作品を見る', icon('arrow')], '#/library')));
+    availability(false, '読み込んでいます…');
     try {
       await refreshContext(); if (disposed || current !== version) return;
+      const setReady = (ready, reason) => { if (!disposed && current === version) { if (ready && index === 2 && ['sheet', 'style'].includes(id)) furthest = spec.steps.length - 1; availability(ready, reason); } };
+      if (index > 0 && !(['sheet', 'style'].includes(id) && [1, 2].includes(index))) setReady(true);
       let nextSave = async () => {};
       if (index === 0) await choose(content, keyKind, ctx, ['sheet', 'style'].includes(id), () => refreshContext().catch(error => notice(error.message, true)));
       else if (id === 'restyle' && index === 1) await choose(content, 'style', ctx, false, () => {});
-      else if (['sheet', 'style'].includes(id) && index === 1) nextSave = await samples(content, keyKind, ctx[keyKind], ownedCleanup, rec => refreshContext(rec).catch(error => notice(error.message, true)));
-      else if (['sheet', 'style'].includes(id) && index === 2) nextSave = await training(content, keyKind, ctx[keyKind], ownedCleanup);
+      else if (['sheet', 'style'].includes(id) && index === 1) nextSave = await samples(content, keyKind, ctx[keyKind], ownedCleanup, rec => refreshContext(rec).catch(error => notice(error.message, true)), setReady);
+      else if (['sheet', 'style'].includes(id) && index === 2) nextSave = await learning(content, keyKind, ctx[keyKind], ownedCleanup, setReady);
       else if (id === 'sheet' && index === 3 || id === 'restyle' && index === 2) nextSave = await previewStep(content, ctx, id === 'restyle', ownedCleanup);
       else if (id === 'sheet' && index === 4 || id === 'restyle' && index === 3) nextSave = await sheet(content, ctx, id === 'restyle', ownedCleanup);
       else nextSave = await drawing(content, ctx, keyKind, ownedCleanup);

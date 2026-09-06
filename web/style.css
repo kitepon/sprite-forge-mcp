@@ -86,6 +86,18 @@
   .context-placeholder { height: 140px; display: grid; place-items: center; color: #a5b28c; }
 }
 @layer components {
+  .learning-images { display: grid; grid-template-columns: repeat(auto-fit, minmax(65px, 1fr)); gap: 10px; }
+  .learning-images figure { min-width: 0; margin: 0; }
+  .learning-images .picture { height: 96px; }
+  .learning-images figcaption { display: block; margin-top: 7px; font-size: 12px; }
+  .learning-images figcaption p { margin-top: 4px; overflow-wrap: anywhere; }
+  .next-step { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; max-width: 65%; text-align: right; }
+  .next-step p:empty { display: none; }
+  .upload-status { color: var(--green); font-size: 13px; }
+  .optional-wishes, .layout-manual { padding: 14px 0; border-top: 1px solid var(--line); }
+  .optional-wishes > .intent-editor { margin-top: 16px; }
+  .layout-manual > .layout-list { margin-top: 18px; }
+  .layout-outline { display: flex; flex-wrap: wrap; gap: 7px; }
   .hero { position: relative; display: grid; grid-template-columns: 1.1fr 1fr; min-height: 392px; border: 1px solid #e0e5d2; border-radius: 25px; background: #e9eddc; overflow: hidden; }
   .hero-copy { padding: 39px 0 32px 37px; z-index: 2; } .hero .eyebrow { display: flex; align-items: center; gap: 9px; font-size: 9px; }
   .tiny-dot { background: #779156; width: 5px; height: 5px; border-radius: 50%; }

@@ -29,7 +29,7 @@ from .config import CACHE, CHARACTERS, STYLES, UPLOADS
 from .events import EventStore
 from .intent_service import IntentServices
 from .intent_runner import interpret
-from .intent import PREVIEW_TAGS, drawing_content, generation_negative, preview_content
+from .intent import IntentRequest, Proposal, PREVIEW_TAGS, drawing_content, generation_negative, preview_content
 from .panel_intent import resolve_panel, saved_corrections
 from .sheet_layout import LayoutServices, layout_for, matching_keys, panel_from
 
@@ -627,6 +627,61 @@ class Services(IntentServices, LayoutServices):
             record.update(lora_name=job["lora_name"], train_job=job["job_id"], steps=job["steps"])
             self._save_character(record)
         return job
+
+    async def _learning_comments(self, name: str, kind: str) -> dict[str, str]:
+        history = await self.list_comment_intents(name, kind)
+        return {stage: next((j["original_comment"] for j in history
+                             if j["stage"] == stage and "learning_steps" not in j), "")
+                for stage in ("samples", "training")}
+
+    async def start_learning(self, name: str, kind: str = "character", steps: int = 1200) -> dict:
+        """画像の読取りから学習まで進める。希望の解釈・質問がある場合だけ確認で止まる。"""
+        if kind not in ("character", "style") or steps < 1:
+            raise ValueError("学習対象とステップ数を確認してください。")
+        record = self._intent_record(name, kind)
+        if not record["samples"]:
+            raise ValueError("参考画像を追加してください。")
+        for prior in await self.list_comment_intents(name, kind):
+            if "learning_steps" not in prior:
+                continue
+            training = self.events.load_job(prior["training_job_id"]) if prior.get("training_job_id") else None
+            if prior["status"] == "running" or training and training["status"] in ("queued", "running"):
+                raise ValueError("この対象は学習の準備・実行中です。画面の制作状況を確認してください。")
+        comments = await self._learning_comments(name, kind)
+        text = "\n\n".join(f"{label}: {comments[stage]}" for stage, label in
+                           (("samples", "参考画像への希望"), ("training", "学習への補足")) if comments[stage].strip())
+        job = await self.save_comment(IntentRequest(name=name, kind=kind, stage="training", comment=text))
+        job.update(learning_steps=steps, learning_source_comments=comments)
+        self.events.save_job(job)
+        job = await self.interpret_saved_comment(job["job_id"])
+        proposal = Proposal.model_validate(job["proposal"])
+        if proposal.questions or proposal.changes:
+            return job
+        return await self.confirm_learning(job["job_id"], proposal)
+
+    async def confirm_learning(self, job_id: str, proposal: Proposal) -> dict:
+        """一度の確認で希望と画像説明を採用し、教材を固定して学習する。"""
+        job = self.events.load_job(job_id)
+        if not job or "learning_steps" not in job or job.get("training_job_id"):
+            raise ValueError("学習開始前の確認内容を指定してください。")
+        if proposal.questions:
+            raise ValueError("確認事項への回答を希望に追記して、もう一度読み取ってください。")
+        record = self._intent_record(job["name"], job["record_kind"])
+        references = [{"record_key": record["key"], "sample_index": s["index"], "path": s["path"]} for s in record["samples"]]
+        if (references != job["references"] or [s.get("caption", "") for s in record["samples"]] != job["image_comments"]
+                or await self._learning_comments(job["name"], job["record_kind"]) != job["learning_source_comments"]):
+            raise ValueError("画像か希望が変わっています。最新の内容でもう一度学習を始めてください。")
+        # 希望を教材へ混ぜず、読取り結果だけを保存する。別々に確認する旧APIも維持する。
+        if not job.get("accepted_observations"):
+            job = await self.confirm_training_observations(job_id, proposal.observations)
+        if job["status"] != "confirmed":
+            job = await self.confirm_comment_intent(job_id, proposal)
+        prepared = await self.prepare_training(job["name"], job["record_kind"], job["learning_steps"])
+        job["training_job_id"] = prepared["job_id"]
+        self.events.save_job(job)
+        train = self.train_character_lora if job["record_kind"] == "character" else self.train_style_lora
+        await train(job["name"], prepared["steps"], prepared["job_id"])
+        return self.events.load_job(job_id)
 
     async def prepare_training(self, name: str, kind: str = "character", steps: int = 1200) -> dict[str, Any]:
         """確認用の教材を凍結する。GPUや学習器は起動しない。"""

@@ -104,9 +104,9 @@ def safe_name(value: str) -> str:
 def subject_tag(char_desc: str) -> str:
     """The count/subject tag Anima expects; taken from the owner's description, never assumed."""
     description = f" {re.sub(r'[^a-z]+', ' ', char_desc.lower())} "
-    if any(token in description for token in (" she ", " her ", "female", "woman", "girl")):
+    if any(token in description for token in (" she ", " her ", "female", "woman", "girl")) or any(token in char_desc for token in ("女性", "女の子", "少女")):
         return "1girl"
-    if any(token in description for token in (" he ", " him ", "male", "man", "boy")):
+    if any(token in description for token in (" he ", " him ", "male", "man", "boy")) or any(token in char_desc for token in ("男性", "男の子", "少年")):
         return "1boy"
     return "1other"
 

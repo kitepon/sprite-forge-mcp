@@ -1,9 +1,24 @@
 import { API } from './api.js?v=studio-2';
 import { h, field, button, picture, action, notice } from './ui.js?v=studio-2';
 import { draft, saveDraft, clearDraft } from './drafts.js?v=studio-2';
+import { subscribe, jobs, connectionError } from './jobs.js?v=studio-2';
 
 const features = { face: '顔', hair: '髪', outfit: '衣装', style: '描き方', expression: '表情', pose: '姿勢・向き', accessory: '小物', background: '背景', subject: '被写体', composition: '構図', lighting: '光' };
 const scopes = { persistent: '今後も共通', this_run: '今回だけ', panel: 'このパネルに残す' };
+const captionSaves = new Map();
+
+export function saveCaption(kind, name, sample, value) {
+  const key = `${kind}:${name}:caption:${sample.index}:${sample.path}`;
+  const previous = captionSaves.get(key) || Promise.resolve();
+  const request = previous.catch(() => {}).then(async () => {
+    await (kind === 'character' ? API.setCaption : API.setStyleCaption)(name, sample.index, value);
+    if (draft(key, sample.caption || '') === value) clearDraft(key);
+  });
+  captionSaves.set(key, request);
+  const finish = () => { if (captionSaves.get(key) === request) captionSaves.delete(key); };
+  request.then(finish, finish);
+  return request;
+}
 
 export async function flushCaptions(kind, name) {
   const record = await (kind === 'character' ? API.character(name) : API.style(name));
@@ -11,18 +26,45 @@ export async function flushCaptions(kind, name) {
     const key = `${kind}:${name}:caption:${sample.index}:${sample.path}`;
     const value = draft(key, sample.caption || '');
     if (value === (sample.caption || '')) continue;
-    await (kind === 'character' ? API.setCaption : API.setStyleCaption)(name, sample.index, value);
-    if (draft(key, sample.caption || '') === value) clearDraft(key);
+    await saveCaption(kind, name, sample, value);
   }
 }
 
-export async function commentEditor(target, { name, kind, stage, panel = '', interpretEnabled = true }) {
+export async function referenceNotes(target, { name, kind, stage = 'samples' }) {
+  const key = `intent:${kind}:${name}:${stage}:`;
+  const history = await API.commentIntents(name, kind);
+  const prior = history.find(j => j.stage === stage && !j.panel && j.learning_steps === undefined);
+  let saved = prior?.original_comment || '';
+  const input = h('textarea', { rows: 3, 'aria-label': stage === 'samples' ? '画像から採用したい特徴' : '学習への補足', placeholder: '例：2枚目から顔立ち、4枚目から体形と衣装を採用してほしい。' }, draft(key, saved));
+  const status = h('p', { class: 'draft-status', role: 'status' }, '任意です。入力した希望は自動で保存します。');
+  let saving = Promise.resolve();
+  const save = () => {
+    saving = saving.catch(() => {}).then(async () => {
+    const value = input.value;
+    if (value === saved) return;
+    status.textContent = '希望を保存しています…';
+    try {
+      await API.saveComment({ name, kind, stage, panel: '', comment: value });
+      saved = value;
+      if (input.value === value) { clearDraft(key); status.textContent = '保存済み'; }
+    } catch (error) { status.textContent = `保存できませんでした：${error.message}`; throw error; }
+    });
+    return saving;
+  };
+  input.addEventListener('input', () => { saveDraft(key, input.value); status.textContent = '入力中・移動する前に保存します'; });
+  input.addEventListener('blur', () => save().catch(error => notice(error.message, true)));
+  target.append(field(stage === 'samples' ? '画像から採用したい特徴（任意）' : '学習への補足（任意）', input, '画像ごとの希望と一緒に、学習を始めるときに読み取ります。'), status);
+  return { save, input };
+}
+
+export async function commentEditor(target, { name, kind, stage, panel = '', interpretEnabled = true, learningJob = null, onLearningConfirm = null, cleanup = [] }) {
   const key = `intent:${kind}:${name}:${stage}:${panel}`;
   let job = null, savedText = '', busy = false, saveVersion = 0;
   const input = h('textarea', { rows: 3, placeholder: '例：4枚目の衣装を今後も使って。顔と髪はそのままで。', 'aria-label': '制作への注文' });
   const status = h('p', { class: 'draft-status', role: 'status' });
   const output = h('div', { class: 'intent-proposal stack' });
-  const box = h('section', { class: 'intent-editor stack' }, h('h3', {}, '言葉で、作りたい姿へ'), h('span', { class: 'badge' }, '研究中の機能'), h('p', { class: 'muted small' }, 'コメントから生成条件を提案します。採用しても、学習済みの特徴などの影響で、衣装・向き・背景が十分に反映されない場合があります。生成画像を確認してご利用ください。'), field('制作への注文', input, '画像ごとのコメントも一緒に読みます。解釈案を確認してから採用できます。'), status);
+  const titles = { preview: '顔や衣装の調整', drawing: '描きたい内容', sheet: '設定画全体への希望', panel: 'このパネルの修正', samples: '画像から採用したい特徴', training: '読み取った希望の確認' };
+  const box = h('section', { class: 'intent-editor stack' }, h('h3', {}, titles[stage]), h('span', { class: 'badge' }, '研究中の機能'), h('p', { class: 'muted small' }, learningJob ? '希望の解釈を確認してください。画像の説明と希望を保存し、続けて学習を始めます。' : '希望を読み取り、確認してから反映します。十分に反映されない場合は生成画像を見て調整してください。'), learningJob ? null : field('制作への注文', input, '日本語で書けます。'), status);
   input.addEventListener('input', () => { saveDraft(key, input.value); status.textContent = input.value === savedText ? '原文は保存済み' : '未保存の変更があります'; });
   const paint = (edits = null) => {
     output.replaceChildren();
@@ -30,11 +72,16 @@ export async function commentEditor(target, { name, kind, stage, panel = '', int
     if (job?.status === 'confirmed' && job.accepted.changes.some(c => c.style_deferred)) status.textContent = '採用済みです。画風の希望は保留中です';
     if (input.value !== savedText) status.textContent = '未保存の変更があります';
     if (!job) return;
+    if (busy || job.status === 'running') {
+      output.append(h('div', { class: 'layout-waiting', role: 'status' }, h('strong', {}, '希望を読み取っています'), h('span', { class: 'elapsed', 'data-started': job.created_at || new Date().toISOString() }),
+        h('p', {}, '完了すると確認内容をここに表示します。'), connectionError ? h('p', { class: 'error-text' }, `状況を更新できません：${connectionError}`) : null));
+      return;
+    }
     if (job.error) output.append(h('p', { class: 'error-text' }, job.error));
-    if (job.references.length) output.append(h('div', { class: 'intent-references' }, job.references.map((ref, index) => h('figure', {}, picture(ref.path, `注文時の画像 ${index + 1}`, { plain: true }), h('figcaption', {}, `注文時の画像 ${index + 1}`)))));
+    if (job.references.length && !learningJob) output.append(h('details', {}, h('summary', {}, '参照した画像'), h('div', { class: 'intent-references' }, job.references.map((ref, index) => h('figure', {}, picture(ref.path, `注文時の画像 ${index + 1}`, { plain: true }), h('figcaption', {}, `注文時の画像 ${index + 1}`))))));
     const proposal = structuredClone(job.accepted || edits?.proposal || job.proposal);
     if (!proposal) return;
-    if (proposal.questions.length) output.append(h('div', { class: 'callout stack' }, h('strong', {}, 'ここを教えてください'), proposal.questions.map(question => h('p', {}, question)), h('p', { class: 'muted small' }, '上の注文へ回答を書き足して、もう一度解釈してください。')));
+    if (proposal.questions.length) output.append(h('div', { class: 'callout stack' }, h('strong', {}, 'ここを教えてください'), proposal.questions.map(question => h('p', {}, question)), h('p', { class: 'muted small' }, learningJob ? '上の「画像から採用したい特徴」に回答を追記し、「希望を修正して読み取り直す」を押してください。' : '上の注文へ回答を書き足して、もう一度読み取ってください。')));
     for (const change of proposal.changes) {
       const sourceIndex = change.reference ? job.references.findIndex(ref => ref.record_key === change.reference.record_key && ref.sample_index === change.reference.sample_index && ref.path === change.reference.path) : -1;
       const source = sourceIndex >= 0 ? [h('p', {class:'muted small'}, `${features[change.feature]}の参照元：画像 ${sourceIndex + 1}`)] : [];
@@ -80,7 +127,7 @@ export async function commentEditor(target, { name, kind, stage, panel = '', int
       const positive = h('textarea', { rows: 2, disabled: job.status === 'confirmed', 'aria-label': `${features[change.feature]}の生成文`, oninput: e => { change.description_en = e.target.value; } }, change.description_en);
       const negative = h('input', { value: change.avoid_en, disabled: job.status === 'confirmed', 'aria-label': `${features[change.feature]}で避ける内容`, oninput: e => { change.avoid_en = e.target.value; } });
       const negativeJa = h('input', { value: change.avoid_ja || '', disabled: job.status === 'confirmed', 'aria-label': `${features[change.feature]}で避ける内容の日本語`, oninput: e => { change.avoid_ja = e.target.value; } });
-      output.append(h('article', { class: 'intent-change stack' }, h('div', { class: 'section-heading' }, h('strong', {}, features[change.feature]), scope), ...source, ...(stage === 'sheet' ? [field('対象', targetPanel)] : []), h('p', {}, change.reason_ja), field('避ける内容（日本語）', negativeJa, '除外するものがなければ空欄。訂正は上の注文へ書き足して再解釈できます。'), h('details', {}, h('summary', {}, '生成へ渡す言葉を確認・編集'), field('採用する内容（英語）', positive), field('避ける内容（英語）', negative))));
+      output.append(h('article', { class: 'intent-change stack' }, h('div', { class: 'section-heading' }, h('strong', {}, features[change.feature]), h('span', { class: 'badge' }, scopes[change.scope])), ...source, h('p', {}, change.reason_ja), change.avoid_ja ? h('p', { class: 'muted small' }, `避ける内容：${change.avoid_ja}`) : null, h('details', {}, h('summary', {}, '解釈の詳細を編集'), field('適用範囲', scope), ...(stage === 'sheet' ? [field('対象', targetPanel)] : []), field('避ける内容（日本語）', negativeJa), field('採用する内容（英語）', positive), field('避ける内容（英語）', negative))));
     }
     const observations = structuredClone(job.accepted_observations || edits?.observations || proposal.observations);
     if (['samples', 'training'].includes(stage) && observations.length) {
@@ -92,17 +139,18 @@ export async function commentEditor(target, { name, kind, stage, panel = '', int
           field('画像に見える内容', h('textarea', { rows: 3, disabled, 'aria-label': `画像 ${index + 1} の観察`, oninput: e => { item.appearance_ja = e.target.value; } }, item.appearance_ja)),
           field('学習へ渡す説明（英語）', h('textarea', { rows: 3, disabled, 'aria-label': `画像 ${index + 1} の教材説明`, oninput: e => { item.caption_en = e.target.value; } }, item.caption_en || ''))));
       }
-      observed.append(job.accepted_observations ? h('p', { role: 'status' }, '教材の説明は確認済みです。学習はまだ始まりません。') : button('この画像説明を教材に採用', e => action(e.currentTarget, async () => {
+      if (!learningJob) observed.append(job.accepted_observations ? h('p', { role: 'status' }, '教材の説明は確認済みです。学習はまだ始まりません。') : button('この画像説明を教材に採用', e => action(e.currentTarget, async () => {
         if (input.value !== savedText) throw new Error('注文が変わっています。もう一度解釈してください。');
         job = await API.confirmObservations(job.job_id, observations); paint({proposal, observations}); notice('画像の説明を教材用に保存しました。学習はまだ始まりません');
       }), 'quiet'));
-      output.append(observed);
+      output.append(learningJob ? h('details', {}, h('summary', {}, '画像の読み取りを確認・編集'), observed) : observed);
     } else if (observations.length) output.append(h('details', {}, h('summary', {}, '画像から読み取った内容'), observations.map(item => h('p', {}, item.appearance_ja))));
-    if (job.status === 'awaiting_confirmation') output.append(button('この内容を採用', e => action(e.currentTarget, async () => {
+    if (learningJob && job.status === 'awaiting_confirmation' && !proposal.questions.length) output.append(button('この内容で学習を始める', e => action(e.currentTarget, () => onLearningConfirm({ ...proposal, observations }))));
+    else if (!learningJob && job.status === 'awaiting_confirmation') output.append(button('この内容を採用', e => action(e.currentTarget, async () => {
       if (input.value !== savedText) throw new Error('注文が変わっています。もう一度解釈してください。');
       job = await API.confirmComment(job.job_id, proposal); paint({proposal, observations}); notice(proposal.changes.some(c => c.style_deferred) ? 'ほかの条件を採用しました。画風の希望は保留中です' : '確認した条件を採用しました');
     })));
-    if (job.interpreter) output.append(h('p', { class: 'muted small' }, `${job.interpreter.model} · 解釈に ${job.interpreter.elapsed_seconds} 秒`));
+    if (job.interpreter) output.append(h('details', {}, h('summary', {}, '処理の記録'), h('p', { class: 'muted small' }, `${job.interpreter.model} · 解釈に ${job.interpreter.elapsed_seconds} 秒`)));
   };
   const save = async (force = false) => {
     const version = ++saveVersion;
@@ -118,7 +166,7 @@ export async function commentEditor(target, { name, kind, stage, panel = '', int
     paint();
     return job;
   };
-  box.append(h('div', { class: 'actions' }, button('原文を保存', e => action(e.currentTarget, () => save()), 'quiet'), interpretEnabled ? button('画像と注文を解釈する', e => action(e.currentTarget, async () => {
+  if (!learningJob) box.append(h('div', { class: 'actions' }, interpretEnabled ? button('希望を読み取る', e => action(e.currentTarget, async () => {
     if (busy) return;
     const submitted = await save(true); busy = true; paint();
     try {
@@ -128,12 +176,20 @@ export async function commentEditor(target, { name, kind, stage, panel = '', int
       if (job.job_id === submitted.job_id) job = await API.job(submitted.job_id);
       throw error;
     } finally { busy = false; paint(); }
-  })) : h('p', { class: 'muted small' }, 'この工程は原文の保存のみ対応しています。解釈・実行への接続は準備中です。')), output);
-  const history = await API.commentIntents(name, kind);
-  job = history.find(item => item.stage === stage && item.panel === panel) || null;
-  savedText = job?.original_comment || ''; input.value = draft(key, savedText); paint();
+  })) : h('p', { class: 'muted small' }, '希望は工程を移るときに保存します。')));
+  box.append(output);
+  input.addEventListener('blur', () => save().catch(error => notice(error.message, true)));
+  const history = learningJob ? [] : await API.commentIntents(name, kind);
+  job = learningJob || history.find(item => item.stage === stage && item.panel === panel) || null;
+  savedText = job?.original_comment || ''; input.value = learningJob ? savedText : draft(key, savedText); paint();
+  const dispose = learningJob ? () => {} : subscribe(() => {
+    if (job?.status !== 'running' || busy) return;
+    const fresh = jobs.find(item => item.job_id === job.job_id);
+    if (fresh) { job = fresh; paint(); }
+  });
+  cleanup.push(dispose);
   target.append(box);
-  return { save, confirmedJob: () => {
+  return { save, dispose, confirmedJob: () => {
     if (input.value !== savedText || job && job.status !== 'confirmed') throw new Error('注文を解釈して、内容を採用してから生成してください。');
     return job?.job_id || '';
   } };

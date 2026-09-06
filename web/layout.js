@@ -32,9 +32,13 @@ export async function layoutEditor(target, name, cleanup = []) {
   const list = h('div', { class: 'layout-list' });
   const explanation = h('div', { class: 'stack' });
   const controls = h('fieldset', { class: 'layout-controls' });
+  const outline = h('div', { class: 'layout-outline' });
   const changed = () => !same(layoutValues(proposal.panels), saved);
   const remember = () => { saveDraft(storageKey, { jobId: job?.job_id || null, text: input.value, proposal, expected: conflict ? cached.expected : saved }); showStatus(); };
   const showStatus = () => {
+    confirmButton.hidden = !changed() && job?.status !== 'awaiting_confirmation';
+    confirmButton.disabled = busy || !!proposal.questions.length || input.value !== original;
+    outline.replaceChildren(...proposal.panels.map((p, i) => h('span', { class: 'badge' }, `${i + 1} · ${p.label}`)));
     if (busy || job?.status === 'running') {
       status.className = 'draft-status layout-waiting';
       status.textContent = `構成案を作成中 · ${Math.max(0, Math.floor((Date.now() - started) / 1000))}秒経過。${job?.original_comment === input.value ? '原文は保存済みです。' : '原文を保存しています。'}${checkError ? `状態の確認に失敗：${checkError}` : lastCheck ? `サーバー応答確認 ${new Date(lastCheck).toLocaleTimeString('ja-JP')}。` : 'サーバーの応答を待っています。'} 完了すると構成案を自動表示します。`;
@@ -141,18 +145,20 @@ export async function layoutEditor(target, name, cleanup = []) {
       saved = await API.sheetLayout(name); clearDraft(storageKey); paint();
     } finally { controls.disabled = false; }
   };
-  controls.append(field('シート構成への注文', input, '載せる項目の希望はこちらへ。衣装の種類や項目数は自由に指定できます。'),
-    h('div', { class: 'actions' }, button('原文を保存', e => action(e.currentTarget, saveOriginal), 'quiet'), button('言葉から構成案を作る', e => action(e.currentTarget, propose))), explanation, list,
-    button('項目を追加', () => {
+  const confirmButton = button('この構成を確定', e => action(e.currentTarget, confirm));
+  const manual = h('details', { class: 'layout-manual' }, h('summary', {}, '項目を手動で編集する'), list, button('項目を追加', () => {
       proposal.panels.push({ key: `custom_${crypto.randomUUID().replaceAll('-', '')}`, label: '新しい項目', section: '追加項目', kind: 'full', parts: [{ feature: 'subject', description_en: '', avoid_en: '' }], role_features: [], inherited_features: Object.keys(features), seed_offset: Math.max(-1, ...saved.map(p => p.seed_offset), ...proposal.panels.map(p => p.seed_offset)) + 1, description_ja: '描く内容を注文へ書いて構成案を作るか、詳細欄に英語で指定してください。', reference: null }); remember(); paint();
-    }, 'quiet'), button('この構成を確定', e => action(e.currentTarget, confirm)), button('下書きを保存済み構成に戻す', e => action(e.currentTarget, async () => {
+    }, 'quiet'));
+  controls.append(outline, field('シート構成への注文', input, '例：「17番を水着に変えて」。細かい項目の書き換えはAIが行います。'),
+    h('div', { class: 'actions' }, button('言葉から構成案を作る', e => action(e.currentTarget, propose))), explanation, manual, confirmButton,
+    h('details', {}, h('summary', {}, '変更を取り消す'), button('下書きを保存済み構成に戻す', e => action(e.currentTarget, async () => {
       if (job && job.status !== 'confirmed') { await API.discardLayout(job.job_id); job = null; original = ''; }
       saved = await API.sheetLayout(name); conflict = false;
       input.value = original;
       proposal = { summary_ja: '', questions: [], panels: describe(saved) };
       clearDraft(storageKey); remember(); paint();
-    }), 'quiet'));
-  target.append(h('section', { class: 'layout-editor stack' }, h('h3', {}, 'シートに載せる項目'), h('p', { class: 'muted' }, '順番と内容を選び、構成を確定してから描きます。過去のシートは変わりません。'), status, controls));
+    }), 'quiet')));
+  target.append(h('section', { class: 'layout-editor stack' }, h('h3', {}, 'シートに載せる項目'), h('p', { class: 'muted' }, 'この構成のまま描けます。変えたい項目があれば、下に希望を書いてください。'), status, controls));
   paint();
   if (job?.status === 'running') { controls.disabled = true; watch(); }
   return { save: saveOriginal, requireConfirmed: () => {
