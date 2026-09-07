@@ -20,9 +20,13 @@ SDXL ControlNet、rembg は配置しない。
 | Krea 2 | `diffusion_models/` | `krea2_raw_int8_convrot.safetensors` | `Comfy-Org/Krea-2` |
 | ToonOut | `RMBG/BiRefNet/` | `BiRefNet_toonout.safetensors`, `birefnet.py`, `BiRefNet_config.py`, `config.json` | `1038lab/BiRefNet` |
 | SAM 3.1 Multiplex | `checkpoints/` | `sam3.1_multiplex_fp16.safetensors` | `Comfy-Org/sam3.1` |
+| コメント解釈 Qwen3-VL 32B | `LLM/Qwen-VL/` | ComfyUI-QwenVL が取得する `Qwen3-VL-32B-Instruct`（8-bit） | `Qwen/Qwen3-VL-32B-Instruct` |
 
 ComfyUI-RMBG は `RMBG/BiRefNet/` を読む。SAM 3.1 は ComfyUI ネイティブ node の
-`SAM3_*` 系から `checkpoints/sam3.1_multiplex_fp16.safetensors` を選ぶ。全モデルを
+`SAM3_*` 系から `checkpoints/sam3.1_multiplex_fp16.safetensors` を選ぶ。コメント解釈は
+custom node `ComfyUI-QwenVL` の `AILab_QwenVL_Advanced` が `LLM/Qwen-VL/` の
+`Qwen3-VL-32B-Instruct` を 8-bit で読む。Qwen3-VL-8B は否定の逆転で使わない。
+`Qwen3-VL-32B-Instruct-FP8` は fox で finegrained FP8 kernel 不足により失敗した。全モデルを
 置いた後は ComfyUI を再起動し、`/object_info` の各 loader の選択肢に上記の重みが
 現れることを確認する。
 

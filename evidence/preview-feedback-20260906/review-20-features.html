@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>20枚から抽出したNGの髪型</title>
+<style>
+body{font:17px/1.7 sans-serif;max-width:1050px;margin:24px auto;padding:0 16px;background:#faf8f5;color:#222}section{background:white;padding:20px;margin:20px 0;border:1px solid #ccc}img{width:100%;height:auto}.examples{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}figure{margin:0}code{overflow-wrap:anywhere}h1{font-size:28px}h2{font-size:22px}
+</style>
+<h1>20枚から抽出したNGの髪型</h1>
+<p><strong>13枚のNGを、2種類の髪型の特徴に分けました。学習はまだ開始していません。</strong></p>
+<p>指定番号：1、2、3、5、6、7、8、11、12、14、15、16、17。理由：ツインテールではない。17は「長い髪の毛がNG」と補足済み。</p>
+<section>
+<h2>① 結ばずに下ろしたボブ状の髪 — 12枚</h2>
+<p>1、2、3、5、6、7、8、11、12、14、15、16。顎から首付近で終わる髪が顔の左右を囲み、左右に結んで垂らした束がありません。15の上向きの短い束だけは、NGの対象に含めません。</p>
+<p>ESDへ渡す概念候補：<code>chin-length loose bob haircut, untied hair hanging around both cheeks and the nape</code></p>
+</section>
+<section>
+<h2>② 背中から腰付近へ伸びる長い髪 — 17番</h2>
+<p>左右の短い結び髪とは別に、長い後ろ髪が胴体の左右へ広がっています。指摘に従い、この長い部分をNG特徴としました。</p>
+<p>ESDへ渡す概念候補：<code>long loose back hair flowing behind the shoulders down to the waist</code></p>
+<div class="examples">
+<figure><a href="/api/file?path=ng-review-20-20260906/generated/candidate-15.png"><img src="/api/file?path=ng-review-20-20260906/generated/candidate-15.png" alt="NGの15番"></a><figcaption>15：下ろしたボブ状の髪</figcaption></figure>
+<figure><a href="/api/file?path=ng-review-20-20260906/generated/candidate-17.png"><img src="/api/file?path=ng-review-20-20260906/generated/candidate-17.png" alt="NGの17番"></a><figcaption>17：腰付近までの長い後ろ髪</figcaption></figure>
+<figure><a href="/api/file?path=ng-review-20-20260906/generated/candidate-20.png"><img src="/api/file?path=ng-review-20-20260906/generated/candidate-20.png" alt="比較用の未判定20番"></a><figcaption>20：比較用・未判定</figcaption></figure>
+</div>
+</section>
+<section>
+<h2>除去対象に含めないもの</h2>
+<p>髪色、星飾り、頭頂の上向きの束、前髪、衣装、体形、瞳、画風、ポーズ、人数、別カット、背景。</p>
+<p>青い瞳はNGの2・6と未選択10に、複数人物はNGの11・16と未選択10に、別カットはNGの5と未選択18にあります。これらをNGの理由として取り込みません。未選択の7枚は比較材料で、OK教材にはしません。</p>
+</section>
+<details><summary>抽出方法と記録</summary>
+<p>今回の抽出は、会話中のアシスタントが全20枚の一覧と5・15・17の原寸画像を読解した結果です。別モデルの呼出し、画素差分、特徴ベクトルの計算は行っていません。既存の製品用画像解析モデルは gpt-5.6-terra です。</p>
+<p>除去対象から外すという判断は、ESDによる完全な属性保護を保証するものではありません。</p>
+<a href="/api/file?path=ng-review-20-20260906/features.json">構造化した抽出結果</a>
+</details>
+<p><a href="/api/file?path=ng-review-20-20260906/report.html">元の20枚を確認する</a></p>
+</html>

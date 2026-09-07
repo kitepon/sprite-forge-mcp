@@ -1,0 +1,11 @@
+{
+  "groups": [
+    {"id": "owner", "label": "本人の13件のNG", "case_ids": ["owner-01", "owner-02", "owner-03", "owner-05", "owner-06", "owner-07", "owner-08", "owner-11", "owner-12", "owner-14", "owner-15", "owner-16", "owner-17"]},
+    {"id": "collar", "label": "研究用：襟の毛皮をNGにした場合", "case_ids": ["research-collar"]},
+    {"id": "layout", "label": "研究用：複数カットをNGにした場合", "case_ids": ["research-layout"]}
+  ],
+  "probe_cases": ["owner-01", "owner-17", "research-collar", "research-layout"],
+  "probe_seeds": [504, 510],
+  "comparison_seeds": [601, 602, 603, 604, 605, 606, 607, 608, 609, 610],
+  "training": {"steps": 26, "sampling_steps": 8, "sampling_cfg": 4, "learning_rate": 0.00001, "negative_guidance": 1, "latent_shape": [1, 16, 76, 52], "seed": 37}
+}

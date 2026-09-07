@@ -1,0 +1,8 @@
+{
+  "batch": "ng-review-20-20260906",
+  "selected_ng_numbers": [1, 2, 3, 5, 6, 7, 8, 11, 12, 14, 15, 16, 17],
+  "reason": "髪型がツインテールではない",
+  "per_image_reasons": {"17": "長い髪の毛がNG"},
+  "unselected_status": "未判定",
+  "training_authorized_by_this_selection": false
+}

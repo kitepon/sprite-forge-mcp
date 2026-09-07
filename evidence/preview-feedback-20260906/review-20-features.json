@@ -1,0 +1,32 @@
+{
+  "batch": "ng-review-20-20260906",
+  "method": "会話中のアシスタントによる画像読解。全20枚の一覧と候補05・15・17の原寸画像を比較。画素差分・埋め込みベクトルの計算ではない。",
+  "separate_model_invoked": false,
+  "existing_image_interpreter": {"model": "gpt-5.6-terra", "source": "backend/intent_cli.py", "used_for_this_extraction": false},
+  "selected_ng_numbers": [1, 2, 3, 5, 6, 7, 8, 11, 12, 14, 15, 16, 17],
+  "comparison_only_numbers": [4, 9, 10, 13, 18, 19, 20],
+  "user_reason": "髪型がツインテールではない",
+  "per_image_reasons": {"17": "長い髪の毛がNG"},
+  "features": [
+    {
+      "id": "loose_bob",
+      "numbers": [1, 2, 3, 5, 6, 7, 8, 11, 12, 14, 15, 16],
+      "observation": "顎から首付近で終わる下ろし髪が顔の左右を囲む。左右に結んで垂らした束がない。05は耳状の突起、15は上向きの短い束があるが、下ろしたボブ状の髪が残る。",
+      "comparison": "未選択画像には左右へ分かれて垂れる毛束が見える。髪色や星飾りの有無ではなく、下ろした髪の形と結んだ束の構造を比較した。",
+      "erase_concept_candidate": "chin-length loose bob haircut, untied hair hanging around both cheeks and the nape",
+      "excluded": ["前髪", "顔の横の短い後れ毛だけ", "髪色", "耳状の突起", "上向きの束", "星飾り"]
+    },
+    {
+      "id": "long_back_hair",
+      "numbers": [17],
+      "observation": "左右の短い結び髪とは別に、背中から胴体の左右へ長い髪が広がり、腰付近まで伸びる。",
+      "comparison": "未選択画像ではこのような腰付近まで広がる長い後ろ髪は見えない。17はユーザーの補足に従い、短い結び髪自体ではなく長い部分をNG特徴とした。",
+      "erase_concept_candidate": "long loose back hair flowing behind the shoulders down to the waist",
+      "excluded": ["左右の短い結び髪", "毛先のピンク色", "星飾り", "上向きの束"]
+    }
+  ],
+  "global_exclusions": ["衣装", "体形", "瞳の色", "画風", "ポーズ", "人物数", "別カットの配置", "背景", "髪色"],
+  "exclusion_evidence": "青い瞳はNGの02・06と未選択10に、複数人物はNGの11・16と未選択10に、別カットはNGの05と未選択18に現れる。これらは髪型のNG理由に含めない。",
+  "training_started": false,
+  "esd_note": "2つの概念候補を別々に保持する。除外欄は抽出時の判断記録であり、ESDがその領域や属性を完全に保護する機能ではない。否定句や人物全体の説明を除去概念へ入れない。"
+}

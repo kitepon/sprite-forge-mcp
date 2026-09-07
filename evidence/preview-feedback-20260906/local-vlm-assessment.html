@@ -1,0 +1,17 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ローカル画像解析の比較判定</title>
+<style>body{font:18px/1.7 sans-serif;max-width:900px;margin:24px auto;padding:0 18px;background:#faf8f5}section{background:white;padding:18px;margin:18px 0}table{border-collapse:collapse}td,th{padding:10px;border:1px solid #bbb}</style>
+<h1>ローカル画像解析の比較判定</h1>
+<p><strong>初回の4B・8Bは両方不採用。8Bの指示を短くして再確認します。</strong></p>
+<table><tr><th>モデル</th><th>画像数</th><th>初回を除く実行時間の中央値</th><th>問題</th></tr>
+<tr><td>Qwen3-VL 4B</td><td>20枚</td><td>4.741秒／枚</td><td>短髪を長髪と誤読。17の理由を否定。集約で反復。</td></tr>
+<tr><td>Qwen3-VL 8B</td><td>20枚</td><td>4.674秒／枚</td><td>短髪・前髪を誤読。集約で17を除外。</td></tr></table>
+<p>ComfyUIの実行開始から完了までの時間。モデル読込を含む初回は中央値から除外しています。速度だけで採用しません。</p>
+<section><h2>同じ1番で指示を変えた結果</h2>
+<p>長い日本語のNG関連指示では「腰までの一束の長髪」。短い英語で、見えている髪型だけを尋ねると「肩までの、結ばれていない髪」と回答しました。</p>
+<p>腰までの長髪という誤読は消えました。言語・指示の長さ・NG語の有無を同時に変えているため、原因を一つには断定しません。</p>
+<p>この短い指示で20枚を再確認します。17の補足は全体理由より優先する確定した指示として、集約プロンプトにも明記します。</p></section>
+<p>1番の転送前後のPNGハッシュは一致しました。元画像の転送ミスは確認されていません。学習は未実施です。</p>
+<ul><li><a href="/api/file?path=ng-local-vlm-20260906/report.html">初回比較の生の回答（不採用）</a></li>
+<li><a href="/api/file?path=ng-local-vlm-neutral-20260906/report.html">1番の短い観察指示による回答</a></li>
+<li><a href="/api/file?path=ng-local-vlm-short-20260906/report.html">短い指示による20枚の再確認</a></li></ul></html>

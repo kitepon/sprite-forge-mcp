@@ -44,3 +44,8 @@ class Comfy:
         response = await self.client.post(f"{self.base_url}/upload/image", files={"image": (name, content, "image/png")}, data={"overwrite": "true"})
         response.raise_for_status()
         return response.json()["name"]
+
+    async def free(self) -> None:
+        """VRAM を空けてから解釈モデルを載せる。生成中のキューがあるときは呼ばない。"""
+        response = await self.client.post(f"{self.base_url}/free", json={"unload_models": True, "free_memory": True})
+        response.raise_for_status()

@@ -1,0 +1,24 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AnimeTimm：NG髪型の解析結果</title>
+<style>body{font:17px/1.7 sans-serif;max-width:1050px;margin:30px auto;padding:16px;background:#faf8f4;color:#222}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:10px;text-align:left}img{max-width:100%;height:auto}section{background:white;padding:20px;margin:20px 0}strong{color:#174e40}</style>
+<h1>NG髪型の特徴は拾えた。ただし細部には取りこぼしがある</h1>
+<p><strong>20枚すべての解析が完了。</strong>WindowsのAnimeTimmで各画像12,476属性を出力。ノード内のモデル読込と推論は6.259秒、PyTorchの最大GPU割当は約2.94 GiB。待ち時間・画像転送・ComfyUI全体の処理時間はこの秒数に含まない。</p>
+<section><h2>抽出できた違い</h2>
+<p>数値は属性スコア（0〜1）で、正答率ではない。NG12枚と未選択7枚は群平均。17番は1枚の値。</p>
+<table><tr><th>髪型属性</th><th>NG12枚（17以外）</th><th>未選択7枚</th><th>17番</th></tr>
+<tr><td>ツインテール</td><td>0.0015</td><td>0.6405</td><td>0.0409</td></tr>
+<tr><td>短髪</td><td>0.2954</td><td>0.0269</td><td>0.0077</td></tr>
+<tr><td>中程度の長さの髪</td><td>0.5795</td><td>0.3123</td><td>0.0018</td></tr>
+<tr><td>長髪</td><td>0.0283</td><td>0.2365</td><td>0.8892</td></tr>
+<tr><td>ボブ</td><td>0.0034</td><td>0.0002</td><td>0.0001未満</td></tr></table>
+<p>17番の「長い髪」は他の19枚より高いスコアで検出できた。残りのNG12枚には短髪〜中程度の長さが多く、ツインテール属性が弱いという違いが出た。</p></section>
+<section><h2>画像と照合して分かった取りこぼし</h2>
+<ul><li>9番は左右に短い束が見えるが、ツインテールは0.007。13番も0.234と弱い。短い・上向きの束を安定して認識できていない。</li>
+<li>17番は左右の結び髪と長い後ろ髪が併存する。長髪は検出したが、ツインテールは0.041と弱い。長髪がどの部分にあるかまではスコアだけでは特定できない。</li>
+<li>NG群の下ろした髪は目視ではボブ状だが、ボブ属性は低い。「ボブを高信頼で検出した」とは評価しない。</li></ul>
+<p>ユーザー指定は変更しない。未選択7枚は未判定の比較材料で、OK教材にはしていない。</p></section>
+<section><h2>ESDへ渡す特徴の判断</h2><p>17番では <code>long hair</code> が明確な候補。その他のNG群は <code>short hair</code> / <code>medium hair</code> の傾向が得られた。ただし長さだけを消すと、短いツインテールにも影響する可能性があるため、この数値から自動的に消去語を確定しない。</p>
+<p>髪色・飾りにも群間差があるが、ユーザーのNG理由に含まれないため消去候補から除外する。衣装・体形・画風も対象外。ツインテールの低スコアを理由に <code>twintails</code> 自体を消去しない。</p>
+<p><strong>特徴抽出の有用性は確認できた。今回の処理は解析のみで、ESD学習・LoRA更新は行っていない。</strong></p></section>
+<p><a href="/api/file?path=ng-animetimm-20260906/details.html">全20枚の画像・個別スコア・詳細比較を見る</a> ／ <a href="/api/file?path=ng-animetimm-20260906/report.json">全属性の生データ</a></p>
+</html>

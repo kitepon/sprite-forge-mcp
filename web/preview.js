@@ -24,7 +24,7 @@ export function previewReviewCard(name, jobId, image, index, changed) {
     caption.textContent = reviewLabel(rating);
     comment.disabled = !rating;
     comment.placeholder = rating === 'ng' ? '例：髪型がサンプルと違う。ツインテールがなくなっている' : '例：顔立ちと衣装はこのまま残したい';
-    help.textContent = rating === 'ng' ? '直してほしい箇所を書いてください（任意）' : '理由は任意です。OK・NGだけでも再学習できます。';
+    help.textContent = rating === 'ng' ? '直してほしい箇所を書いてください（必須）' : '理由は任意です。残したい特徴があれば書いてください。';
     controls.forEach((node, i) => node.setAttribute('aria-pressed', String(['ok', 'ng', ''][i] === rating)));
     focuses.forEach((node, i) => { node.disabled = !rating; node.setAttribute('aria-pressed', String(focus.includes(['hair', 'face', 'outfit', 'body', 'style'][i]))); });
   }
@@ -72,7 +72,7 @@ export function previewReviewCard(name, jobId, image, index, changed) {
     return chain;
   }
   async function flush() { await persist(); if (failed) throw failed; }
-  comment.addEventListener('input', () => { clearTimeout(timer); status.textContent = '未保存'; timer = setTimeout(persist, 400); });
+  comment.addEventListener('input', () => { clearTimeout(timer); status.textContent = '未保存'; timer = setTimeout(persist, 400); changed(); });
   const reload = button('最新の判定を確認する', e => action(e.currentTarget, async () => {
     const latest = (await API.previewReviews(name, jobId)).pictures.find(p => p.id === image.id).review;
     review = latest;
@@ -85,14 +85,14 @@ export function previewReviewCard(name, jobId, image, index, changed) {
     status, h('details', {}, h('summary', {}, '保存できなかったとき'), reload, button('保存をやり直す', () => persist(), 'text-link')), meaning, history);
   status.textContent = review.revision ? '保存済み' : '未判定';
   display(); displayMeaning();
-  return { node, flush, rating: () => rating, dispose: () => clearTimeout(timer), update(next) {
+  return { node, flush, rating: () => rating, comment: () => comment.value, dispose: () => clearTimeout(timer), update(next) {
     if (next.revision < review.revision || pending || JSON.stringify(value()) !== saved || failed) return;
     review = next; rating = next.rating; focus = [...next.focus]; comment.value = next.comment;
     saved = JSON.stringify(value()); display(); displayMeaning();
   } };
 }
 
-export async function previewGallery(target, name, style, cleanup, setReady, next) {
+export async function previewGallery(target, name, style, cleanup, setReady, next, options = {}) {
   const key = `preview-gallery:${name}:${style}`;
   let selected = draft(key, ''), disposed = false, loading = false, baseline = null, adopted = null, source = null;
   let optionsSignature = '', comparisonSignature = '';
@@ -100,30 +100,38 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
   const select = h('select', { 'aria-label': '確認する学習結果' });
   const counts = h('p', { class: 'review-counts', role: 'status' });
   const reason = h('p', { class: 'small muted', role: 'status' });
+  const instructionNote = h('p', { class: 'muted small' });
   const grid = h('div', { class: 'preview-review-grid' });
   const progress = h('div'), comparison = h('div'), error = h('p', { class: 'error-text', role: 'alert' });
-  const start = button('この判定でLoRAを再学習する', e => action(e.currentTarget, async () => {
+  const useInstruction = h('input', { type: 'checkbox', checked: options.restyle !== true || draft(`${key}:use-instruction`, '1') !== '0' });
+  if (options.restyle) {
+    useInstruction.addEventListener('change', () => saveDraft(`${key}:use-instruction`, useInstruction.checked ? '1' : '0'));
+  }
+  const start = button('この判定で指示を更新して作り直す', e => action(e.currentTarget, async () => {
     await flush();
-    const prior = jobs.find(j => j.kind === 'preview_learning' && j.source_job_id === selected && j.status === 'awaiting_answers');
+    const prior = jobs.find(j => j.kind === 'preview_instruction' && j.source_job_id === selected && j.status === 'awaiting_answers');
     const requestId = prior?.job_id || crypto.randomUUID();
-    const result = await runJob({ kind: 'preview_learning', name, source_job_id: selected }, '判定から再学習',
-      () => API.relearnPreview(name, selected, requestId), prior || null);
+    const result = await runJob({ kind: 'preview_instruction', name, source_job_id: selected }, '判定から作り直し',
+      () => API.revisePreview(name, selected, requestId), prior || null);
     if (result?.preview_job_id) pick(result.preview_job_id);
     await refresh();
   }));
-  const adopt = button('この学習結果を使って設定画へ', e => action(e.currentTarget, async () => {
+  const adopt = button('このLoRAと指示で設定画へ', e => action(e.currentTarget, async () => {
     await flush(); const record = await API.adoptPreview(name, selected);
     adopted = record.adopted_preview_job_id; setReady(true, ''); await next();
   }));
   function summarize() {
-    const ratings = [...cards.values()].map(card => card.rating());
-    const ok = ratings.filter(v => v === 'ok').length, ng = ratings.filter(v => v === 'ng').length;
-    counts.textContent = `OK ${ok}枚 ・ NG ${ng}枚 ・ 未判定 ${ratings.length - ok - ng}枚`;
-    const running = jobs.some(j => j.kind === 'preview_learning' && j.source_job_id === selected && !terminal(j));
-    start.disabled = !ok || !ng || !!source?.relearning_unavailable_reason || running;
-    reason.textContent = source?.relearning_unavailable_reason || (running ? 'この判定の再学習を実行中です。' : !ng && ok ? 'すべてOKなら、そのまま設定画へ進めます。' : !ok && ng ? 'OKがありません。追加生成、注文の修正、参考画像の見直しができます。' : !ok || !ng ? '再学習にはOKとNGをそれぞれ1枚以上選んでください。未判定は使いません。' : 'OKを残し、NGを減らすためにLoRAの重みを修正します。理由の不明点がある場合だけ質問します。');
+    const rated = [...cards.values()];
+    const ok = rated.filter(card => card.rating() === 'ok').length;
+    const ngCards = rated.filter(card => card.rating() === 'ng');
+    const ng = ngCards.length;
+    const ngMissing = ngCards.some(card => !card.comment().trim());
+    counts.textContent = `OK ${ok}枚 ・ NG ${ng}枚 ・ 未判定 ${rated.length - ok - ng}枚`;
+    const running = jobs.some(j => ['preview_instruction', 'preview_learning'].includes(j.kind) && j.source_job_id === selected && !terminal(j));
+    start.disabled = !ng || ngMissing || !!source?.relearning_unavailable_reason || running;
+    reason.textContent = source?.relearning_unavailable_reason || (running ? 'この判定の作り直しを実行中です。' : !ng && ok ? 'すべてOKなら、そのまま設定画へ進めます。' : ngMissing ? 'NGの画像には、直したい箇所の理由を書いてください。未判定は使いません。' : !ng ? '直したい画像があればNGと理由を付けてください。未判定は使いません。' : 'NGの理由から指示文書を更新し、同じLoRAで10枚を作り直します。LoRAの重みは変えません。');
     adopt.disabled = !selected || jobs.find(j => j.job_id === selected)?.status !== 'completed';
-    setReady(selected === adopted, selected === adopted ? '' : '画像を確認し、「この学習結果を使って設定画へ」を押してください。');
+    setReady(selected === adopted, selected === adopted ? '' : '画像を確認し、「このLoRAと指示で設定画へ」を押してください。');
   }
   function pick(id) {
     if (selected === id) return;
@@ -142,49 +150,55 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
       const newest = baseline && previews.find(j => !baseline.has(j.job_id));
       if (newest) { await flush(); pick(newest.job_id); baseline = null; }
       if (!previews.some(j => j.job_id === selected)) pick(previews[0]?.job_id || '');
-      const options = JSON.stringify(previews.map(j => [j.job_id, j.pictures?.length]));
-      if (options !== optionsSignature) {
-        optionsSignature = options;
-        select.replaceChildren(...previews.map(j => h('option', { value: j.job_id }, `${j.learning_job_id ? '再学習後' : 'プレビュー'} · ${dateText(j.created_at)} · ${j.pictures?.length || 0}枚`)));
+      const listed = JSON.stringify(previews.map(j => [j.job_id, j.pictures?.length]));
+      if (listed !== optionsSignature) {
+        optionsSignature = listed;
+        select.replaceChildren(...previews.map(j => h('option', { value: j.job_id }, `${j.instruction_job_id || j.learning_job_id ? '作り直し後' : 'プレビュー'} · ${dateText(j.created_at)} · ${j.pictures?.length || 0}枚`)));
       }
       select.value = selected;
       if (!selected) { summarize(); return; }
       const current = jobs.find(j => j.job_id === selected);
-      const learning = jobs.find(j => j.job_id === current.learning_job_id) || jobs.find(j => j.kind === 'preview_learning' && j.source_job_id === selected);
-      if (learning?.status === 'previewing' && learning.preview_job_id !== selected) {
-        await flush(); pick(learning.preview_job_id); loading = false; return refresh();
+      const revision = jobs.find(j => j.job_id === (current.instruction_job_id || current.learning_job_id))
+        || jobs.find(j => ['preview_instruction', 'preview_learning'].includes(j.kind) && j.source_job_id === selected);
+      if (revision?.status === 'previewing' && revision.preview_job_id !== selected) {
+        await flush(); pick(revision.preview_job_id); loading = false; return refresh();
       }
       const id = selected;
       const view = await API.previewReviews(name, id);
       if (disposed || id !== selected) return;
       source = view; error.textContent = '';
+      const applied = current.identity_instruction?.include_en || current.identity_instruction?.summary_ja;
+      instructionNote.textContent = applied ? `いまの指示：${current.identity_instruction.include_en || current.identity_instruction.summary_ja}` : (current.identity_instruction ? '指示文書はまだ空です。NGと理由から作ります。' : '');
       for (const [index, image] of view.pictures.entries()) {
         if (cards.has(image.id)) cards.get(image.id).update(image.review);
         else { const card = previewReviewCard(name, id, image, index, summarize); cards.set(image.id, card); grid.append(card.node); }
       }
-      progress.replaceChildren(jobView(learning?.status === 'previewing' ? current : learning || current, { hideImages: true, title: learning ? '判定から再学習' : 'プレビュー' }));
-      const compareKey = `${selected}:${learning?.job_id || ''}`;
+      progress.replaceChildren(jobView(revision?.status === 'previewing' ? current : revision || current, { hideImages: true, title: revision ? '判定から作り直し' : 'プレビュー' }));
+      const compareKey = `${selected}:${revision?.job_id || ''}`;
       if (compareKey !== comparisonSignature) comparison.replaceChildren();
-      if (compareKey !== comparisonSignature && current.learning_job_id && learning) {
-        const old = jobs.find(j => j.job_id === learning.source_job_id);
-        comparison.append(h('details', { class: 'preview-comparison' }, h('summary', {}, '再学習前の画像と判定を見る'),
-          h('div', { class: 'preview-review-grid' }, (learning.reviews || []).map(p => h('figure', {}, picture(p.path, '再学習前'),
+      if (compareKey !== comparisonSignature && (current.instruction_job_id || current.learning_job_id) && revision) {
+        const old = jobs.find(j => j.job_id === revision.source_job_id);
+        comparison.append(h('details', { class: 'preview-comparison' }, h('summary', {}, '作り直し前の画像と判定を見る'),
+          h('div', { class: 'preview-review-grid' }, (revision.reviews || []).map(p => h('figure', {}, picture(p.path, '作り直し前'),
             h('figcaption', {}, `${labels[p.review.rating]}：${p.review.comment || '理由なし'}`),
             p.review.meaning ? h('p', {}, `修正：${p.review.meaning.fix.join('、') || '指定なし'}／維持：${p.review.meaning.preserve.join('、') || '指定なし'}`) : null))),
-          old ? button('以前の学習結果を使う', async () => { await flush(); pick(old.job_id); await refresh(); }, 'quiet') : null));
+          old ? button('以前の結果を使う', async () => { await flush(); pick(old.job_id); await refresh(); }, 'quiet') : null));
       }
       comparisonSignature = compareKey;
       summarize();
     } catch (e) { if (!disposed) error.textContent = `判定を読み込めませんでした：${e.message}`; }
     finally { loading = false; }
   }
-  target.append(h('section', { class: 'stack preview-review' }, field('確認する学習結果', select), progress, comparison, counts,
-    h('p', { class: 'muted' }, '各画像にOK・NGを付けてください。画像を押すと拡大できます。判定は自動保存します。'), grid,
+  const restyleToggle = options.restyle ? h('label', { class: 'field' }, h('span', { class: 'field-label' }, '指示文書を載せる'),
+    h('span', { class: 'intent-defer' }, useInstruction, h('span', {}, 'このキャラクターの指示を、画風プレビューにも載せます。外すと画風の重なりだけを見られます。'))) : null;
+  target.append(h('section', { class: 'stack preview-review' }, field('確認する学習結果', select), restyleToggle, instructionNote, progress, comparison, counts,
+    h('p', { class: 'muted' }, '各画像にOK・NGを付けてください。NGには理由が必要です。画像を押すと拡大できます。判定は自動保存します。'), grid,
     h('div', { class: 'stack' }, reason, h('div', { class: 'actions' }, start, adopt)), error));
   setReady(false, 'プレビューを読み込んでいます。');
   adopted = (await API.character(name)).adopted_preview_job_id;
   cleanup.push(() => { disposed = true; cards.forEach(card => card.dispose()); });
   cleanup.push(subscribe(refresh));
   await refreshJobs(); await refresh();
-  return { flush, select: async id => { await flush(); pick(id); await refresh(); }, followNext() { baseline = new Set(jobs.map(j => j.job_id)); } };
+  return { flush, select: async id => { await flush(); pick(id); await refresh(); }, followNext() { baseline = new Set(jobs.map(j => j.job_id)); },
+    useInstruction: () => !options.restyle || useInstruction.checked };
 }

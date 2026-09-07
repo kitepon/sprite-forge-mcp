@@ -1,0 +1,34 @@
+{
+  "model": "Qwen3-VL-32B-Instruct",
+  "video_input": false,
+  "cases": [
+    {
+      "stage": "preview_review",
+      "elapsed_seconds": 470.34,
+      "proposal": {
+        "fix": [
+          "髪型"
+        ],
+        "preserve": [
+          "衣装"
+        ],
+        "questions": []
+      },
+      "schema_ok": true,
+      "direction_ok": true
+    },
+    {
+      "stage": "preview_instruction",
+      "elapsed_seconds": 149.9,
+      "proposal": {
+        "include_en": "twin tails, correct hairstyle, accurate outfit",
+        "avoid_en": "wrong hairstyle, single ponytail, braided hair, incorrect hair style",
+        "summary_ja": "髪型をツインテールに修正し、衣装は現状通り維持します。",
+        "questions": []
+      },
+      "schema_ok": true,
+      "direction_ok": true
+    }
+  ],
+  "passed": true
+}

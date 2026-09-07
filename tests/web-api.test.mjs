@@ -49,6 +49,7 @@ test('注文の原文と確認内容をJSONで送り、画像順を保つ', asyn
   assert.deepEqual(JSON.parse(calls[2].options.body), proposal);
   await API.previewCharacter('ベル', '', 1, 2, '', 'intent-1');
   assert.equal(new URL(calls[3].url, 'http://test').searchParams.get('intent_job_id'), 'intent-1');
+  assert.equal(new URL(calls[3].url, 'http://test').searchParams.get('use_instruction'), 'true');
 });
 
 test('教材の表示では学習を呼ばず、開始時は表示済みjobを指定する', async t => {
@@ -81,7 +82,11 @@ test('一枚生成の両経路へ確定した注文と選択した画風を送�
   assert.equal(calls[1].url.pathname,'/api/image');
   assert.equal(calls[1].url.searchParams.get('intent_job_id'),'style-order');
   assert.equal(calls[1].url.searchParams.get('prompt'),'');
+  assert.equal(calls[1].url.searchParams.get('use_instruction'),'false');
   assert.equal(calls[1].options.method,'POST');
+  await API.image('a park','水彩',8,'','ベル',true);
+  assert.equal(calls[2].url.searchParams.get('character'),'ベル');
+  assert.equal(calls[2].url.searchParams.get('use_instruction'),'true');
 });
 
 test('設定画とパネル修正へ採用した注文を送る', async t => {
@@ -101,4 +106,16 @@ test('設定画とパネル修正へ採用した注文を送る', async t => {
   await API.redraw('ベル','item_shoes','green boots',9,'','','english');
   assert.equal(calls[2].searchParams.get('input_mode'),'english');
   assert.equal(calls[2].searchParams.get('tags'),'green boots');
+});
+
+test('プレビューの作り直しは再学習入口ではなく指示更新を呼ぶ', async t => {
+  let request;
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    request = { url: new URL(url, 'http://test'), options };
+    return { ok: true, json: async () => ({ job_id: 'revise-1' }) };
+  });
+  await API.revisePreview('ベル', 'preview-1', 'req-1');
+  assert.equal(request.url.pathname, '/api/characters/%E3%83%99%E3%83%AB/previews/preview-1/revise');
+  assert.equal(request.url.searchParams.get('request_id'), 'req-1');
+  assert.equal(request.options.method, 'POST');
 });

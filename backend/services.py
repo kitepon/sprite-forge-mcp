@@ -31,13 +31,16 @@ from .events import EventStore
 from .intent_service import IntentServices
 from .intent_runner import interpret
 from .intent import IntentRequest, Proposal, PREVIEW_TAGS, drawing_content, generation_negative, preview_content, validate_proposal
+from .identity_instruction import applied_instruction, character_negative, character_prompt, insert_include, instruction_parts, prompt_text
 from .panel_intent import resolve_panel, saved_corrections
 from .sheet_layout import LayoutServices, layout_for, matching_keys, panel_from
 from .preview_reviews import PreviewReviews
 from .preview_learning import PreviewLearning
+from .preview_instruction import PreviewInstruction
+from .material_remake import MaterialRemake
 
 
-class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
+class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning, PreviewInstruction, MaterialRemake):
     def __init__(self, comfy: Comfy | None = None, events: EventStore | None = None,
                  generated_root: Path | None = None, uploads_root: Path | None = None,
                  characters_root: Path | None = None, styles_root: Path | None = None):
@@ -46,7 +49,9 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         self.uploads_root = uploads_root or UPLOADS
         self.characters_root = characters_root or CHARACTERS
         self.styles_root = styles_root or STYLES
-        self.intent_interpreter = interpret
+        async def interpret_with_comfy(job, images):
+            return await interpret(job, images, self.comfy)
+        self.intent_interpreter = interpret_with_comfy
 
     async def gpu_status(self) -> dict[str, Any]:
         self._record_call("gpu_status")
@@ -272,7 +277,8 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         return job
 
     async def generate_image(self, prompt: str, style: str, width: int = 1024, height: int = 1024, seed: int = 1,
-                             strength: float = 0.8, turbo: bool = False, intent_job_id: str = "") -> dict[str, Any]:
+                             strength: float = 0.8, turbo: bool = False, intent_job_id: str = "",
+                             character: str = "", use_instruction: bool = False) -> dict[str, Any]:
         """Usage 5: a brand-new picture in a style's look only (no character LoRA)."""
         style_record = self._load_style(style)
         if not style_record.get("lora_name"):
@@ -280,12 +286,18 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         intent = self._generation_intent(style_record, "style", "drawing", intent_job_id)
         content = drawing_content(prompt, intent["intent_conditions"], intent_job_id)
         job_id = str(uuid.uuid4())
-        full_prompt = ", ".join(part for part in (style_record["trigger"], content) if part)
-        negative = generation_negative(intent["intent_conditions"])
+        instruction = None
+        if use_instruction:
+            if not character:
+                raise ValueError("指示文書を載せるにはキャラクターを選んでください。")
+            instruction = applied_instruction(self._load_character(character), True)
+        full_prompt = character_prompt(style_record["trigger"], instruction, "", content)
+        negative = character_negative(generation_negative(intent["intent_conditions"]), instruction)
         chain = [(style_record["lora_name"], strength)]
         job = {"job_id": job_id, "kind": "image", "status": "queued", "prompt": full_prompt, "style": style,
                "lora_name": style_record["lora_name"], "seed": seed, "requested_prompt": prompt,
-               "negative": negative, "loras": chain, **intent}
+               "negative": negative, "loras": chain, "character": character, "use_instruction": use_instruction,
+               "identity_instruction": instruction, **intent}
         self.events.save_job(job); self._record_call("generate_image", job_id, {"style": style, "seed": seed})
         self.events.append(job_id, "queued", {"prompt": full_prompt})
         with self._job_errors(job):
@@ -338,9 +350,9 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
 
     async def preview_character(self, name: str, tags: str = PREVIEW_TAGS,
                                 seed: int = 1, count: int = 10, style: str = "", turbo: bool = False,
-                                intent_job_id: str = "") -> dict[str, Any]:
+                                intent_job_id: str = "", use_instruction: bool = True) -> dict[str, Any]:
         """Stage 2 check: a few seconds per picture with the trained LoRA. Look, then decide whether
-        to retrain (fix samples / captions / steps) or go on to the bible."""
+        to update the identity instruction or go on to the bible."""
         record = self._load_character(name)
         if not record.get("lora_name"):
             raise ValueError(f"{name!r} has no LoRA yet: train_character_lora first")
@@ -350,11 +362,17 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         content = preview_content(tags, intent["intent_conditions"])
         subject = "" if "subject" in intent["intent_conditions"] else bible.subject_tag(record["char_desc"])
         background = "" if "background" in intent["intent_conditions"] else bible.COMMON
-        prompt = ", ".join(part for part in (record["trigger"], style_word, subject, content, background) if part)
-        negative = generation_negative(intent["intent_conditions"])
+        instruction = applied_instruction(record, use_instruction)
+        prompt = character_prompt(record["trigger"], instruction, style_word, subject, content, background)
+        base_negative = generation_negative(intent["intent_conditions"])
+        negative = character_negative(base_negative, instruction)
         job = {"job_id": job_id, "kind": "preview", "status": "queued", "name": name, "prompt": prompt, "seed": seed, "loras": chain,
                "style": style, "total_images": max(1, count), "pictures": [], "negative": negative,
-               "character_created": record['created'], **intent}
+               "character_created": record['created'], "identity_instruction": instruction,
+               "use_instruction": use_instruction, "prompt_parts": {
+                   "trigger": record["trigger"], "style_word": style_word, "subject": subject,
+                   "content": content, "background": background},
+               "base_negative": base_negative, **intent}
         graph = workflows.anima_txt2img(prompt, seed, turbo=turbo, loras=chain, negative=negative, width=832, height=1216)
         job['generation'] = {'model': graph['1']['inputs']['unet_name'], 'text_encoder': graph['2']['inputs']['clip_name'],
                              'vae': graph['3']['inputs']['vae_name'], 'width': 832, 'height': 1216, 'turbo': turbo,
@@ -394,16 +412,23 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
             raise ValueError(f"{name!r} has no LoRA yet: train_character_lora first")
         intent = self._generation_intent(record, "character", "sheet", intent_job_id)
         chain, style_word, style = self._generation_loras(record, style, intent)
-        trigger = ", ".join(t for t in (record["trigger"], style_word) if t)
+        instruction = applied_instruction(record, True)
+        include, avoid = instruction_parts(instruction)
+        trigger = prompt_text(record["trigger"], style_word)
         char_desc, lora_name = record["char_desc"], record["lora_name"]
         attr = attr or record.get("attr", "")
         layout = layout_for(record)
         specs = [panel_from(value) for value in layout]
         overrides = deepcopy(record.get("panel_overrides", {}))
-        requests = [{"panel": panel.key, "seed": overrides.get(panel.key, {}).get("seed", seed + layout[index]["seed_offset"]),
-                     **resolve_panel(panel, trigger, char_desc, intent["intent_conditions"], intent["intent_changes"],
-                                     overrides.get(panel.key, {}), intent_job_id)}
-                    for index, panel in enumerate(specs)]
+        requests = []
+        for index, panel in enumerate(specs):
+            panel_trigger = prompt_text(record["trigger"], include if panel.kind != "item" else "", style_word)
+            request = {"panel": panel.key, "seed": overrides.get(panel.key, {}).get("seed", seed + layout[index]["seed_offset"]),
+                       **resolve_panel(panel, panel_trigger, char_desc, intent["intent_conditions"], intent["intent_changes"],
+                                       overrides.get(panel.key, {}), intent_job_id)}
+            if panel.kind != "item" and avoid:
+                request["negative"] = prompt_text(request["negative"], avoid)
+            requests.append(request)
         job_id = str(uuid.uuid4())
         key = record["key"]
         panel_root = self._character_dir(name) / "bible" / job_id / "panels"
@@ -488,12 +513,13 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         intent = self._generation_intent(record, "character", "drawing", intent_job_id)
         chain, style_word, style = self._generation_loras(record, style, intent)
         content = drawing_content(prompt, intent["intent_conditions"], intent_job_id)
-        full_prompt = ", ".join(part for part in (record["trigger"], style_word, content) if part)
-        negative = generation_negative(intent["intent_conditions"])
+        instruction = applied_instruction(record, True)
+        full_prompt = character_prompt(record["trigger"], instruction, style_word, content)
+        negative = character_negative(generation_negative(intent["intent_conditions"]), instruction)
         job_id = str(uuid.uuid4())
         job = {"job_id": job_id, "kind": "from_bible", "status": "queued", "name": name, "prompt": full_prompt,
                "lora_name": record["lora_name"], "loras": chain, "seed": seed, "requested_prompt": prompt,
-               "negative": negative, **intent}
+               "negative": negative, "identity_instruction": instruction, **intent}
         self.events.save_job(job); self._record_call("generate_from_bible", job_id, {"name": name, "seed": seed})
         self.events.append(job_id, "queued", {"name": name, "prompt": prompt})
         with self._job_errors(job):
@@ -551,6 +577,10 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         request = resolve_panel(spec, info["trigger"], info["char_desc"], intent["intent_conditions"],
                                 intent["intent_changes"], saved, intent_job_id) if typed else resolve_panel(
                                     spec, info["trigger"], info["char_desc"], {}, [], {"tags": tags, "avoid": avoid.strip()})
+        include, avoid_en = instruction_parts(applied_instruction(record, True))
+        if spec.kind != "item":
+            request["prompt"] = insert_include(request["prompt"], record["trigger"], include)
+            request["negative"] = prompt_text(request["negative"], avoid_en)
         job_id = str(uuid.uuid4())
         prompt, negative = request["prompt"], request["negative"]
         job = {"job_id": job_id, "kind": "redraw_panel", "status": "queued", "name": name, "panel": panel,
@@ -798,6 +828,8 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
                 if match and int(match.group(1)) != job["progress"]["step"]:
                     job["progress"] = {"step": int(match.group(1)), "total": int(match.group(2))}
                     self.events.save_job(job); self.events.append(job_id, "progress", job["progress"])
+        if job["progress"]["step"] < 1:
+            raise RuntimeError("学習が進みませんでした。教材の配置を確認してください。")
         job.update(status="completed", progress={"step": steps, "total": steps})
         self.events.save_job(job); self.events.append(job_id, "completed", {"lora_name": job["lora_name"]})
         return job

@@ -1,0 +1,28 @@
+{
+  "reviewer": "実験担当AIによる全40画像の目視分類。本人の採否ではない",
+  "accepted_method": false,
+  "scope": "同じ人物・通常生成指定・未使用の10seed・各26更新における比較",
+  "definitions": {
+    "owner_ng": "主となる全身像に、本人が否定したツインテールでない状態、または長い髪が現れる",
+    "collar_ng": "主となる全身像の襟に毛皮が残る",
+    "layout_ng": "全身像が複数、または追加の人物カットが同じ画面にある"
+  },
+  "rows": [
+    {"seed":601,"owner_ng_before":true,"owner_ng_after":true,"collar_ng_before":true,"collar_ng_after":true,"layout_ng_before":false,"layout_ng_after":false,"additional_views_after_owner":false,"note":"主像は各条件とも短い下ろし髪。毛皮の襟も残る。"},
+    {"seed":602,"owner_ng_before":false,"owner_ng_after":true,"collar_ng_before":true,"collar_ng_after":true,"layout_ng_before":false,"layout_ng_after":false,"additional_views_after_owner":true,"note":"本人NGの学習後は下ろし髪となり、顔カットの列が増える。"},
+    {"seed":603,"owner_ng_before":true,"owner_ng_after":true,"collar_ng_before":true,"collar_ng_after":true,"layout_ng_before":false,"layout_ng_after":false,"additional_views_after_owner":false,"note":"下ろし髪と毛皮の襟が残る。"},
+    {"seed":604,"owner_ng_before":false,"owner_ng_after":true,"collar_ng_before":true,"collar_ng_after":true,"layout_ng_before":false,"layout_ng_after":false,"additional_views_after_owner":true,"note":"本人NGの学習後は下ろし髪となり、顔カットの列が増える。"},
+    {"seed":605,"owner_ng_before":true,"owner_ng_after":false,"collar_ng_before":true,"collar_ng_after":true,"layout_ng_before":true,"layout_ng_after":true,"additional_views_after_owner":true,"note":"本人NG学習後の主像は左右の結び髪になった。追加の別角度カットは残る。衣装NGの学習でも主像の髪型が変わった。"},
+    {"seed":606,"owner_ng_before":true,"owner_ng_after":true,"collar_ng_before":true,"collar_ng_after":true,"layout_ng_before":false,"layout_ng_after":false,"additional_views_after_owner":true,"note":"本人NGの学習後は下ろし髪の全身像が二人並ぶ。"},
+    {"seed":607,"owner_ng_before":true,"owner_ng_after":true,"collar_ng_before":true,"collar_ng_after":true,"layout_ng_before":false,"layout_ng_after":false,"additional_views_after_owner":false,"note":"下ろし髪と毛皮の襟が残る。"},
+    {"seed":608,"owner_ng_before":false,"owner_ng_after":false,"collar_ng_before":true,"collar_ng_after":true,"layout_ng_before":false,"layout_ng_after":false,"additional_views_after_owner":false,"note":"主像の短い結び髪は維持された。襟の毛皮は残る。"},
+    {"seed":609,"owner_ng_before":true,"owner_ng_after":true,"collar_ng_before":true,"collar_ng_after":true,"layout_ng_before":false,"layout_ng_after":false,"additional_views_after_owner":false,"note":"本人NG学習後も左右の結び髪にならず、頭頂に束が加わった。構図NGの学習では立ち姿や床の影も変わった。"},
+    {"seed":610,"owner_ng_before":true,"owner_ng_after":true,"collar_ng_before":true,"collar_ng_after":true,"layout_ng_before":false,"layout_ng_after":false,"additional_views_after_owner":false,"note":"下ろし髪と毛皮の襟が残る。"}
+  ],
+  "limitations": [
+    "長い髪は学習前のこの10枚に出ておらず、その再発抑制効果は評価できない。",
+    "複数カットは学習前に1例だけであり、この10枚から一般的な効果量を推定しない。",
+    "同一人物の複数のNGで比較した試験であり、異なる体形・人外への汎用性は未検証。",
+    "ESD、モデル、画像と言葉による学習一般の不成立を示すものではなく、今回の接続と設定の不成立。"
+  ]
+}

@@ -9,7 +9,7 @@ from pathlib import Path
 import sys
 import time
 
-from preference_loss import preference_loss
+from preference_loss import flow_errors, preference_loss
 
 
 def main():
@@ -20,6 +20,7 @@ def main():
     parser.add_argument('--steps', type=int, default=1)
     parser.add_argument('--learning-rate', type=float, default=1e-5)
     parser.add_argument('--beta', type=float, default=1.0)
+    parser.add_argument('--objective', choices=('preference', 'ok_only'), default='preference')
     args = parser.parse_args()
     data = json.loads(args.input.read_text(encoding='utf-8'))
     if args.output.resolve() == Path(data['lora']).resolve():
@@ -84,6 +85,17 @@ def main():
         with torch.no_grad():
             cached[filename] = vae.encode_pixels_to_latents(pixels.unsqueeze(0).to(device, dtype=dtype)).cpu()
     del vae, pixels
+    spatial_masks = []
+    if data.get('masks'):
+        if len(data['masks']) != len(data['pairs']):
+            raise ValueError('画像ペアと学習範囲の数が一致しません。')
+        for pair, filename in zip(data['pairs'], data['masks']):
+            with Image.open(filename) as source:
+                values = torch.from_numpy(np.array(source.convert('L'), dtype=np.float32) / 255)
+            if not values.any():
+                raise ValueError('学習範囲が空です。')
+            spatial_masks.append(torch.nn.functional.interpolate(
+                values[None, None], size=cached[pair[0]].shape[-2:], mode='area').to(device))
     gc.collect()
     torch.cuda.empty_cache()
     model.to(device)
@@ -98,13 +110,11 @@ def main():
                 target_input_ids=tokens, target_attention_mask=token_mask, source_attention_mask=mask,
             ).squeeze(2)
 
-    def errors(prediction, target):
-        return (prediction.float() - target.float()).square().flatten(1).mean(1)
-
     torch.cuda.reset_peak_memory_stats()
     rows = []
     for step in range(args.steps):
         pair_index = step % len(data['pairs'])
+        spatial_mask = spatial_masks[pair_index] if spatial_masks and args.objective == 'preference' else None
         latents = torch.cat([cached[path] for path in data['pairs'][pair_index]]).to(device)
         # OK／NGと固定基準・更新対象で同じ時刻とノイズを使う。
         noise = torch.randn_like(latents[:1]).expand_as(latents)
@@ -115,12 +125,12 @@ def main():
         reference.set_multiplier(data['strength'])
         policy.set_multiplier(0)
         with torch.no_grad():
-            fixed_errors = errors(predict(noisy, times), target)
+            fixed_errors = flow_errors(predict(noisy, times), target, spatial_mask)
         reference.set_multiplier(0)
         policy.set_multiplier(data['strength'])
         optimizer.zero_grad(set_to_none=True)
-        model_errors = errors(predict(noisy.detach().requires_grad_(True), times), target)
-        loss = preference_loss(model_errors, fixed_errors, args.beta)
+        model_errors = flow_errors(predict(noisy.detach().requires_grad_(True), times), target, spatial_mask)
+        loss = model_errors[0] if args.objective == 'ok_only' else preference_loss(model_errors, fixed_errors, args.beta)
         loss.backward()
         gradient_norm = torch.stack([p.grad.float().square().sum() for p in policy.parameters() if p.grad is not None]).sum().sqrt()
         if not torch.isfinite(loss) or not torch.isfinite(gradient_norm):
@@ -145,6 +155,7 @@ def main():
               'elapsed_seconds': time.monotonic() - started,
               'peak_allocated_bytes': torch.cuda.max_memory_allocated(),
               'input': data, 'learning_rate': args.learning_rate, 'beta': args.beta,
+              'objective': args.objective,
               'output': str(args.output)}
     args.output.with_suffix('.json').write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps({key: result[key] for key in ('lora_delta_squared', 'reference_unchanged', 'reload_max_error', 'elapsed_seconds', 'peak_allocated_bytes')}), flush=True)

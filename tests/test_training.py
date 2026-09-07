@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import pytest
+
 from backend import box
 from backend.events import EventStore
 from backend.services import Services
@@ -52,3 +54,28 @@ def test_training_copies_samples_streams_progress_and_persists_job(tmp_path, mon
     assert (Path(result["dataset"]) / "000.txt").read_text(encoding="utf-8") == "ember, red coat"
     assert (tmp_path / "generated" / f"{result['job_id']}-train.log").read_text(encoding="utf-8").count("\n") == 3
     assert [e["payload"] for e in events.read(result["job_id"]) if e["kind"] == "progress"] == [{"step": 1, "total": 3}, {"step": 3, "total": 3}]
+
+
+def test_training_fails_when_no_step_runs(tmp_path, monkeypatch):
+    async def copied(*args, **kwargs):
+        return 0, ""
+
+    async def lines(*args, **kwargs):
+        yield "ERROR    No data found. Please verify arguments"
+
+    monkeypatch.setattr(box, "copy_tree_to_box", copied)
+    monkeypatch.setattr(box, "copy_to_box", copied)
+    monkeypatch.setattr(box, "stream_training", lines)
+    events = EventStore(tmp_path / "events.ndjson", tmp_path / "jobs")
+    service = Services(comfy=_Comfy(), events=events, generated_root=tmp_path / "generated",
+                       characters_root=tmp_path / "characters")
+    picture = tmp_path / "p.png"
+    from PIL import Image; Image.new("RGB", (8, 8), "red").save(picture)
+    asyncio.run(service.create_character("ember", "they/them"))
+    asyncio.run(service.add_samples("ember", str(picture), "red coat"))
+    asyncio.run(accept_observations(service, "ember"))
+    with pytest.raises(RuntimeError, match="学習が進みませんでした"):
+        asyncio.run(service.train_character_lora("ember", steps=3))
+    jobs = [job for job in events.list_jobs() if job.get("kind") == "lora_train"]
+    assert jobs[-1]["status"] == "failed"
+    assert jobs[-1]["progress"]["step"] == 0

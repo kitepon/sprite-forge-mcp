@@ -1,0 +1,39 @@
+{
+  "batch": "ng-review-20-20260906",
+  "configuration": "FP16 / SDPA / CUDA:0 / 同一日本語指示 / seed 42",
+  "training_started": false,
+  "input_check": {
+    "number": 1,
+    "source_sha256": "c91ec822646518bd53e07a9f7ef90d3c0a18a16436e74f507ddac4ddc4f91614",
+    "comfy_input_sha256": "c91ec822646518bd53e07a9f7ef90d3c0a18a16436e74f507ddac4ddc4f91614",
+    "scope": "転送前後のPNG一致。モデル内部が画像を正しく解釈したという証明ではない。"
+  },
+  "qwen3_vl_4b": {
+    "completed_images": 20,
+    "decision": "今回の設定では不採用",
+    "first_execution_seconds_including_loading": 54.846,
+    "warm_execution_median_seconds": 4.741,
+    "timing_source": "ComfyUI履歴のexecution_startからexecution_success。クライアントの3秒間隔の確認待ちは除外。",
+    "failures": [
+      "候補01の短いボブを、腰までの一束の長髪と説明した。",
+      "候補15と20についても、顎から肩の長さと腰までの長さを同じ説明内に混在させた。",
+      "集約でユーザーの17番の補足『長い髪がNG』を不適切と否定した。",
+      "集約の末尾で同じ文章を繰り返し、抽出結果が完成しなかった。"
+    ]
+  },
+  "qwen3_vl_8b": {
+    "status": "20枚と集約が完了。今回の設定では不採用",
+    "warm_execution_median_seconds": 4.674,
+    "summary_failure": "17はNGの種類が違うという理由で抽出対象外にした。個別理由を優先することをプロンプトに明記していなかったため、入力の伝え方も修正対象とする。",
+    "early_observation": "候補01を腰までの長髪と誤読。候補04を前髪なし・ツインテールではないと記述。最初の4枚だけでも採用に必要な正確さを満たしていない。"
+  },
+  "neutral_diagnostic": {
+    "model": "Qwen3-VL-8B-Instruct",
+    "number": 1,
+    "prompt": "Describe only the visible hairstyle. State the hair length and whether it is tied. Do not infer hair hidden behind the body. Answer in three short English sentences.",
+    "response": "The hair is shoulder-length. It is not tied. It has a soft, layered cut with lighter blonde highlights near the ends.",
+    "execution_seconds": 10.198,
+    "interpretation": "腰までの一束という誤読は消えた。言語・長さ・NG語の有無を同時に変えており、どれが原因かは未分離。1枚の改善で採用決定はしない。"
+  },
+  "next_diagnostic": "短い英語の観察指示で8Bの20枚を再確認し、集約では個別理由を全体理由より優先すると明記する。"
+}

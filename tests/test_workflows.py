@@ -31,3 +31,12 @@ def test_anima_txt2img_stacks_loras_in_order():
     assert graph["4"]["inputs"]["lora_name"] == "char.safetensors" and graph["40"]["inputs"]["lora_name"] == "style.safetensors"
     assert graph["40"]["inputs"]["model"] == ["4", 0] and graph["40"]["inputs"]["strength_model"] == 0.6
     assert graph["23"]["inputs"]["model"] == ["40", 0] and graph["20"]["inputs"]["clip"] == ["40", 1]
+
+
+def test_qwen_vl_interpret_is_still_image_not_video():
+    graph = workflows.qwen_vl_interpret("json only", "still.png", model="Qwen3-VL-32B-Instruct", quantization="8-bit (Balanced)")
+    assert graph["2"]["class_type"] == "AILab_QwenVL_Advanced"
+    assert graph["2"]["inputs"]["image"] == ["1", 0]
+    assert graph["2"]["inputs"]["quantization"] == "8-bit (Balanced)"
+    assert "video" not in graph["2"]["inputs"]
+    assert workflows.qwen_vl_interpret("none", None, model="Qwen3-VL-32B-Instruct")["2"]["inputs"].get("image") is None

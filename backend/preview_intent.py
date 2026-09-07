@@ -11,3 +11,10 @@ class ReviewMeaning(StrictModel):
 class ReviewCorrection(StrictModel):
     revision: int
     meaning: ReviewMeaning
+
+
+class IdentityInstructionDraft(StrictModel):
+    include_en: str
+    avoid_en: str
+    summary_ja: str
+    questions: list[str]

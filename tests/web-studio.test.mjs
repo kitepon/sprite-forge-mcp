@@ -66,6 +66,8 @@ test('解釈の確認待ちと採用済みを処理中として数えない', ()
   assert.equal(terminal({kind:'intent',status:'running'}),false);
   assert.equal(terminal({kind:'preview',status:'draft'}),false);
   assert.equal(kindLabel('intent'),'注文の解釈');
+  assert.equal(kindLabel('preview_instruction'),'指示の作り直し');
+  assert.equal(terminal({kind:'preview_instruction',status:'awaiting_answers'}),true);
 });
 test('教材確認待ちはGPU処理中にも学習完了にも見せない', () => {
   const job = {kind:'lora_train',status:'awaiting_confirmation',progress:{step:0,total:1200}};

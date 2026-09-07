@@ -22,6 +22,7 @@ test('NGの理由欄を明示し、判定を変えても原文を維持して同
   const card = previewReviewCard('ベル','job-a',structuredClone(initial),0,()=>{});
   const nodes = all(card.node), textarea = nodes.find(n=>n.tag==='textarea');
   nodes.find(n=>n.children.includes('NG：直したい画像')).events.click();
+  assert.match(nodes.find(n => n.tag === 'small').textContent, /必須/);
   textarea.value='髪型が違う。衣装は合っている'; textarea.events.input();
   await card.flush();
   nodes.find(n=>n.children.includes('未判定')).events.click();

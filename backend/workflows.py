@@ -94,3 +94,34 @@ def anima_refine(image_name: str, prompt: str, seed: int, *, lora_name: str, lor
 
 def anima_base(prompt: str, seed: int, width: int = 1024, height: int = 1024) -> Graph:
     return anima_txt2img(prompt, seed, width=width, height=height)
+
+
+def qwen_vl_interpret(prompt: str, image: str | None, *, model: str, quantization: str = "None (FP16)",
+                      keep_model_loaded: bool = False) -> Graph:
+    """静止画0〜1枚の Qwen-VL。動画入力は使わない。"""
+    inputs = {
+        "model_name": model,
+        "quantization": quantization,
+        "attention_mode": "sdpa",
+        "use_torch_compile": False,
+        "device": "cuda:0",
+        "preset_prompt": "🖼️ Detailed Description",
+        "custom_prompt": prompt,
+        "max_tokens": 4096,
+        "temperature": 0.1,
+        "top_p": 0.9,
+        "num_beams": 1,
+        "repetition_penalty": 1.1,
+        "frame_count": 1,
+        "video_frame_size": "auto",
+        "keep_model_loaded": keep_model_loaded,
+        "seed": 1,
+    }
+    graph: Graph = {
+        "2": {"class_type": "AILab_QwenVL_Advanced", "inputs": inputs},
+        "3": {"class_type": "PreviewAny", "inputs": {"source": ["2", 0]}},
+    }
+    if image:
+        graph["1"] = {"class_type": "LoadImage", "inputs": {"image": image}}
+        inputs["image"] = ["1", 0]
+    return graph

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel
+from .identity_instruction import store_instruction
 from .preview_intent import ReviewCorrection, ReviewMeaning
 
 
@@ -18,20 +19,25 @@ class PreviewReview(BaseModel):
 
 class PreviewReviews:
     async def adopt_preview_lora(self, name: str, job_id: str) -> dict:
-        """確認したプレビューのLoRA版を、次の設定画で使う版として採用する。"""
+        """確認したプレビューのLoRAと指示を、次の設定画で使う組として採用する。"""
         job = self._preview_review_source(name, job_id)
         if job['status'] != 'completed':
             raise ValueError('生成が完了したプレビューを指定してください。')
         record = self._load_character(name)
-        if record.get('adopted_preview_job_id') == job_id and record['lora_name'] == job['loras'][0][0]:
+        instruction = job.get('identity_instruction')
+        if (record.get('adopted_preview_job_id') == job_id and record['lora_name'] == job['loras'][0][0]
+                and record.get('identity_instruction') == instruction):
             return record
-        record.setdefault('lora_history', []).append({'lora_name': record['lora_name'], 'preview_job_id': record.get('adopted_preview_job_id')})
-        record['lora_name'] = job['loras'][0][0]
+        if record['lora_name'] != job['loras'][0][0]:
+            record.setdefault('lora_history', []).append({'lora_name': record['lora_name'], 'preview_job_id': record.get('adopted_preview_job_id')})
+            record['lora_name'] = job['loras'][0][0]
         record['character_strength'] = job['loras'][0][1]
         record['style'] = job.get('style', '')
         if len(job['loras']) > 1:
             record['style_strength'] = job['loras'][1][1]
         record['adopted_preview_job_id'] = job_id
+        if instruction is not None:
+            store_instruction(record, instruction)
         return self._save_character(record)
 
     def _preview_review_source(self, name, job_id):
@@ -61,7 +67,7 @@ class PreviewReviews:
             image_id = picture.get('id') or Path(picture['path']).stem
             review = reviews.get(image_id, {'rating': '', 'comment': '', 'focus': [], 'revision': 0, 'history': []})
             pictures.append({**picture, 'id': image_id, 'review': review})
-        reason = '' if job.get('generation') and job.get('character_created') else '以前の生成条件の記録が不足しています。再学習するには新しくプレビューを生成してください。'
+        reason = '' if job.get('generation') and job.get('character_created') else '以前の生成条件の記録が不足しています。作り直すには新しくプレビューを生成してください。'
         return {'job_id': job_id, 'name': name, 'pictures': pictures, 'generation': job.get('generation'),
                 'relearning_unavailable_reason': reason}
 

@@ -1,0 +1,118 @@
+{
+  "video_input": false,
+  "skipped": [
+    "Qwen3-VL-8B は否定逆転の実測があるため再走しない",
+    "unsloth 27B は公式 Qwen3-VL の視覚系列ではないため測らない"
+  ],
+  "configs": [
+    {
+      "label": "32B-8bit",
+      "model": "Qwen3-VL-32B-Instruct",
+      "quantization": "8-bit (Balanced)",
+      "video_input": false,
+      "cases": [
+        {
+          "stage": "preview_review",
+          "role": "cold_keep",
+          "elapsed_seconds": 110.35,
+          "vram_before": {
+            "vram_free_gb": 32.22,
+            "torch_used_gb": 0.034
+          },
+          "vram_after": {
+            "vram_free_gb": 1.57,
+            "torch_used_gb": 34.972
+          },
+          "proposal": {
+            "fix": [
+              "髪型"
+            ],
+            "preserve": [
+              "衣装"
+            ],
+            "questions": []
+          },
+          "schema_ok": true,
+          "direction_ok": true
+        },
+        {
+          "stage": "preview_instruction",
+          "role": "warm_keep",
+          "elapsed_seconds": 52.3,
+          "vram_before": {
+            "vram_free_gb": 1.57,
+            "torch_used_gb": 34.972
+          },
+          "vram_after": {
+            "vram_free_gb": 1.57,
+            "torch_used_gb": 34.972
+          },
+          "proposal": {
+            "include_en": "twin tails, correct hairstyle, accurate outfit",
+            "avoid_en": "wrong hairstyle, single ponytail, braided hair, incorrect hair style",
+            "summary_ja": "髪型をツインテールに修正し、衣装は現状通り維持します。",
+            "questions": []
+          },
+          "schema_ok": true,
+          "direction_ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "label": "32B-4bit",
+      "model": "Qwen3-VL-32B-Instruct",
+      "quantization": "4-bit (VRAM-friendly)",
+      "video_input": false,
+      "cases": [
+        {
+          "stage": "preview_review",
+          "role": "cold_keep",
+          "elapsed_seconds": 52.0,
+          "vram_before": {
+            "vram_free_gb": 21.34,
+            "torch_used_gb": 15.198
+          },
+          "vram_after": {
+            "vram_free_gb": 12.69,
+            "torch_used_gb": 19.56
+          },
+          "proposal": {
+            "fix": [
+              "髪型"
+            ],
+            "preserve": [
+              "衣装"
+            ],
+            "questions": []
+          },
+          "schema_ok": true,
+          "direction_ok": true
+        },
+        {
+          "stage": "preview_instruction",
+          "role": "warm_keep",
+          "elapsed_seconds": 4.03,
+          "vram_before": {
+            "vram_free_gb": 12.69,
+            "torch_used_gb": 19.56
+          },
+          "vram_after": {
+            "vram_free_gb": 12.69,
+            "torch_used_gb": 19.56
+          },
+          "proposal": {
+            "include_en": "twin tails, correct outfit",
+            "avoid_en": "wrong hairstyle",
+            "summary_ja": "髪型をツインテールに修正し、衣装は現状通り維持します。",
+            "questions": []
+          },
+          "schema_ok": true,
+          "direction_ok": true
+        }
+      ],
+      "passed": true
+    }
+  ],
+  "passed": true
+}

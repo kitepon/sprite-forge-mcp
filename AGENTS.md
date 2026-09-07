@@ -11,7 +11,9 @@ Sprite Forge は、画像からキャラクターや画風を覚えさせ、そ�
 ## 維持する製品方針
 
 - 汎用的なキャラクターシート作成ツールを作る。特定のキャラクター・衣装・参照画像番号は検証例としてだけ扱い、製品の既定や分岐へ固定しない。汎用性の受入は異なる衣装・体形・人外を含む事例で確認し、一人のキャラクターの成功で代用しない。
+- NG反映の研究対象は、生成画像とユーザーの指摘から特定のNG事例の再発を抑える共通の方法とする。個別の部位や特徴は検証データとして扱い、髪型など一種類に特化した処理を研究の目的へ置き換えない。検証用に作る指摘は本人の採否と区別して記録する。
 - キャラクター制作は、サンプル収集と説明の修正、LoRA 学習とプレビュー、設定画の生成と修正の三段階に分ける。各段階で画像を確認して戻れるようにする。学習は明示的な操作で開始し、画像追加・説明変更・設定画生成に連動して勝手に再学習しない。
+- プレビューのOK／NGループではLoRAの重みを焼かず、指示文書を更新して同じLoRAで作り直す。LoRAと指示はセットで版保存し、設定画へ進むときにその組を採用する。指示は被写体の内容だけとし、画風語句は入れない。今回のプレビュー用の姿勢と、残す本人の特徴は分ける。未判定はOKにしない。NGには理由を書く。
 - キャラクターと画風は別の台帳に持ち、それぞれ画像から LoRA を学習する。キャラクターに画風 LoRA を重ねる使い方と、画風だけで新しい絵を描く使い方を保つ。
 - 画風・質感は画像と LoRA から決める。特定の画風を強制する語句をプロンプトへ埋め込まない。被写体・衣装・構図などの内容指定と画風を混同しない。
 - 学習前の画風指定は、素材の採否と学習頻度へ反映する。別の学習済み画風を選ぶ操作は生成工程にだけ置く。素材のどの特徴を採用するかという希望を、既存の画風選択や希望の放棄へ置き換えない。
@@ -25,11 +27,11 @@ Sprite Forge は、画像からキャラクターや画風を覚えさせ、そ�
 
 メインサーバーがバックエンド・WebUI・MCP・台帳・記録・本番配備を所有する。fox は Windows ネイティブの GPU 装置で、ComfyUI による推論と sd-scripts による学習を担う。
 
-- 画像の推論は ComfyUI のワークフローへ収める。メインサーバーへ画像 ML の実行環境を追加しない。CPU での後処理は Pillow、必要に応じて numpy の範囲とする。
+- 画像の推論は ComfyUI のワークフローへ収める。メインサーバーへ画像 ML の実行環境を追加しない。CPU での後処理は Pillow、必要に応じて numpy の範囲とする。コメント解釈も fox の ComfyUI 視覚言語モデルで行う。Codex CLI や ChatGPT 契約ログインは使わない。
 - 学習は `backend/box.py` が SSH/SCP で教材を送り、fox の Python 入口を呼ぶ。学習器の起動処理の正本は `box/train.py`。GPU 機上で場当たり的にコードや PowerShell スクリプトを作らず、リポジトリで変更して配備する。WSL2 を実行環境にしない。
 - メインサーバーへの接続は `ssh main-server` を使う。接続先や GPU 上の配置は `backend/config.py` と配備設定を確認し、推測したパスへ書かない。
 - Python の最低版と依存は `pyproject.toml`、解決済み依存は `uv.lock`、本番 Python は `Dockerfile` が定める。現在の本番・CI は Python 3.13。旧 `requirements.txt` の導入手順を使わない。
-- 現行採用は Anima Base/Turbo、Anima-Control-Pose、JoyAI-Image-Edit-Plus、ToonOut、SAM 3.1、FastAPI、FastMCP 4。JoyAI は編集・派生画像の経路に使う。Mage-Flow は配布取り下げを理由に採用から除外済み。
+- 現行採用は Anima Base/Turbo、Anima-Control-Pose、JoyAI-Image-Edit-Plus、ToonOut、SAM 3.1、FastAPI、FastMCP 4。コメント解釈は fox の ComfyUI 視覚言語モデル（静止画。Qwen3-VL-8B は否定の逆転で使わない。32B-FP8 は fox で FP8 kernel 不足。候補は `Qwen3-VL-32B-Instruct` の 8-bit）。JoyAI は編集・派生画像の経路に使う。Mage-Flow は配布取り下げを理由に採用から除外済み。
 
 ## コードの置き場所
 
@@ -39,7 +41,7 @@ Sprite Forge は、画像からキャラクターや画風を覚えさせ、そ�
 | `backend/app.py` | 同じサービスを REST と MCP に公開。ファイル配信、アップロード、SSE、WebUI 配信 |
 | `backend/workflows.py` | ComfyUI に渡すワークフローの組み立て |
 | `backend/comfy.py` | ComfyUI との HTTP 通信 |
-| `backend/box.py` / `box/train.py` | fox との通信 / Windows ネイティブの学習起動 |
+| `backend/intent_cli.py` / `backend/intent_runner.py` | コメント解釈。fox の Qwen-VL を呼び、スキーマで結果を検証する |
 | `backend/bible.py` | 設定画のパネル定義、内容指定、画像処理、シート・HTML 合成 |
 | `backend/events.py` | ジョブ状態と追記型イベント記録 |
 | `backend/config.py` | 実行環境の設定と保存先 |

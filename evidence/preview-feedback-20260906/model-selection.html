@@ -1,0 +1,19 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>髪型の特徴抽出モデルの選定</title><style>body{font:18px/1.7 sans-serif;max-width:1000px;margin:24px auto;padding:0 16px;background:#faf8f5}section{background:white;padding:20px;margin:20px 0}td,th{padding:8px;border:1px solid #bbb}table{border-collapse:collapse;width:100%}code{overflow-wrap:anywhere}</style>
+<h1>第一候補：AnimeTimm ConvNeXtV2-Huge</h1>
+<p>2026-09-06調査。アニメ画像の属性を数値で検出する専用モデルを選びます。今回の調査では新規導入・推論・学習はしていません。</p>
+<section><h2>同じ評価データでの比較</h2><p>一般タグの公開Macro@Best F1。髪型だけの正解率ではありません。</p>
+<table><tr><th>AnimeTimmモデル</th><th>F1</th><th>パラメータ</th><th>計算量</th></tr>
+<tr><td><a href="https://huggingface.co/animetimm/convnextv2_huge.dbv4-full">ConvNeXtV2-Huge</a></td><td>0.494</td><td>692.6M</td><td>1.2T FLOPs</td></tr>
+<tr><td><a href="https://huggingface.co/animetimm/eva_giant_patch14_560.dbv4-full">EVA-Giant</a></td><td>0.489</td><td>1.0G</td><td>3.2T FLOPs</td></tr>
+<tr><td><a href="https://huggingface.co/animetimm/vit_giantopt_patch16_siglip_384.dbv4-full">SigLIP-Giant</a></td><td>0.486</td><td>1.2G</td><td>2.3T FLOPs</td></tr></table>
+<p>この3候補ではConvNeXtV2-Hugeの属性評価と計算量の組合せを優先します。WindowsではPyTorch/timmの構成を使う候補です。Hugging Faceの取得条件への同意が必要です。</p></section>
+<section><h2>他の候補を第一候補にしない理由</h2><ul>
+<li><a href="https://huggingface.co/Camais03/camie-tagger-v2">Camie v2</a>：143Mの軽量なアニメ専用モデル。対抗候補。評価データが違うため公開F1でAnimeTimmとの優劣を決めません。</li>
+<li><a href="https://huggingface.co/SmilingWolf/wd-eva02-large-tagger-v3">WD EVA02-Large v3</a>：比較基準。ONNXバッチ推論に対応。</li>
+<li><a href="https://huggingface.co/pixai-labs/pixai-tagger-v0.9">PixAI v0.9</a>：更新の重点はキャラクター網羅と再現率。髪型の細部識別の優位を示す根拠とは別です。</li>
+<li><a href="https://github.com/facebookresearch/dinov3">DINOv3</a>：局所的な画像特徴の比較候補。髪型の名前やNG理由を単独で解釈するモデルではありません。</li></ul></section>
+<section><h2>今回の20枚への使い方</h2><p>画像 → 属性ごとのスコア → 髪型に関係するスコアを20枚で比較 → 具体的なNG特徴をESD用の概念句にする。</p>
+<p>未選択画像はOK教材にしません。17は長髪という個別理由を保持します。ツインテールのスコアが低いことを理由に、ツインテール自体を消去対象にしません。</p>
+<p>タグの数値比較と生の局所特徴ベクトル比較は別です。固定タグで表せない形状が残った場合に、局所特徴の比較を追加します。</p></section>
+<p>選定の結論：Qwenの文章生成を調整し続けるより、AnimeTimmを第一候補、Camieを対抗、WDを基準に、髪型の検出を比較するのが適切です。</p></html>

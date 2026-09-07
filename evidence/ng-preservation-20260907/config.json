@@ -1,0 +1,87 @@
+{
+  "schema": "spriteforge.ng-preservation-experiment.v1",
+  "source_batch": "ng-review-20-20260906",
+  "selection_file": "evidence/preview-feedback-20260906/review-20-selection.json",
+  "concepts": [
+    {
+      "id": "loose_bob",
+      "label": "左右に結ばれず頬の横へ下りる短い髪",
+      "text": "short bob haircut, chin-length untied hair hanging loose beside the cheeks",
+      "source_numbers": [
+        1,
+        2,
+        3,
+        5,
+        6,
+        7,
+        8,
+        11,
+        12,
+        14,
+        15,
+        16
+      ],
+      "reason": "髪型がツインテールではない",
+      "observation": "1,2,3,6,7,8,11,12,14,16はボブ状。5,15は頭上の飾りや短い上向きの束があるが、左右に垂れる結び髪が欠ける。頭上の飾り自体は除去対象に含めない。",
+      "localization_text": "hair"
+    },
+    {
+      "id": "long_back",
+      "label": "肩より下へ長く垂れる後ろ髪",
+      "text": "long loose hair flowing down the back past the shoulders",
+      "source_numbers": [
+        17
+      ],
+      "reason": "長い髪の毛がNG",
+      "observation": "左右の短い結び髪に加えて長い後ろ髪がある。短い結び髪は除去対象に含めない。",
+      "localization_text": "hair"
+    }
+  ],
+  "preflight_seeds": [
+    504,
+    510
+  ],
+  "comparison_seeds": [
+    601,
+    602,
+    603,
+    604,
+    605,
+    606,
+    607,
+    608,
+    609,
+    610
+  ],
+  "confirmation_seeds": [
+    701,
+    702,
+    703,
+    704,
+    705,
+    706,
+    707,
+    708,
+    709,
+    710
+  ],
+  "training": {
+    "steps": 20,
+    "sampling_steps": 8,
+    "sampling_cfg": 4,
+    "learning_rate": 0.00001,
+    "negative_guidance": 1,
+    "seed": 37,
+    "latent_shape": [
+      1,
+      16,
+      76,
+      52
+    ]
+  },
+  "generation": {
+    "width": 832,
+    "height": 1216
+  }
+}
+

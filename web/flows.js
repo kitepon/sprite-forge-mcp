@@ -155,12 +155,12 @@ async function previewStep(target, ctx, styled, cleanup, setReady, next) {
   const name = ctx.character, style = styled ? ctx.style : ''; const key = `preview:${name}:${style}`;
   const wishes = h('section', { class: 'stack' }, h('h3', {}, '全体への注文'), h('p', { class: 'muted small' }, 'ここでは元の参考画像を参照して、生成する内容を指定します。生成画像への指摘は、その画像のOK・NGと理由欄へ書いてください。'));
   const editor = await commentEditor(wishes, { name, kind: 'character', stage: 'preview', cleanup });
-  target.append(h('p', {}, '10枚の生成画像を見て、OK・NGを指定します。両方の判定でLoRAを修正し、結果を確かめてから設定画へ進めます。'), wishes);
+  target.append(h('p', {}, '10枚の生成画像を見て、OK・NGを指定します。NGには理由を書き、指示文書を更新して同じLoRAで作り直します。満足したら設定画へ進めます。'), wishes);
   let gallery;
   const tags = input(`${key}:tags`, 'full body, standing, front view, looking at viewer', { multiline: true, rows: 3 }); const seed = seedControl(key);
   target.append(advanced(characterStrength(await API.character(name)), field('英語の自由入力（解釈した注文を使わない場合）', tags, '注文を解釈して使う場合は既定値のままにします。姿勢などは上の制作への注文へ書いてください。'), field('Seed', seed, '同じ数値で構図を比較できます。')),
-    taskPanel({ kind: 'preview', name, style }, 'プレビュー', '10枚のプレビューを生成する', async () => { await editor.save(); await gallery?.flush(); gallery?.followNext(); const content = requireText(tags, '内容'); return API.previewCharacter(name, content, number(seed), 10, style, previewIntentJob(editor, content)); }, cleanup, job => gallery?.select(job.job_id), { hideImages: true }));
-  gallery = await previewGallery(target, name, style, cleanup, setReady, next);
+    taskPanel({ kind: 'preview', name, style }, 'プレビュー', '10枚のプレビューを生成する', async () => { await editor.save(); await gallery?.flush(); gallery?.followNext(); const content = requireText(tags, '内容'); return API.previewCharacter(name, content, number(seed), 10, style, previewIntentJob(editor, content), gallery?.useInstruction() ?? true); }, cleanup, job => gallery?.select(job.job_id), { hideImages: true }));
+  gallery = await previewGallery(target, name, style, cleanup, setReady, next, { restyle: styled });
   if (styled) {
     const strength = input(`${key}:strength`, '0.7', { type: 'number', min: 0.1, max: 2, step: 0.1 });
     target.append(h('div', { class: 'callout stack' }, h('h3', {}, 'この組み合わせを、今後も使う'), h('p', { class: 'muted' }, 'プレビューは保存済みの強さ（未設定なら 0.7）で生成します。ここで変えた強さは、保存後の生成から反映されます。'), field('画風の強さ', strength), button('キャラクターの画風として保存', e => action(e.currentTarget, async () => { await API.setCharacterStyle(name, style, number(strength)); notice('今後使う画風を保存しました'); }), 'quiet')));
@@ -178,9 +178,32 @@ async function drawing(target, ctx, kind, cleanup) {
   const prompt = input(`${key}:prompt`, '', { multiline: true, rows: 5, placeholder: '例：standing by the window, morning light, holding a cup' });
   const seed = seedControl(key); const style = kind === 'character' ? await styleSelect(ctx, key) : null;
   const mode = h('select', { 'aria-label': '注文の使い方' }, h('option', { value: 'intent' }, '解釈して採用した注文で描く'), h('option', { value: 'english' }, '英語の自由入力で描く'));
-  target.append(...(style ? [field('合わせる画風', style)] : []),
+  const extras = [];
+  let styleInstruction = null, instructionCharacter = null;
+  if (kind === 'character') {
+    const rec = await API.character(name);
+    if (rec.identity_instruction?.include_en) extras.push(h('p', { class: 'muted small' }, `指示文書：${rec.identity_instruction.include_en}`));
+  } else {
+    const characters = (await API.characters()).filter(rec => rec.lora_name);
+    styleInstruction = h('input', { type: 'checkbox' });
+    instructionCharacter = h('select', { 'aria-label': '指示を載せるキャラクター' }, h('option', { value: '' }, 'キャラクターを選ぶ'),
+      ...characters.map(rec => h('option', { value: rec.name }, rec.name)));
+    instructionCharacter.disabled = true;
+    styleInstruction.addEventListener('change', () => { instructionCharacter.disabled = !styleInstruction.checked; });
+    extras.push(h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'キャラクターの指示を載せる'),
+      h('span', { class: 'intent-defer' }, styleInstruction, h('span', {}, '既定では載せません。画風だけの絵に、選んだ子の指示だけ足します。'))),
+      field('指示のキャラクター', instructionCharacter));
+  }
+  target.append(...extras, ...(style ? [field('合わせる画風', style)] : []),
     advanced(field('注文の使い方', mode), kind === 'character' ? characterStrength(await API.character(name)) : null, field('英語の自由入力', prompt, '自由入力を選んだ時だけ使います。'), field('Seed', seed)),
-    taskPanel(kind === 'character' ? { kind: 'from_bible', name } : { kind: 'image', style: name }, '新しい一枚', 'この内容で描く', async () => { await editor.save(); const selected = drawingInput(editor, mode.value, prompt.value); return kind === 'character' ? API.fromBible(name, selected.prompt, number(seed), style.value, selected.intentJobId) : API.image(selected.prompt, name, number(seed), selected.intentJobId); }, cleanup));
+    taskPanel(kind === 'character' ? { kind: 'from_bible', name } : { kind: 'image', style: name }, '新しい一枚', 'この内容で描く', async () => {
+      await editor.save();
+      const selected = drawingInput(editor, mode.value, prompt.value);
+      if (kind === 'character') return API.fromBible(name, selected.prompt, number(seed), style.value, selected.intentJobId);
+      const use = styleInstruction?.checked;
+      if (use && !instructionCharacter.value) throw new Error('指示を載せるキャラクターを選んでください。');
+      return API.image(selected.prompt, name, number(seed), selected.intentJobId, use ? instructionCharacter.value : '', !!use);
+    }, cleanup));
   return editor.save;
 }
 async function sheet(target, ctx, styled, cleanup) {
