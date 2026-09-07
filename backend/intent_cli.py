@@ -1,102 +1,178 @@
-"""正式な契約ログインを持つホストで、一回の画像解釈を実行する。"""
+"""fox の ComfyUI QwenVL で、一回の画像解釈を実行する。"""
 from __future__ import annotations
 
-import base64
+import asyncio
 import json
-import os
-from pathlib import Path
-import subprocess
-import sys
-import tempfile
+import re
 import time
+from pathlib import Path
 
-from .intent import Proposal
-from .sheet_layout import LayoutProposal
+from pydantic import ValidationError
+
+from . import workflows
+from .intent import Proposal, StrictModel
 from .preview_intent import ReviewMeaning
+from .sheet_layout import LayoutProposal
 
-MODEL = "gpt-5.6-terra"
-
-
-def command(root: Path, images: list[Path]) -> list[str]:
-    args = ["codex", "exec", "--ignore-user-config", "--ephemeral", "--json",
-            "--skip-git-repo-check", "--sandbox", "read-only", "--model", MODEL,
-            "-c", 'forced_login_method="chatgpt"', "-c", 'model_provider="openai"',
-            "-c", 'model_reasoning_effort="medium"', "-c", 'web_search="disabled"',
-            "-c", "project_doc_max_bytes=0"]
-    for feature in ("shell_tool", "unified_exec", "multi_agent", "apps", "remote_plugin", "image_generation", "view_image", "hooks"):
-        args += ["--disable", feature]
-    args += ["--output-schema", str(root / "schema.json"), "--output-last-message", str(root / "result.json")]
-    for image in images:
-        args += ["--image", str(image)]
-    return args + ["-"]
+MODEL = "Qwen3-VL-32B-Instruct"
+AUTH = "comfy"
+CLIENT_ID = "sprite-forge-intent"
+OBSERVE_MARK = "この画像の見た目を JSON で返してください。画風を表す語句は書かないでください。"
 
 
-def check_events(stdout: str) -> None:
-    """CLI境界で完了と、画像読解以外のツール実行がないことを確認する。"""
-    completed = False
-    for line in stdout.splitlines():
-        event = json.loads(line)
-        if event["type"] in ("turn.failed", "error"):
-            raise RuntimeError(f"解釈に失敗しました: {event.get('error', event.get('message', event['type']))}")
-        item = event.get("item")
-        if item and item["type"] not in ("agent_message", "reasoning"):
-            raise RuntimeError(f"画像解釈以外の操作が返りました: {item['type']}")
-        completed |= event["type"] == "turn.completed"
-    if not completed:
-        raise RuntimeError("解釈の完了応答を受け取れませんでした。")
+class Sighting(StrictModel):
+    appearance_ja: str
+    caption_en: str
 
 
-def run(packet: dict) -> dict:
-    env = os.environ.copy()
-    for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"):
-        env.pop(key, None)
-    with tempfile.TemporaryDirectory(prefix="sprite-intent-") as directory:
-        root = Path(directory)
-        images = []
-        for index, encoded in enumerate(packet["images"]):
-            path = root / f"{index + 1}.png"
-            path.write_bytes(base64.b64decode(encoded, validate=True))
-            images.append(path)
-        is_layout = packet["input"].get("stage") == "layout"
-        is_review = packet['input'].get('stage') == 'preview_review'
-        model = ReviewMeaning if is_review else LayoutProposal if is_layout else Proposal
-        schema = model.model_json_schema()
-        # 保存済みの旧応答の省略は読めるが、新しいCLI出力では全項目を返す。
-        def require_properties(value):
-            if isinstance(value, dict):
-                value.pop("default", None)
-                if "properties" in value:
-                    value["required"] = list(value["properties"])
-                for nested in value.values():
-                    require_properties(nested)
-            elif isinstance(value, list):
-                for nested in value:
-                    require_properties(nested)
-        require_properties(schema)
-        (root / "schema.json").write_text(json.dumps(schema))
-        instruction = Path(__file__).with_name('preview_review_instructions.txt' if is_review else "layout_instructions.txt" if is_layout else "intent_instructions.txt").read_text()
-        prompt = instruction + "\n入力:\n" + json.dumps(packet["input"], ensure_ascii=False)
-        started = time.monotonic()
-        result = subprocess.run(command(root, images), input=prompt, text=True,
-                                capture_output=True, cwd=root, env=env)
-        if result.returncode:
-            if result.stdout.strip():
-                check_events(result.stdout)
-            raise RuntimeError(f"Codexで解釈できませんでした（終了値{result.returncode}）: {result.stderr.strip()}")
-        check_events(result.stdout)
-        proposal = model.model_validate_json((root / "result.json").read_text())
-        return {"proposal": proposal.model_dump(), "model": MODEL,
-                "elapsed_seconds": round(time.monotonic() - started, 2), "auth": "chatgpt"}
+def _strict_schema(model):
+    schema = model.model_json_schema()
+
+    def require_properties(value):
+        if isinstance(value, dict):
+            value.pop("default", None)
+            if "properties" in value:
+                value["required"] = list(value["properties"])
+            for nested in value.values():
+                require_properties(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                require_properties(nested)
+
+    require_properties(schema)
+    return schema
 
 
-def main():
+def _parse_json_text(text: str):
+    text = text.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
     try:
-        result = run(json.load(sys.stdin))
-    except Exception as error:
-        print(str(error), file=sys.stderr)
-        raise SystemExit(1) from error
-    print(json.dumps(result, ensure_ascii=False))
+        return json.loads(text)
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"解釈の応答をJSONとして読めません: {error}") from error
 
 
-if __name__ == "__main__":
-    main()
+def _output_text(output: dict):
+    for key in ("text", "string"):
+        value = output.get(key)
+        if isinstance(value, list) and value:
+            item = value[0]
+            return item if isinstance(item, str) else str(item)
+        if isinstance(value, str):
+            return value
+    return None
+
+
+def _history_text(history: dict) -> str:
+    outputs = history.get("outputs") or {}
+    for node in ("3", "2"):
+        if node in outputs:
+            text = _output_text(outputs[node])
+            if text is not None:
+                return text
+    for output in outputs.values():
+        text = _output_text(output)
+        if text is not None:
+            return text
+    raise RuntimeError("解釈の応答テキストを受け取れませんでした。")
+
+
+async def _history_until_done(comfy, prompt_id: str) -> dict:
+    missing = 0
+    while True:
+        history = await comfy.history(prompt_id)
+        status = history.get("status", {})
+        if status.get("completed"):
+            return history
+        if status.get("status_str") == "error":
+            raise RuntimeError(f"ComfyUI failed: {status.get('messages')}")
+        if not history:
+            queue = await comfy.queue()
+            queued = any(item[1] == prompt_id for lane in ("queue_running", "queue_pending") for item in queue.get(lane, []))
+            missing = 0 if queued else missing + 1
+            if missing >= 3:
+                raise RuntimeError(f"ComfyUI dropped prompt {prompt_id}: not in queue, not in history")
+        await asyncio.sleep(1)
+
+
+def _stage_model(payload: dict):
+    stage = payload.get("stage")
+    if stage == "preview_review":
+        return ReviewMeaning
+    if stage == "layout":
+        return LayoutProposal
+    return Proposal
+
+
+def _instruction_name(payload: dict) -> str:
+    stage = payload.get("stage")
+    if stage == "preview_review":
+        return "preview_review_instructions.txt"
+    if stage == "layout":
+        return "layout_instructions.txt"
+    return "intent_instructions.txt"
+
+
+def _observe_prompt(index: int, schema: dict) -> str:
+    return (
+        f"{OBSERVE_MARK}これは{index}枚目の参考画像です。"
+        "出力は次の JSON Schema に厳密に従い、前後に説明を付けないでください。\n"
+        + json.dumps(schema, ensure_ascii=False)
+    )
+
+
+def _compose_prompt(payload: dict, schema: dict, observations: list[dict]) -> str:
+    instruction = Path(__file__).with_name(_instruction_name(payload)).read_text()
+    parts = [instruction.rstrip(), "入力:", json.dumps(payload, ensure_ascii=False)]
+    if observations:
+        parts += ["観察:", json.dumps(observations, ensure_ascii=False)]
+    parts += ["出力は次の JSON Schema に厳密に従い、前後に説明を付けないでください。",
+              json.dumps(schema, ensure_ascii=False)]
+    return "\n".join(parts)
+
+
+async def _ask(comfy, prompt: str, *, image: str | None = None, keep_model_loaded: bool = False) -> str:
+    prompt_id = await comfy.submit(
+        workflows.qwen_vl_interpret(prompt, image=image, keep_model_loaded=keep_model_loaded), CLIENT_ID)
+    history = await _history_until_done(comfy, prompt_id)
+    return _history_text(history)
+
+
+def _validate(model, raw: str):
+    try:
+        return model.model_validate(_parse_json_text(raw))
+    except ValidationError as error:
+        raise RuntimeError(f"解釈のJSONがスキーマに合いません: {error}") from error
+
+
+async def execute(payload: dict, images: list[bytes], *, comfy, keep_model_loaded: bool = False,
+                  reclaim_memory: bool = True) -> dict:
+    if comfy is None:
+        raise RuntimeError("Comfyが渡されていない")
+    started = time.monotonic()
+    if reclaim_memory:
+        queue = await comfy.queue()
+        if queue.get("queue_running") or queue.get("queue_pending"):
+            raise RuntimeError("GPUが生成中なので解釈を始められない")
+        await comfy.free()
+    model = _stage_model(payload)
+    schema = _strict_schema(model)
+    names = [await comfy.upload(content, f"intent-{index}.png") for index, content in enumerate(images)]
+    observations = []
+    if len(names) >= 2:
+        observe_schema = _strict_schema(Sighting)
+        for index, name in enumerate(names):
+            sighting = _validate(Sighting, await _ask(comfy, _observe_prompt(index, observe_schema),
+                                                      image=name, keep_model_loaded=True))
+            observations.append({"index": index, **sighting.model_dump()})
+        compose_image = None
+    elif len(names) == 1:
+        compose_image = names[0]
+    else:
+        compose_image = None
+    proposal = _validate(model, await _ask(comfy, _compose_prompt(payload, schema, observations),
+                                           image=compose_image, keep_model_loaded=keep_model_loaded))
+    return {"proposal": proposal.model_dump(), "model": MODEL,
+            "elapsed_seconds": round(time.monotonic() - started, 2), "auth": AUTH}

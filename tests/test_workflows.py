@@ -31,3 +31,21 @@ def test_anima_txt2img_stacks_loras_in_order():
     assert graph["4"]["inputs"]["lora_name"] == "char.safetensors" and graph["40"]["inputs"]["lora_name"] == "style.safetensors"
     assert graph["40"]["inputs"]["model"] == ["4", 0] and graph["40"]["inputs"]["strength_model"] == 0.6
     assert graph["23"]["inputs"]["model"] == ["40", 0] and graph["20"]["inputs"]["clip"] == ["40", 1]
+
+
+def test_qwen_vl_interpret_uses_32b_8bit_without_video():
+    text = workflows.qwen_vl_interpret("hello")
+    qwen = text["2"]["inputs"]
+    assert qwen["model_name"] == "Qwen3-VL-32B-Instruct"
+    assert qwen["quantization"] == "8-bit (Balanced)"
+    assert qwen["video_frame_size"] == "auto"
+    assert qwen["keep_model_loaded"] is False
+    assert qwen["custom_prompt"] == "hello"
+    assert "video" not in qwen
+    assert "1" not in text
+    with_image = workflows.qwen_vl_interpret("hello", image="a.png", keep_model_loaded=True)
+    assert with_image["1"]["class_type"] == "LoadImage"
+    assert with_image["1"]["inputs"]["image"] == "a.png"
+    assert with_image["2"]["inputs"]["image"] == ["1", 0]
+    assert with_image["2"]["inputs"]["keep_model_loaded"] is True
+    assert "video" not in with_image["2"]["inputs"]

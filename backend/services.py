@@ -46,7 +46,10 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         self.uploads_root = uploads_root or UPLOADS
         self.characters_root = characters_root or CHARACTERS
         self.styles_root = styles_root or STYLES
-        self.intent_interpreter = interpret
+        self.intent_interpreter = self._interpret_with_comfy
+
+    async def _interpret_with_comfy(self, job, images, **kwargs):
+        return await interpret(job, images, comfy=self.comfy, **kwargs)
 
     async def gpu_status(self) -> dict[str, Any]:
         self._record_call("gpu_status")

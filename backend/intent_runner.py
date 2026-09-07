@@ -1,44 +1,25 @@
-"""アプリから一回のCLI実行へ接続する。待機中にHTTP処理を止めない。"""
-import asyncio
-import base64
-import json
-import os
-from pathlib import Path
-import shlex
-import sys
+"""注文から解釈入力を組み立て、fox の QwenVL へ渡す。"""
 
 
-async def interpret(job: dict, images: list[bytes]) -> dict:
-    if job['stage'] == 'preview_review':
-        return await _interpret_packet(job, job['review_input'], images)
-    payload = {key: job[key] for key in ("original_comment", "record_description", "existing_settings", "references", "image_comments", "base_conditions", "stage", "panel")}
-    # 旧記録には当時の工程既定がない。現在の既定で過去を補わない。
-    payload["stage_conditions"] = job.get("stage_conditions", {})
-    payload["panel_specs"] = job.get("panel_specs", [])
-    payload["available_styles"] = job.get("available_styles", [])
-    payload["training_captions"] = job.get("training_captions", [])
-    payload["record_kind"] = job["record_kind"]
-    payload["learning_request"] = "learning_steps" in job
-    if job["stage"] == "layout":
-        payload["sheet_layout"] = job.get("working_layout", job["sheet_layout"])
-    return await _interpret_packet(job, payload, images)
+async def interpret(job: dict, images: list[bytes], *, comfy=None, keep_model_loaded: bool = False,
+                    reclaim_memory: bool = True) -> dict:
+    from .intent_cli import execute
 
-
-async def _interpret_packet(job, payload, images):
-    packet = {"input": payload, "images": [base64.b64encode(image).decode("ascii") for image in images]}
-    host = os.environ.get("SPRITEFORGE_INTENT_SSH", "")
-    if host:
-        root = os.environ["SPRITEFORGE_INTENT_HOST_ROOT"]
-        args = ["ssh", "-T", "-o", "BatchMode=yes", host,
-                f"cd {shlex.quote(root)} && uv run --no-sync python -m backend.intent_cli"]
+    if job["stage"] == "preview_review":
+        payload = job["review_input"]
     else:
-        args = [sys.executable, "-m", "backend.intent_cli"]
-    process = await asyncio.create_subprocess_exec(*args, stdin=asyncio.subprocess.PIPE,
-                                                   stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-                                                   cwd=Path(__file__).resolve().parents[1])
-    stdout, stderr = await process.communicate(json.dumps(packet, ensure_ascii=False).encode())
-    if process.returncode:
-        raise RuntimeError(stderr.decode(errors="replace").strip() or f"解釈処理が終了値{process.returncode}で失敗しました。")
-    result = json.loads(stdout)
+        payload = {key: job[key] for key in ("original_comment", "record_description", "existing_settings",
+                                             "references", "image_comments", "base_conditions", "stage", "panel")}
+        # 旧記録には当時の工程既定がない。現在の既定で過去を補わない。
+        payload["stage_conditions"] = job.get("stage_conditions", {})
+        payload["panel_specs"] = job.get("panel_specs", [])
+        payload["available_styles"] = job.get("available_styles", [])
+        payload["training_captions"] = job.get("training_captions", [])
+        payload["record_kind"] = job["record_kind"]
+        payload["learning_request"] = "learning_steps" in job
+        if job["stage"] == "layout":
+            payload["sheet_layout"] = job.get("working_layout", job["sheet_layout"])
+    result = await execute(payload, images, comfy=comfy, keep_model_loaded=keep_model_loaded,
+                           reclaim_memory=reclaim_memory)
     job["interpreter"] = {key: result[key] for key in ("model", "elapsed_seconds", "auth")}
     return result["proposal"]

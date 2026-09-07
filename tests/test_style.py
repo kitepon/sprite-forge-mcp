@@ -45,6 +45,9 @@ class ComfyFixture:
     async def queue(self):
         return {"queue_running": [], "queue_pending": []}
 
+    async def free(self):
+        return
+
 
 def make(tmp_path, monkeypatch):
     async def copied(local, remote, **kwargs): return 0, ""

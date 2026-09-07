@@ -68,7 +68,7 @@ def test_snapshot_uses_both_ratings_and_keeps_old_lora(tmp_path, monkeypatch):
 
 def test_comment_distinguishes_generated_image_and_samples_and_asks_only_ambiguity(tmp_path, monkeypatch):
     service, _ = make(tmp_path, monkeypatch)
-    async def interpret(packet, images):
+    async def interpret(packet, images, **kwargs):
         assert images == [png(), Path(service._load_character('probe')['samples'][0]['path']).read_bytes()]
         value = packet['review_input']
         assert value['rating'] == 'ng'
@@ -96,7 +96,7 @@ def test_comment_distinguishes_generated_image_and_samples_and_asks_only_ambigui
 
 def test_interpretation_failure_stays_failed_and_does_not_train(tmp_path, monkeypatch):
     service, _ = make(tmp_path, monkeypatch)
-    async def failed(*args):
+    async def failed(*args, **kwargs):
         raise RuntimeError('解釈サービスの失敗')
     service.intent_interpreter = failed
     async def scenario():
@@ -122,7 +122,7 @@ def test_too_few_steps_does_not_silently_omit_a_rating(tmp_path, monkeypatch):
 
 def test_answers_continue_same_request_and_keep_preparation_history(tmp_path, monkeypatch):
     service, _ = make(tmp_path, monkeypatch)
-    async def interpret(*args):
+    async def interpret(*args, **kwargs):
         return {'fix': [], 'preserve': ['衣装'], 'questions': ['NGなのはどの部分ですか？']}
     async def trained(*args, **kwargs):
         yield '{"step": 1, "total": 1}'
@@ -145,4 +145,32 @@ def test_answers_continue_same_request_and_keep_preparation_history(tmp_path, mo
         assert result['preparation_history'][0]['questions'] == waiting['questions']
         assert result['preparation_history'][0]['reviews'][1]['review']['revision'] == 1
         assert result['reviews'][1]['review']['revision'] == 2
+    asyncio.run(scenario())
+
+
+def test_preview_burst_keeps_model_loaded_until_last_interpretation(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+    calls = []
+    async def interpret(packet, images, **kwargs):
+        calls.append({k: kwargs[k] for k in ('keep_model_loaded', 'reclaim_memory')})
+        return {'fix': [], 'preserve': ['衣装'], 'questions': []}
+    async def trained(*args, **kwargs):
+        yield json.dumps({'step': 1, 'total': 1, 'loss': .69})
+    async def fetched(remote, local, **kwargs):
+        local.write_text('{}')
+        return 0, ''
+    service.intent_interpreter = interpret
+    monkeypatch.setattr(box, 'stream_preference_training', trained)
+    monkeypatch.setattr(box, 'copy_from_box', fetched)
+    async def scenario():
+        source = await prepared(service, tmp_path, '髪型が違う')
+        await service.save_preview_review(
+            'probe', source['job_id'], source['pictures'][0]['id'],
+            PreviewReview(rating='ok', revision=1, comment='衣装は合っている'))
+        job = await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()), steps=1)
+        assert job['status'] == 'completed'
+        assert calls == [
+            {'keep_model_loaded': True, 'reclaim_memory': True},
+            {'keep_model_loaded': False, 'reclaim_memory': False},
+        ]
     asyncio.run(scenario())

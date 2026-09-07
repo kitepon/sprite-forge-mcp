@@ -105,7 +105,7 @@ class PreviewReviews:
             reviews[image_id] = review
             self._preview_reviews_path(name, job_id).write_text(json.dumps(reviews, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
-    async def _interpret_preview_review(self, name, source, picture, samples):
+    async def _interpret_preview_review(self, name, source, picture, samples, **kwargs):
         review = picture['review']
         if 'meaning' in review or not (review['comment'].strip() or review['focus']):
             return
@@ -116,7 +116,7 @@ class PreviewReviews:
             'references': [{'kind': 'generated', 'id': picture['id']},
                            *[{'kind': 'sample', 'index': s['index'], 'caption': s.get('caption', '')} for s in samples]]}}
         images = [Path(picture['path']).read_bytes(), *[Path(s['path']).read_bytes() for s in samples]]
-        meaning = ReviewMeaning.model_validate(await self.intent_interpreter(packet, images))
+        meaning = ReviewMeaning.model_validate(await self.intent_interpreter(packet, images, **kwargs))
         review['meaning'] = meaning.model_dump()
         review['meaning_source'] = 'ai'
         review['interpreter'] = packet.get('interpreter')

@@ -29,7 +29,7 @@ Sprite Forge は、画像からキャラクターや画風を覚えさせ、そ�
 - 学習は `backend/box.py` が SSH/SCP で教材を送り、fox の Python 入口を呼ぶ。学習器の起動処理の正本は `box/train.py`。GPU 機上で場当たり的にコードや PowerShell スクリプトを作らず、リポジトリで変更して配備する。WSL2 を実行環境にしない。
 - メインサーバーへの接続は `ssh main-server` を使う。接続先や GPU 上の配置は `backend/config.py` と配備設定を確認し、推測したパスへ書かない。
 - Python の最低版と依存は `pyproject.toml`、解決済み依存は `uv.lock`、本番 Python は `Dockerfile` が定める。現在の本番・CI は Python 3.13。旧 `requirements.txt` の導入手順を使わない。
-- 現行採用は Anima Base/Turbo、Anima-Control-Pose、JoyAI-Image-Edit-Plus、ToonOut、SAM 3.1、FastAPI、FastMCP 4。JoyAI は編集・派生画像の経路に使う。Mage-Flow は配布取り下げを理由に採用から除外済み。
+- 現行採用は Anima Base/Turbo、Anima-Control-Pose、JoyAI-Image-Edit-Plus、ToonOut、SAM 3.1、FastAPI、FastMCP 4、コメント解釈の Qwen3-VL-32B-Instruct 8-bit。JoyAI は編集・派生画像の経路に使う。解釈は fox の ComfyUI（`SPRITEFORGE_COMFY_URL`）で行い、Codex CLI や SSH 先の別ホストへ送らない。Qwen3-VL-8B は不採用。FP8 は fox の `kernels` 不足で使わない。Mage-Flow は配布取り下げを理由に採用から除外済み。
 
 ## コードの置き場所
 
@@ -39,6 +39,8 @@ Sprite Forge は、画像からキャラクターや画風を覚えさせ、そ�
 | `backend/app.py` | 同じサービスを REST と MCP に公開。ファイル配信、アップロード、SSE、WebUI 配信 |
 | `backend/workflows.py` | ComfyUI に渡すワークフローの組み立て |
 | `backend/comfy.py` | ComfyUI との HTTP 通信 |
+| `backend/intent_cli.py` | QwenVL によるコメント解釈。バースト中はモデルを載せたまま、絵を描く直前に降ろす |
+| `backend/intent_runner.py` | ジョブから解釈入力を組み立て、`intent_cli.execute` を呼ぶ |
 | `backend/box.py` / `box/train.py` | fox との通信 / Windows ネイティブの学習起動 |
 | `backend/bible.py` | 設定画のパネル定義、内容指定、画像処理、シート・HTML 合成 |
 | `backend/events.py` | ジョブ状態と追記型イベント記録 |

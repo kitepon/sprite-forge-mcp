@@ -1,126 +1,189 @@
-"""CLIの呼出し条件と結果境界。実モデルは呼ばない。"""
-from pathlib import Path
+from __future__ import annotations
+
 import asyncio
-import base64
 import json
-from types import SimpleNamespace
+import unittest
 
-import pytest
+from backend.intent_cli import AUTH, MODEL, OBSERVE_MARK, execute
+from backend.intent_runner import interpret
 
-from backend.intent_cli import command, check_events, run
-
-
-def test_cli_uses_native_subscription_without_tools():
-    args = command(Path("/tmp/probe"), [Path("/tmp/probe/1.png")])
-    assert 'forced_login_method="chatgpt"' in args
-    assert 'model_provider="openai"' in args
-    assert "--ignore-user-config" in args and "--ephemeral" in args
-    for feature in ("shell_tool", "unified_exec", "apps", "remote_plugin", "multi_agent", "image_generation", "view_image", "hooks"):
-        assert args[args.index(feature) - 1] == "--disable"
-    assert args[-1] == "-"
+SCHEMA_LEAD = '出力は次の JSON Schema に厳密に従い、前後に説明を付けないでください。'
+EMPTY = {
+    'observations': [],
+    'changes': [],
+    'questions': [],
+    'training_samples': None,
+}
 
 
-@pytest.mark.parametrize("kind", ["command_execution", "mcp_tool_call", "web_search", "file_change"])
-def test_cli_rejects_tool_items(kind):
-    with pytest.raises(RuntimeError, match="画像解釈以外"):
-        check_events('{"type":"item.completed","item":{"type":"' + kind + '"}}')
+class FakeComfy:
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+        self.keeps: list[bool] = []
+        self.queued: list[dict] = []
+        self.freed = 0
+        self.queue_running: list = []
+        self.queue_pending: list = []
+        self._n = 0
+
+    async def queue(self) -> dict:
+        return {'queue_running': self.queue_running, 'queue_pending': self.queue_pending}
+
+    async def upload(self, content: bytes, name: str) -> str:
+        return name
+
+    async def submit(self, workflow: dict, client_id: str) -> str:
+        self._n += 1
+        prompt_id = f'p{self._n}'
+        self.queued.append(workflow)
+        qwen = workflow['2']['inputs']
+        self.prompts.append(str(qwen['custom_prompt']))
+        self.keeps.append(bool(qwen['keep_model_loaded']))
+        return prompt_id
+
+    async def history(self, prompt_id: str) -> dict:
+        prompt = self.prompts[int(prompt_id[1:]) - 1]
+        if OBSERVE_MARK in prompt:
+            text = json.dumps({
+                'appearance_ja': '赤いリボンの少女',
+                'caption_en': 'a girl with a red ribbon',
+            }, ensure_ascii=False)
+        elif '入力:\n' in prompt:
+            payload = _payload_from_prompt(prompt)
+            stage = payload.get('stage')
+            if stage == 'layout':
+                layout = payload['sheet_layout']
+                text = json.dumps({
+                    'summary_ja': '構成の確認',
+                    'questions': [],
+                    'panels': [dict(panel, description_ja=panel['label'], reference=None) for panel in layout],
+                }, ensure_ascii=False)
+            elif stage == 'preview_review':
+                text = json.dumps({'fix': [], 'preserve': ['衣装'], 'questions': []}, ensure_ascii=False)
+            else:
+                text = json.dumps(EMPTY)
+        else:
+            text = json.dumps(EMPTY)
+        return {
+            'status': {'completed': True, 'status_str': 'success'},
+            'outputs': {'3': {'text': [text]}},
+        }
+
+    async def free(self) -> None:
+        self.freed += 1
 
 
-def test_cli_requires_completion():
-    with pytest.raises(RuntimeError, match="完了応答"):
-        check_events('{"type":"thread.started"}')
-    check_events('{"type":"item.completed","item":{"type":"agent_message"}}\n{"type":"turn.completed"}')
-
-
-def test_runner_removes_api_credentials_and_uses_only_input_images(monkeypatch):
-    for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"):
-        monkeypatch.setenv(key, "試験値")
-    roots = []
-
-    def execute(args, *, input, text, capture_output, cwd, env):
-        roots.append(cwd)
-        schema = json.loads((cwd / "schema.json").read_text())
-        observation = schema["$defs"]["Observation"]
-        assert set(observation["required"]) == set(observation["properties"])
-        assert "default" not in observation["properties"]["caption_en"]
-        assert all(key not in env for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"))
-        assert (cwd / "1.png").read_bytes() == b"image-fixture"
-        assert "原文の注文" in input
-        (cwd / "result.json").write_text(json.dumps({"observations": [], "changes": [], "questions": []}))
-        return SimpleNamespace(returncode=0, stdout='{"type":"turn.completed"}', stderr="")
-
-    monkeypatch.setattr("backend.intent_cli.subprocess.run", execute)
-    result = run({"input": {"original_comment": "原文の注文"}, "images": [base64.b64encode(b"image-fixture").decode()]})
-    assert result["auth"] == "chatgpt"
-    assert not roots[0].exists()
-
-
-@pytest.mark.parametrize("has_snapshot", [True, False])
-def test_app_runner_transfers_recorded_stage_conditions(monkeypatch, has_snapshot):
-    from backend.intent_runner import interpret
-
-    recorded = {"pose": {"description_en": "standing, front view", "avoid_en": ""}}
-    job = {"original_comment": "横向き", "record_description": "", "existing_settings": {},
-           "references": [], "image_comments": [], "base_conditions": {}, "stage": "preview", "panel": "", "record_kind": "character"}
-    if has_snapshot:
-        job["stage_conditions"] = recorded
-        job["training_captions"] = [{"appearance_ja": "成人に見える人物。小さめの頭と長い手足。",
-                                    "caption_en": "adult figure, small head relative to body, long limbs"}]
-        job["available_styles"] = [{"name": "確認用", "note": "登録された画風", "lora_name": "look.safetensors"}]
-
-    class Process:
-        returncode = 0
-
-        async def communicate(self, raw):
-            packet = json.loads(raw)
-            assert packet["input"]["stage_conditions"] == (recorded if has_snapshot else {})
-            assert packet["input"]["record_kind"] == "character"
-            assert packet["input"]["available_styles"] == job.get("available_styles", [])
-            assert packet["input"]["training_captions"] == job.get("training_captions", [])
-            return json.dumps({"proposal": {"observations": [], "changes": [], "questions": []},
-                               "model": "fixture", "elapsed_seconds": 0, "auth": "chatgpt"}).encode(), b""
-
-    async def start(*args, **kwargs):
-        return Process()
-
-    monkeypatch.setattr("backend.intent_runner.asyncio.create_subprocess_exec", start)
-    assert asyncio.run(interpret(job, []))["questions"] == []
-
-
-def test_nonzero_cli_exposes_structured_error_before_generic_stderr(monkeypatch):
-    monkeypatch.setattr("backend.intent_cli.subprocess.run", lambda *args, **kwargs: SimpleNamespace(
-        returncode=1, stdout='{"type":"error","message":"Invalid schema: caption_en must be required"}', stderr="Reading prompt from stdin..."))
-    with pytest.raises(RuntimeError, match="Invalid schema"):
-        run({"input": {}, "images": []})
-
-
-@pytest.mark.parametrize("returncode", [0, 255])
-def test_app_runner_ssh_transfers_images_and_exposes_connection_failure(monkeypatch, returncode):
-    from backend.intent_runner import interpret
-
-    monkeypatch.setenv("SPRITEFORGE_INTENT_SSH", "app@cli-host")
-    monkeypatch.setenv("SPRITEFORGE_INTENT_HOST_ROOT", "/project with space")
-    job = {"original_comment": "参照画像の衣装", "record_description": "", "existing_settings": {},
-           "references": [], "image_comments": [], "base_conditions": {}, "stage": "samples",
-           "panel": "", "record_kind": "character"}
-
-    async def communicate(raw):
-        packet = json.loads(raw)
-        assert packet["input"]["original_comment"] == "参照画像の衣装"
-        assert base64.b64decode(packet["images"][0]) == b"reference"
-        return json.dumps({"proposal": {"observations": [], "changes": [], "questions": []},
-                           "model": "fixture", "elapsed_seconds": 1.5, "auth": "chatgpt"}).encode(), b"Permission denied (publickey)."
-
-    async def start(*args, **kwargs):
-        assert args == ("ssh", "-T", "-o", "BatchMode=yes", "app@cli-host",
-                        "cd '/project with space' && uv run --no-sync python -m backend.intent_cli")
-        return SimpleNamespace(returncode=returncode, communicate=communicate)
-
-    monkeypatch.setattr("backend.intent_runner.asyncio.create_subprocess_exec", start)
-    if returncode:
-        with pytest.raises(RuntimeError, match="Permission denied"):
-            asyncio.run(interpret(job, [b"reference"]))
-        assert "interpreter" not in job
+def _payload_from_prompt(prompt: str) -> dict:
+    _, after = prompt.split('入力:\n', 1)
+    if '\n観察:\n' in after:
+        blob, _ = after.split('\n観察:\n', 1)
     else:
-        assert asyncio.run(interpret(job, [b"reference"]))["questions"] == []
-        assert job["interpreter"] == {"model": "fixture", "elapsed_seconds": 1.5, "auth": "chatgpt"}
+        blob, _ = after.split('\n' + SCHEMA_LEAD, 1)
+    return json.loads(blob)
+
+
+class IntentCliTests(unittest.TestCase):
+    def test_missing_comfy_is_an_error(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, 'Comfyが渡されていない'):
+            asyncio.run(execute(EMPTY, [], comfy=None))
+
+    def test_busy_gpu_is_an_error(self) -> None:
+        comfy = FakeComfy()
+        comfy.queue_running = [{'prompt_id': 'busy'}]
+        with self.assertRaisesRegex(RuntimeError, 'GPUが生成中なので解釈を始められない'):
+            asyncio.run(execute(EMPTY, [], comfy=comfy))
+        self.assertEqual(comfy.freed, 0)
+
+    def test_text_only_reclaims_then_unloads(self) -> None:
+        comfy = FakeComfy()
+        result = asyncio.run(execute(EMPTY, [], comfy=comfy))
+        graph = comfy.queued[0]
+        self.assertEqual(comfy.freed, 1)
+        self.assertEqual(comfy.keeps, [False])
+        self.assertNotIn('1', graph)
+        self.assertIn('2', graph)
+        self.assertNotIn('video', graph['2']['inputs'])
+        self.assertEqual(result['model'], MODEL)
+        self.assertEqual(result['auth'], AUTH)
+        self.assertIsInstance(result['proposal'], dict)
+        self.assertEqual(result['proposal']['training_samples'], None)
+
+    def test_keep_loaded_skips_reclaim(self) -> None:
+        comfy = FakeComfy()
+        asyncio.run(execute(EMPTY, [], comfy=comfy, keep_model_loaded=True, reclaim_memory=False))
+        self.assertEqual(comfy.freed, 0)
+        self.assertEqual(comfy.keeps, [True])
+
+    def test_two_images_observe_then_compose_without_video(self) -> None:
+        comfy = FakeComfy()
+        result = asyncio.run(execute(
+            EMPTY, [b'one', b'two'], comfy=comfy, keep_model_loaded=False, reclaim_memory=True))
+        self.assertEqual(comfy.freed, 1)
+        self.assertEqual(comfy.keeps, [True, True, False])
+        self.assertEqual(len(comfy.queued), 3)
+        self.assertEqual(comfy.queued[0]['1']['inputs']['image'], 'intent-0.png')
+        self.assertNotIn('video', comfy.queued[0]['2']['inputs'])
+        self.assertNotIn('1', comfy.queued[2])
+        self.assertIn('赤いリボン', comfy.prompts[2])
+        self.assertIn('観察:', comfy.prompts[2])
+        self.assertNotIn('赤いリボン', json.dumps(_payload_from_prompt(comfy.prompts[2]), ensure_ascii=False))
+        self.assertIsInstance(result['proposal'], dict)
+
+    def test_invalid_json_is_an_error(self) -> None:
+        class Broken(FakeComfy):
+            async def history(self, prompt_id: str) -> dict:
+                return {
+                    'status': {'completed': True, 'status_str': 'success'},
+                    'outputs': {'3': {'text': ['not-json']}},
+                }
+
+        with self.assertRaisesRegex(RuntimeError, '解釈の応答をJSONとして読めません'):
+            asyncio.run(execute(EMPTY, [], comfy=Broken()))
+
+    def test_schema_mismatch_is_an_error(self) -> None:
+        class Mismatch(FakeComfy):
+            async def history(self, prompt_id: str) -> dict:
+                return {
+                    'status': {'completed': True, 'status_str': 'success'},
+                    'outputs': {'3': {'text': ['{"unexpected": true}']}},
+                }
+
+        with self.assertRaisesRegex(RuntimeError, '解釈のJSONがスキーマに合いません'):
+            asyncio.run(execute(EMPTY, [], comfy=Mismatch()))
+
+
+class IntentRunnerTests(unittest.TestCase):
+    def test_preview_review_sends_recorded_review_input(self) -> None:
+        comfy = FakeComfy()
+        review_input = {
+            'stage': 'preview_review',
+            'rating': 'NG',
+            'comment': '袖が違う',
+            'focus': {'kind': 'whole'},
+        }
+        result = asyncio.run(interpret({
+            'stage': 'preview_review',
+            'review_input': review_input,
+        }, [], comfy=comfy))
+        self.assertEqual(_payload_from_prompt(comfy.prompts[-1]), review_input)
+        self.assertEqual(result['preserve'], ['衣装'])
+
+    def test_app_runner_transfers_recorded_stage_conditions(self) -> None:
+        comfy = FakeComfy()
+        conditions = [{'text': 'リボンを残す', 'scope': 'character'}]
+        asyncio.run(interpret({
+            'original_comment': '',
+            'record_description': '',
+            'existing_settings': {},
+            'references': [],
+            'image_comments': [],
+            'base_conditions': {},
+            'stage': 'character',
+            'panel': '',
+            'record_kind': 'character',
+            'stage_conditions': conditions,
+        }, [], comfy=comfy))
+        payload = _payload_from_prompt(comfy.prompts[-1])
+        self.assertEqual(payload['stage_conditions'], conditions)
+        self.assertNotIn('working_layout', payload)
+        self.assertNotIn('recorded_layout', payload)

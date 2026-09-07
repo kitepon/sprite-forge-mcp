@@ -2,7 +2,6 @@
 import asyncio
 from copy import deepcopy
 import json
-from types import SimpleNamespace
 
 import pytest
 
@@ -79,26 +78,26 @@ def test_rejects_unresolved_or_mismatched_layout(tmp_path, monkeypatch, failure)
     asyncio.run(scenario())
 
 
-def test_layout_cli_has_its_own_strict_schema_and_subscription_command(monkeypatch):
-    from backend.intent_cli import run
-    proposed = proposal(legacy_layout()[:1])
-    def execute(args, *, input, cwd, **kwargs):
-        schema = json.loads((cwd / "schema.json").read_text())
-        assert "panels" in schema["properties"] and "changes" not in schema["properties"]
-        for value in schema["$defs"].values():
-            if "properties" in value:
-                assert set(value["required"]) == set(value["properties"])
-        assert 'forced_login_method="chatgpt"' in args
-        assert "汎用キャラクターシート" in input
-        assert "一枠に実際に描く被写体数・視点・範囲" in input
-        assert "その数量と構図を維持" in input
-        assert "表情で変わる内容はexpressionへ分けます" in input
-        assert "そのpartのavoid_enへ対象を列挙" in input
-        assert "共通条件に値が存在しない特徴" in input
-        (cwd / "result.json").write_text(json.dumps(proposed))
-        return SimpleNamespace(returncode=0, stdout='{"type":"turn.completed"}', stderr="")
-    monkeypatch.setattr("backend.intent_cli.subprocess.run", execute)
-    assert run({"input": {"stage": "layout", "sheet_layout": legacy_layout()}, "images": []})["proposal"] == proposed
+def test_layout_cli_has_its_own_strict_schema():
+    from backend.intent_cli import execute
+    from tests.test_intent_cli import SCHEMA_LEAD, FakeComfy
+    comfy = FakeComfy()
+    layout = legacy_layout()
+    result = asyncio.run(execute({"stage": "layout", "sheet_layout": layout}, [], comfy=comfy))
+    prompt = comfy.prompts[-1]
+    _, schema_blob = prompt.split("\n" + SCHEMA_LEAD + "\n", 1)
+    schema = json.loads(schema_blob)
+    assert "panels" in schema["properties"] and "changes" not in schema["properties"]
+    for value in schema["$defs"].values():
+        if "properties" in value:
+            assert set(value["required"]) == set(value["properties"])
+    assert "汎用キャラクターシート" in prompt
+    assert "一枠に実際に描く被写体数・視点・範囲" in prompt
+    assert "その数量と構図を維持" in prompt
+    assert "表情で変わる内容はexpressionへ分けます" in prompt
+    assert "そのpartのavoid_enへ対象を列挙" in prompt
+    assert "共通条件に値が存在しない特徴" in prompt
+    assert result["proposal"]["panels"][0]["key"] == layout[0]["key"]
 
 
 def test_adopted_features_and_requested_view_count_reach_prompt_without_common_settings():
@@ -148,20 +147,21 @@ def test_existing_offset_cannot_acquire_another_key(tmp_path, monkeypatch, bound
     asyncio.run(scenario())
 
 
-def test_runner_transfers_working_layout_and_not_a_new_current_record(monkeypatch):
+def test_runner_transfers_working_layout_and_not_a_new_current_record():
     from backend.intent_runner import interpret
+    from tests.test_intent_cli import FakeComfy, _payload_from_prompt
     before = legacy_layout()
     working = deepcopy(before[:1])
-    job = dict(original_comment="一枚", record_kind="character", record_description="", existing_settings={}, references=[], image_comments=[], base_conditions={}, stage="layout", panel="", sheet_layout=before, working_layout=working)
-    class Process:
-        returncode = 0
-        async def communicate(self, raw):
-            assert json.loads(raw)["input"]["sheet_layout"] == working
-            return json.dumps({"proposal": proposal(working), "model": "fixture", "elapsed_seconds": 0, "auth": "chatgpt"}).encode(), b""
-    async def start(*args, **kwargs):
-        return Process()
-    monkeypatch.setattr("backend.intent_runner.asyncio.create_subprocess_exec", start)
-    assert asyncio.run(interpret(job, []))["panels"][0]["key"] == working[0]["key"]
+    job = dict(original_comment="一枚", record_kind="character", record_description="", existing_settings={},
+               references=[], image_comments=[], base_conditions={}, stage="layout", panel="",
+               sheet_layout=before, working_layout=working)
+    comfy = FakeComfy()
+    result = asyncio.run(interpret(job, [], comfy=comfy))
+    payload = _payload_from_prompt(comfy.prompts[-1])
+    assert payload["sheet_layout"] == working
+    assert "working_layout" not in payload
+    assert "recorded_layout" not in payload
+    assert result["panels"][0]["key"] == working[0]["key"]
 
 
 def test_old_manual_draft_cannot_be_rebased_silently_and_discard_keeps_history(tmp_path, monkeypatch):

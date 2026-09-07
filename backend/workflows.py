@@ -94,3 +94,36 @@ def anima_refine(image_name: str, prompt: str, seed: int, *, lora_name: str, lor
 
 def anima_base(prompt: str, seed: int, width: int = 1024, height: int = 1024) -> Graph:
     return anima_txt2img(prompt, seed, width=width, height=height)
+
+
+def qwen_vl_interpret(prompt: str, *, image: str | None = None, keep_model_loaded: bool = False) -> Graph:
+    """Qwen3-VL-32B-Instruct 8-bit. 静止画は image だけ。video キーは付けない。"""
+    qwen: dict[str, Any] = {
+        "class_type": "AILab_QwenVL_Advanced",
+        "inputs": {
+            "model_name": "Qwen3-VL-32B-Instruct",
+            "quantization": "8-bit (Balanced)",
+            "attention_mode": "auto",
+            "use_torch_compile": False,
+            "device": "auto",
+            "preset_prompt": "🖼️ Detailed Description",
+            "custom_prompt": prompt,
+            "max_tokens": 4096,
+            "temperature": 0.6,
+            "top_p": 0.9,
+            "num_beams": 1,
+            "repetition_penalty": 1.2,
+            "frame_count": 1,
+            "video_frame_size": "auto",
+            "keep_model_loaded": keep_model_loaded,
+            "seed": 1,
+        },
+    }
+    graph: Graph = {
+        "2": qwen,
+        "3": {"class_type": "PreviewAny", "inputs": {"source": ["2", 0]}},
+    }
+    if image is not None:
+        graph["1"] = {"class_type": "LoadImage", "inputs": {"image": image}}
+        qwen["inputs"]["image"] = ["1", 0]
+    return graph

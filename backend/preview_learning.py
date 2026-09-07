@@ -60,8 +60,16 @@ class PreviewLearning:
                'lora_name': f"{record['key']}_preference_{request_id}.safetensors"}
         self.events.save_job(job)
         with self._job_errors(job):
-            for picture in selected:
-                await self._interpret_preview_review(name, source, picture, samples)
+            pending = [
+                picture for picture in selected
+                if 'meaning' not in picture['review'] and (picture['review']['comment'].strip() or picture['review']['focus'])
+            ]
+            for i, picture in enumerate(pending):
+                await self._interpret_preview_review(
+                    name, source, picture, samples,
+                    keep_model_loaded=i < len(pending) - 1,
+                    reclaim_memory=i == 0,
+                )
                 self.events.save_job(job)
             questions = [{'image_id': p['id'], 'questions': p['review']['meaning']['questions']}
                          for p in selected if p['review'].get('meaning', {}).get('questions')]

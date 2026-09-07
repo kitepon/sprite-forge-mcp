@@ -40,6 +40,12 @@ class ComfyFixture:
         return {"status": {"completed": True, "status_str": "success"},
                 "outputs": {"25": {"images": [{"filename": f"{prompt_id}.png"}]}}}
 
+    async def queue(self):
+        return {"queue_running": [], "queue_pending": []}
+
+    async def free(self):
+        return
+
 
 async def view_image(_image):
     return png()
