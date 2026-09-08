@@ -206,6 +206,35 @@ def test_saved_order_is_used_by_interpreter(tmp_path, monkeypatch):
     assert seen == [1, 0]
 
 
+def test_drawing_keeps_changes_without_accepting_training_samples(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+
+    async def interpret(job, images):
+        ref = job["references"][0]
+        result = proposal(ref)
+        result["training_samples"] = [{
+            "reference": ref, "priority": "normal", "features": [], "reason_ja": "通常の教材として使います",
+        }]
+        return result
+
+    service.intent_interpreter = interpret
+
+    async def scenario():
+        await setup(service, tmp_path)
+        job = await service.interpret_comment(IntentRequest(name="probe", stage="drawing", comment="白背景"))
+        assert job["status"] == "awaiting_confirmation"
+        assert job["proposal"]["training_samples"] is None
+        assert job["proposal"]["changes"][0]["description_en"] == "separate jacket and skirt"
+        accepted = await service.confirm_comment_intent(job["job_id"], Proposal.model_validate(job["proposal"]))
+        rec = await service.character_info("probe")
+        assert "training_selection" not in rec
+        assert accepted["status"] == "confirmed"
+        assert accepted["accepted"]["training_samples"] is None
+        assert rec["intent_conditions"]["outfit"]["description_en"] == "separate jacket and skirt"
+
+    asyncio.run(scenario())
+
+
 def test_model_output_must_reference_the_input(tmp_path, monkeypatch):
     service, _ = make(tmp_path, monkeypatch)
 

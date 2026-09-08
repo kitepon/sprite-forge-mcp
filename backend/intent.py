@@ -76,9 +76,10 @@ class Proposal(StrictModel):
 def validate_proposal(proposal: Proposal, job: dict) -> None:
     """外部入力の参照先と範囲を検査する。衣装などの意味の合否は判定しない。"""
     references = job["references"]
+    if proposal.training_samples is not None and job["stage"] not in ("samples", "training"):
+        # 生成工程の学習欄は採用しない。観察と変更案は残す。JSON を直したことにはしない。
+        proposal.training_samples = None
     if proposal.training_samples is not None:
-        if job["stage"] not in ("samples", "training"):
-            raise ValueError("学習画像の採用方針は、参考画像・学習工程で指定してください。")
         selected = [s.reference.model_dump() for s in proposal.training_samples]
         if len(selected) != len(references) or any(selected.count(ref) != 1 for ref in references):
             raise ValueError("学習への採用方針を、参考画像すべてについて一枚ずつ指定してください。")
