@@ -1,0 +1,80 @@
+{
+  "when": "2026-09-08T11:20+09:00",
+  "what": "05-deploy final accept blocked: production interpret job died when fox (192.168.1.11) left the LAN",
+  "judgement": "blocked",
+  "no_model_fallback": true,
+  "gpu_ping_smoke": "evidence/user-intent-agent-20260905/20260908-qwen-vl-gpu-smoke.json",
+  "job": {
+    "job_id": "fdc09726-6ff9-4dc0-b8d7-053a41f3cc47",
+    "kind": "intent",
+    "stage": "drawing",
+    "status": "failed",
+    "error_field": "",
+    "created_at": "2026-09-08T01:43:55.185047Z",
+    "running_updated_at": "2026-09-08T01:44:14.806095Z",
+    "failed_updated_at": "2026-09-08T02:17:19.555657Z",
+    "comfy_prompt_id": "e524432f-b00a-48ab-861b-42ceb08a96ef",
+    "record_key": "20260908",
+    "name": "公開動作確認20260908",
+    "interpreter": null,
+    "proposal": null
+  },
+  "timeline": {
+    "interpret_client_readtimeout_s": 300,
+    "last_alive_gpu": {
+      "when_utc": "2026-09-08T02:01:01Z",
+      "util_pct": 100,
+      "memory_mib": "32109/32607",
+      "power_w": "133-148",
+      "queue_running": 1,
+      "history_empty": true
+    },
+    "host_down_confirmed_utc": "2026-09-08T02:17:10Z"
+  },
+  "reachability": {
+    "from_mac": {
+      "ping": "100% loss, sendto: Host is down",
+      "curl_8188": "timeout 5s http=000",
+      "ssh_22": "No route to host"
+    },
+    "from_main_server": {
+      "ping": "100% loss",
+      "curl_8188": "Failed to connect after 42ms"
+    }
+  },
+  "recheck": {
+    "when": "2026-09-08T11:34+09:00",
+    "trigger": "owner asked to finish the remaining 05-deploy accept",
+    "from_mac": {
+      "ping": "100% loss, sendto: Host is down",
+      "curl_8188": "timeout 8s",
+      "ssh_22": "Host is down"
+    },
+    "from_main_server": {
+      "ping": "100% loss",
+      "curl_8188": "Failed to connect after 42ms",
+      "api_gpu": "ConnectError: All connection attempts failed"
+    },
+    "isolated_character_still_present": true
+  },
+  "docker_traceback": {
+    "file": "backend/intent_cli.py",
+    "fn": "_history_until_done",
+    "exc": "httpx.ConnectError: All connection attempts failed"
+  },
+  "ledgers": {
+    "isolated_character_kept": "20260908",
+    "existing_character": "ndac1de01",
+    "existing_style": "bell_glow",
+    "deleted": []
+  },
+  "not_done": ["confirm", "from-bible", "image review", "isolated DELETE"],
+  "resume": {
+    "need": "fox power/network so Comfy answers on 192.168.1.11:8188",
+    "check": [
+      "curl -sS -m 5 http://192.168.1.11:8188/system_stats",
+      "ssh windows-workstation nvidia-smi -L"
+    ],
+    "after": "new draft on character 20260908 (failed job cannot be re-interpreted); do not POST interpret on fdc09726; do not switch models"
+  }
+}
