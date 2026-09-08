@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from . import workflows
 from .intent import Proposal, StrictModel
 from .preview_intent import ReviewMeaning
+from .preview_learning import SPATIAL_FOCUS, mask_is_empty, spatial_keys_from_focus_and_text, union_masks
 from .sheet_layout import LayoutProposal
 
 MODEL = "Qwen3-VL-32B-Instruct"
@@ -21,6 +22,7 @@ AUTH = "comfy"
 CLIENT_ID = "sprite-forge-intent"
 OBSERVE_MARK = "この画像の見た目を JSON で返してください。画風を表す語句は書かないでください。"
 INTERPRET_MAX_SIDE = 512
+OBSERVE_TOPIC_JA = {"hair": "髪", "face": "顔", "outfit": "衣装", "body": "体", "style": "画風"}
 
 
 class Sighting(StrictModel):
@@ -118,12 +120,76 @@ def _instruction_name(payload: dict) -> str:
     return "intent_instructions.txt"
 
 
-def _observe_prompt(index: int, schema: dict) -> str:
+def observe_range(payload: dict) -> dict:
+    """判定の観察範囲。画像を見せる前に、部位指定とユーザーの文から決める。"""
+    focus = payload.get("focus")
+    comment = (payload.get("comment") or "").strip()
+    regions = list(spatial_keys_from_focus_and_text(focus, comment))
+    topics = list(regions)
+    if isinstance(focus, list) and "style" in focus and "style" not in topics:
+        topics.append("style")
+    return {"regions": regions, "topics": topics, "comment": comment}
+
+
+def _observe_prompt(index: int, schema: dict, view: dict | None = None) -> str:
+    lead = f"{OBSERVE_MARK}これは{index}枚目の参考画像です。"
+    if view is not None:
+        labels = [OBSERVE_TOPIC_JA[key] for key in view["topics"] if key in OBSERVE_TOPIC_JA]
+        extra = []
+        if labels:
+            extra.append(f"見る範囲は{'、'.join(labels)}だけです。指定していない部位の特徴は書かないでください。")
+        if view["comment"]:
+            extra.append(f"ユーザーの文: {view['comment']}")
+            if not labels:
+                extra.append("文が示す範囲だけを見てください。文にない部位の特徴は書かないでください。")
+        if extra:
+            lead = f"{OBSERVE_MARK}{''.join(extra)}これは{index}枚目の参考画像です。"
     return (
-        f"{OBSERVE_MARK}これは{index}枚目の参考画像です。"
-        "出力は次の JSON Schema に厳密に従い、前後に説明を付けないでください。\n"
+        lead
+        + "出力は次の JSON Schema に厳密に従い、前後に説明を付けないでください。\n"
         + json.dumps(schema, ensure_ascii=False)
     )
+
+
+def _as_rgba_png(content: bytes) -> bytes:
+    image = Image.open(BytesIO(content)).convert("RGBA")
+    output = BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
+
+
+def _first_image(history: dict) -> dict:
+    for output in (history.get("outputs") or {}).values():
+        images = output.get("images") or []
+        if images:
+            return images[0]
+    raise RuntimeError("ComfyUI history has no image output")
+
+
+def _keep_region_pixels(content: bytes, mask_png: bytes) -> bytes:
+    image = Image.open(BytesIO(content)).convert("RGBA")
+    mask = Image.open(BytesIO(mask_png)).convert("L").resize(image.size)
+    black = Image.new("RGBA", image.size, (0, 0, 0, 255))
+    output = BytesIO()
+    Image.composite(image, black, mask).save(output, format="PNG")
+    return output.getvalue()
+
+
+async def _region_mask_png(comfy, content: bytes, prompt: str, name: str) -> bytes:
+    uploaded = await comfy.upload(content, name)
+    prompt_id = await comfy.submit(workflows.sam3_mask(uploaded, prompt), CLIENT_ID)
+    png = _as_rgba_png(await comfy.view(_first_image(await _history_until_done(comfy, prompt_id))))
+    if mask_is_empty(png):
+        raise RuntimeError(f"マスクが空です: {prompt}")
+    return png
+
+
+async def _restrict_image(comfy, content: bytes, regions: list[str], index: int) -> bytes:
+    parts = []
+    for region in regions:
+        prompt = SPATIAL_FOCUS[region]
+        parts.append(await _region_mask_png(comfy, content, prompt, f"intent-{index}-{region}.png"))
+    return _keep_region_pixels(content, union_masks(parts))
 
 
 def _interpret_image_png(content: bytes, max_side: int = INTERPRET_MAX_SIDE) -> bytes:
@@ -174,13 +240,17 @@ async def execute(payload: dict, images: list[bytes], *, comfy, keep_model_loade
         await comfy.free()
     model = _stage_model(payload)
     schema = _strict_schema(model)
+    view = observe_range(payload) if payload.get("stage") == "preview_review" else None
+    if view is not None and view["regions"] and images:
+        images = [await _restrict_image(comfy, content, view["regions"], index)
+                  for index, content in enumerate(images)]
     names = [await comfy.upload(_interpret_image_png(content), f"intent-{index}.png")
              for index, content in enumerate(images)]
     observations = []
     if len(names) >= 2:
         observe_schema = _strict_schema(Sighting)
         for index, name in enumerate(names):
-            sighting = _validate(Sighting, await _ask(comfy, _observe_prompt(index, observe_schema),
+            sighting = _validate(Sighting, await _ask(comfy, _observe_prompt(index, observe_schema, view),
                                                       image=name, keep_model_loaded=True))
             observations.append({"index": index, **sighting.model_dump()})
         compose_image = None
@@ -188,7 +258,10 @@ async def execute(payload: dict, images: list[bytes], *, comfy, keep_model_loade
         compose_image = names[0]
     else:
         compose_image = None
-    proposal = _validate(model, await _ask(comfy, _compose_prompt(payload, schema, observations),
+    compose_payload = dict(payload)
+    if view is not None:
+        compose_payload["observe_range"] = view
+    proposal = _validate(model, await _ask(comfy, _compose_prompt(compose_payload, schema, observations),
                                            image=compose_image, keep_model_loaded=keep_model_loaded))
     return {"proposal": proposal.model_dump(), "model": MODEL,
             "elapsed_seconds": round(time.monotonic() - started, 2), "auth": AUTH}

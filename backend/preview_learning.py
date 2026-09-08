@@ -22,20 +22,30 @@ FIX_REGION_MARKERS = (
 )
 
 
+def spatial_keys_from_focus_and_text(focus, text: str = '') -> tuple[str, ...]:
+    """focusの空間キーを優先し、それが無いときだけ一般語を見る。"""
+    seen = set()
+    ordered = []
+    if isinstance(focus, list):
+        for key in focus:
+            if key in SPATIAL_FOCUS and key not in seen:
+                seen.add(key)
+                ordered.append(key)
+    if ordered:
+        return tuple(ordered)
+    joined = text or ''
+    return tuple(region for region, markers in FIX_REGION_MARKERS if any(marker in joined for marker in markers))
+
+
 def pair_spatial_regions(review: dict) -> tuple[str, ...]:
     """NGの空間部位。focusがあればそれを使い、なければ解釈の一般語だけを見る。"""
     if (review.get('rating') or '') != 'ng':
         return ()
-    seen = set()
-    ordered = []
-    for key in review.get('focus') or []:
-        if key in SPATIAL_FOCUS and key not in seen:
-            seen.add(key)
-            ordered.append(key)
-    if ordered:
-        return tuple(ordered)
+    from_focus = spatial_keys_from_focus_and_text(review.get('focus'))
+    if from_focus:
+        return from_focus
     joined = ' '.join((review.get('meaning') or {}).get('fix') or [])
-    return tuple(region for region, markers in FIX_REGION_MARKERS if any(marker in joined for marker in markers))
+    return spatial_keys_from_focus_and_text([], joined)
 
 
 def mask_is_empty(png: bytes) -> bool:

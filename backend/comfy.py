@@ -45,6 +45,11 @@ class Comfy:
         response.raise_for_status()
         return response.json()["name"]
 
+    async def view(self, image: dict[str, Any]) -> bytes:
+        response = await self.client.get(f"{self.base_url}/view", params=image)
+        response.raise_for_status()
+        return response.content
+
     async def free(self) -> None:
         response = await self.client.post(f"{self.base_url}/free", json={"unload_models": True, "free_memory": True})
         response.raise_for_status()

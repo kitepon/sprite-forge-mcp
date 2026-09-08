@@ -7,7 +7,9 @@ from io import BytesIO
 
 from PIL import Image, UnidentifiedImageError
 
-from backend.intent_cli import AUTH, INTERPRET_MAX_SIDE, MODEL, OBSERVE_MARK, execute
+from backend.intent_cli import (
+    AUTH, INTERPRET_MAX_SIDE, MODEL, OBSERVE_MARK, _keep_region_pixels, execute, observe_range,
+)
 from backend.intent_runner import interpret
 
 SCHEMA_LEAD = '出力は次の JSON Schema に厳密に従い、前後に説明を付けないでください。'
@@ -19,8 +21,19 @@ EMPTY = {
 }
 
 
+def _is_sam(workflow: dict) -> bool:
+    return any(isinstance(node, dict) and node.get('class_type') == 'SAM3_Detect' for node in workflow.values())
+
+
+def _mask_png(color: str) -> bytes:
+    image = Image.new('RGB', (8, 8), color)
+    output = BytesIO()
+    image.save(output, format='PNG')
+    return output.getvalue()
+
+
 class FakeComfy:
-    def __init__(self) -> None:
+    def __init__(self, mask_png: bytes | None = None) -> None:
         self.prompts: list[str] = []
         self.keeps: list[bool] = []
         self.queued: list[dict] = []
@@ -28,6 +41,8 @@ class FakeComfy:
         self.queue_running: list = []
         self.queue_pending: list = []
         self.uploads: list[bytes] = []
+        self.views: list[dict] = []
+        self.mask_png = mask_png
         self._n = 0
 
     async def queue(self) -> dict:
@@ -41,13 +56,25 @@ class FakeComfy:
         self._n += 1
         prompt_id = f'p{self._n}'
         self.queued.append(workflow)
+        if _is_sam(workflow):
+            return prompt_id
         qwen = workflow['2']['inputs']
         self.prompts.append(str(qwen['custom_prompt']))
         self.keeps.append(bool(qwen['keep_model_loaded']))
         return prompt_id
 
+    async def view(self, image: dict) -> bytes:
+        self.views.append(image)
+        return self.mask_png if self.mask_png is not None else _mask_png('white')
+
     async def history(self, prompt_id: str) -> dict:
-        prompt = self.prompts[int(prompt_id[1:]) - 1]
+        workflow = self.queued[int(prompt_id[1:]) - 1]
+        if _is_sam(workflow):
+            return {
+                'status': {'completed': True, 'status_str': 'success'},
+                'outputs': {'6': {'images': [{'filename': 'mask.png', 'subfolder': '', 'type': 'output'}]}},
+            }
+        prompt = str(workflow['2']['inputs']['custom_prompt'])
         if OBSERVE_MARK in prompt:
             text = json.dumps({
                 'appearance_ja': '赤いリボンの少女',
@@ -197,7 +224,13 @@ class IntentRunnerTests(unittest.TestCase):
             'stage': 'preview_review',
             'review_input': review_input,
         }, [], comfy=comfy))
-        self.assertEqual(_payload_from_prompt(comfy.prompts[-1]), review_input)
+        payload = _payload_from_prompt(comfy.prompts[-1])
+        self.assertEqual({key: payload[key] for key in review_input}, review_input)
+        self.assertEqual(payload['observe_range'], {
+            'regions': [],
+            'topics': [],
+            'comment': '袖が違う',
+        })
         self.assertEqual(result['preserve'], ['衣装'])
 
     def test_app_runner_transfers_recorded_stage_conditions(self) -> None:
@@ -219,3 +252,90 @@ class IntentRunnerTests(unittest.TestCase):
         self.assertEqual(payload['stage_conditions'], conditions)
         self.assertNotIn('working_layout', payload)
         self.assertNotIn('recorded_layout', payload)
+
+
+class PreviewReviewRangeTests(unittest.TestCase):
+    def test_observe_range_from_focus_and_comment(self) -> None:
+        self.assertEqual(observe_range({'focus': ['hair'], 'comment': ''}), {
+            'regions': ['hair'], 'topics': ['hair'], 'comment': '',
+        })
+        self.assertEqual(observe_range({'focus': ['style'], 'comment': ''}), {
+            'regions': [], 'topics': ['style'], 'comment': '',
+        })
+        self.assertEqual(observe_range({'focus': ['hair', 'style'], 'comment': ''}), {
+            'regions': ['hair'], 'topics': ['hair', 'style'], 'comment': '',
+        })
+        self.assertEqual(observe_range({'focus': [], 'comment': '髪型が違う'}), {
+            'regions': ['hair'], 'topics': ['hair'], 'comment': '髪型が違う',
+        })
+        self.assertEqual(observe_range({'focus': ['hair'], 'comment': '顔も違う'}), {
+            'regions': ['hair'], 'topics': ['hair'], 'comment': '顔も違う',
+        })
+        self.assertEqual(observe_range({'focus': {'kind': 'whole'}, 'comment': '袖が違う'}), {
+            'regions': [], 'topics': [], 'comment': '袖が違う',
+        })
+
+    def test_keep_region_pixels_blacks_out_outside_mask(self) -> None:
+        source = _png((4, 2), 'red')
+        mask = Image.new('L', (4, 2), 0)
+        mask.putpixel((0, 0), 255)
+        mask.putpixel((0, 1), 255)
+        output = BytesIO()
+        mask.save(output, format='PNG')
+        result = Image.open(BytesIO(_keep_region_pixels(source, output.getvalue()))).convert('RGB')
+        self.assertEqual(result.getpixel((0, 0)), (255, 0, 0))
+        self.assertEqual(result.getpixel((3, 0)), (0, 0, 0))
+
+    def test_preview_review_masks_hair_before_observe(self) -> None:
+        comfy = FakeComfy()
+        asyncio.run(execute({
+            'stage': 'preview_review',
+            'rating': 'NG',
+            'comment': '',
+            'focus': ['hair'],
+        }, [_png((24, 32), 'red'), _png((24, 32), 'blue')], comfy=comfy))
+        self.assertTrue(all(_is_sam(workflow) for workflow in comfy.queued[:2]))
+        self.assertTrue(all(not _is_sam(workflow) for workflow in comfy.queued[2:]))
+        self.assertEqual(comfy.queued[0]['2']['inputs']['text'], 'hair')
+        self.assertIn('見る範囲は髪', comfy.prompts[0])
+        self.assertIn('見る範囲は髪', comfy.prompts[1])
+        self.assertNotIn('顔', comfy.prompts[0])
+        payload = _payload_from_prompt(comfy.prompts[-1])
+        self.assertEqual(payload['observe_range']['regions'], ['hair'])
+        self.assertEqual(payload['focus'], ['hair'])
+
+    def test_preview_review_comment_words_mask_when_focus_empty(self) -> None:
+        comfy = FakeComfy()
+        asyncio.run(execute({
+            'stage': 'preview_review',
+            'rating': 'NG',
+            'comment': '髪型が違う',
+            'focus': [],
+        }, [_png((24, 32), 'red'), _png((24, 32), 'blue')], comfy=comfy))
+        self.assertEqual(comfy.queued[0]['2']['inputs']['text'], 'hair')
+        self.assertIn('ユーザーの文: 髪型が違う', comfy.prompts[0])
+        self.assertEqual(_payload_from_prompt(comfy.prompts[-1])['observe_range']['regions'], ['hair'])
+
+    def test_preview_review_style_does_not_call_sam(self) -> None:
+        comfy = FakeComfy()
+        asyncio.run(execute({
+            'stage': 'preview_review',
+            'rating': 'NG',
+            'comment': '',
+            'focus': ['style'],
+        }, [_png((24, 32), 'red'), _png((24, 32), 'blue')], comfy=comfy))
+        self.assertFalse(any(_is_sam(workflow) for workflow in comfy.queued))
+        self.assertIn('見る範囲は画風', comfy.prompts[0])
+        self.assertEqual(_payload_from_prompt(comfy.prompts[-1])['observe_range']['topics'], ['style'])
+
+    def test_empty_region_mask_is_an_error(self) -> None:
+        comfy = FakeComfy(mask_png=_mask_png('black'))
+        with self.assertRaisesRegex(RuntimeError, 'マスクが空です: hair'):
+            asyncio.run(execute({
+                'stage': 'preview_review',
+                'rating': 'NG',
+                'comment': '',
+                'focus': ['hair'],
+            }, [_png((24, 32))], comfy=comfy))
+        self.assertTrue(_is_sam(comfy.queued[0]))
+        self.assertEqual(comfy.prompts, [])

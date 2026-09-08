@@ -7,7 +7,7 @@ import uuid
 import pytest
 
 from backend import box
-from backend.preview_learning import pair_spatial_regions
+from backend.preview_learning import pair_spatial_regions, spatial_keys_from_focus_and_text
 from backend.preview_reviews import PreviewReview
 from backend.preview_intent import ReviewCorrection, ReviewMeaning
 from tests.test_style import make, png
@@ -42,6 +42,14 @@ def test_pair_spatial_regions_uses_ng_focus_and_general_fix_words():
     assert pair_spatial_regions({'rating': 'ng', 'focus': [], 'meaning': {'fix': ['髪型']}}) == ('hair',)
     assert pair_spatial_regions({'rating': 'ng', 'focus': [], 'meaning': {'fix': ['顔も違う']}}) == ('face',)
     assert pair_spatial_regions({'rating': 'ng', 'comment': '髪型が違う', 'focus': []}) == ()
+
+
+def test_spatial_keys_from_focus_and_text_prefers_focus():
+    assert spatial_keys_from_focus_and_text(['hair'], '') == ('hair',)
+    assert spatial_keys_from_focus_and_text(['style'], '') == ()
+    assert spatial_keys_from_focus_and_text([], '髪型が違う') == ('hair',)
+    assert spatial_keys_from_focus_and_text(['hair'], '顔も違う') == ('hair',)
+    assert spatial_keys_from_focus_and_text({'kind': 'whole'}, '顔も違う') == ('face',)
 
 
 async def settled(service, job):
