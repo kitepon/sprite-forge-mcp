@@ -26,8 +26,8 @@ ComfyUI-RMBG は `RMBG/BiRefNet/` を読む。SAM 3.1 は ComfyUI ネイティ�
 `SAM3_*` 系から `checkpoints/sam3.1_multiplex_fp16.safetensors` を選ぶ。全モデルを
 置いた後は ComfyUI を再起動し、`/object_info` の各 loader の選択肢に上記の重みが
 現れることを確認する。コメント解釈は `AILab_QwenVL_Advanced` が `LLM/Qwen-VL/` の
-`Qwen3-VL-32B-Instruct` を 8-bit で読む。Qwen3-VL-8B と FP8 は不採用（8B は正確さの床、
-FP8 は fox の `kernels` 不足）。
+`Qwen3-VL-32B-Instruct` を 4-bit で読む。Qwen3-VL-8B と FP8 は不採用（8B は正確さの床、
+8-bit は RTX 5090 32GB に収まらない、FP8 は fox の `kernels` 不足）。
 
 ## ライセンス上の注意
 

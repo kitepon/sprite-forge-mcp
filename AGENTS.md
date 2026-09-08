@@ -29,7 +29,7 @@ Sprite Forge は、画像からキャラクターや画風を覚えさせ、そ�
 - 学習は `backend/box.py` が SSH/SCP で教材を送り、fox の Python 入口を呼ぶ。学習器の起動処理の正本は `box/train.py`。GPU 機上で場当たり的にコードや PowerShell スクリプトを作らず、リポジトリで変更して配備する。WSL2 を実行環境にしない。
 - メインサーバーへの接続は `ssh main-server` を使う。接続先や GPU 上の配置は `backend/config.py` と配備設定を確認し、推測したパスへ書かない。
 - Python の最低版と依存は `pyproject.toml`、解決済み依存は `uv.lock`、本番 Python は `Dockerfile` が定める。現在の本番・CI は Python 3.13。旧 `requirements.txt` の導入手順を使わない。
-- 現行採用は Anima Base/Turbo、Anima-Control-Pose、JoyAI-Image-Edit-Plus、ToonOut、SAM 3.1、FastAPI、FastMCP 4、コメント解釈の Qwen3-VL-32B-Instruct 8-bit。JoyAI は編集・派生画像の経路に使う。解釈は fox の ComfyUI（`SPRITEFORGE_COMFY_URL`）で行い、Codex CLI や SSH 先の別ホストへ送らない。Qwen3-VL-8B は不採用。FP8 は fox の `kernels` 不足で使わない。Mage-Flow は配布取り下げを理由に採用から除外済み。
+- 現行採用は Anima Base/Turbo、Anima-Control-Pose、JoyAI-Image-Edit-Plus、ToonOut、SAM 3.1、FastAPI、FastMCP 4、コメント解釈の Qwen3-VL-32B-Instruct 4-bit。JoyAI は編集・派生画像の経路に使う。解釈は fox の ComfyUI（`SPRITEFORGE_COMFY_URL`）で行い、Codex CLI や SSH 先の別ホストへ送らない。Qwen3-VL-8B は不採用。8-bit は RTX 5090 32GB に収まらない。FP8 は fox の `kernels` 不足で使わない。Mage-Flow は配布取り下げを理由に採用から除外済み。
 
 ## コードの置き場所
 

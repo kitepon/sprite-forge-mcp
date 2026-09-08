@@ -97,18 +97,18 @@ def anima_base(prompt: str, seed: int, width: int = 1024, height: int = 1024) ->
 
 
 def qwen_vl_interpret(prompt: str, *, image: str | None = None, keep_model_loaded: bool = False) -> Graph:
-    """Qwen3-VL-32B-Instruct 8-bit. 静止画は image だけ。video キーは付けない。"""
+    """Qwen3-VL-32B-Instruct 4-bit. 静止画は image だけ。video キーは付けない。"""
     qwen: dict[str, Any] = {
         "class_type": "AILab_QwenVL_Advanced",
         "inputs": {
             "model_name": "Qwen3-VL-32B-Instruct",
-            "quantization": "8-bit (Balanced)",
+            "quantization": "4-bit (VRAM-friendly)",
             "attention_mode": "auto",
             "use_torch_compile": False,
             "device": "auto",
             "preset_prompt": "🖼️ Detailed Description",
             "custom_prompt": prompt,
-            "max_tokens": 4096,
+            "max_tokens": 1024,
             "temperature": 0.6,
             "top_p": 0.9,
             "num_beams": 1,

@@ -41,13 +41,13 @@ uvicorn backend.app:app --host 127.0.0.1 --port 8765
 | 機能 | 要るもの |
 |---|---|
 | **SAM2 自動マスク** | `python3.12 -m venv .venv-sam2 && .venv-sam2/bin/pip install ultralytics`（任意・未導入でも手描きマスク可） |
-| **コメント解釈** | fox の ComfyUI に Qwen3-VL-32B-Instruct（8-bit）。生成と同じ `SPRITEFORGE_COMFY_URL` |
+| **コメント解釈** | fox の ComfyUI に Qwen3-VL-32B-Instruct（4-bit）。生成と同じ `SPRITEFORGE_COMFY_URL` |
 | **キャラ/画風 LoRA 学習** | GPU box に kohya **sd-scripts** ＋ accelerate/torch-CUDA。**※下記の制約参照** |
 | **claude.ai/design 共有** | operator の claude.ai ログイン（任意・本体機能ではない） |
 
 ## コメント解釈の接続
 
-コメント解釈は fox の ComfyUI 上の **Qwen3-VL-32B-Instruct 8-bit** が担う。生成・編集と同じ `SPRITEFORGE_COMFY_URL` を使い、Codex CLI や SSH 先の別ホスト、API キーは使わない。ノードは `AILab_QwenVL_Advanced`。重みは初回実行時に `models/LLM/Qwen-VL/Qwen3-VL-32B-Instruct` へ入る。Qwen3-VL-8B は不採用。FP8 は fox の `kernels` 不足で使わない。失敗したら別モデルへ切り替えず、エラーを返す。
+コメント解釈は fox の ComfyUI 上の **Qwen3-VL-32B-Instruct 4-bit** が担う。生成・編集と同じ `SPRITEFORGE_COMFY_URL` を使い、Codex CLI や SSH 先の別ホスト、API キーは使わない。ノードは `AILab_QwenVL_Advanced`。重みは初回実行時に `models/LLM/Qwen-VL/Qwen3-VL-32B-Instruct` へ入る。Qwen3-VL-8B は不採用。8-bit は RTX 5090 32GB に収まらない。FP8 は fox の `kernels` 不足で使わない。失敗したら別モデルへ切り替えず、エラーを返す。
 
 配備後は WebUI から新しい注文を解釈し、確認案が返ることまで確かめる。`scripts/configure_intent_host.py` は製品経路から外した。
 
