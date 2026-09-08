@@ -38,7 +38,7 @@ def test_qwen_vl_interpret_uses_32b_4bit_without_video():
     qwen = text["2"]["inputs"]
     assert qwen["model_name"] == "Qwen3-VL-32B-Instruct"
     assert qwen["quantization"] == "4-bit (VRAM-friendly)"
-    assert qwen["max_tokens"] == 1024
+    assert qwen["max_tokens"] == 2048
     assert qwen["video_frame_size"] == "auto"
     assert qwen["keep_model_loaded"] is False
     assert qwen["custom_prompt"] == "hello"
