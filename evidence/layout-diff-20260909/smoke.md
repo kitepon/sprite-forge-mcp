@@ -32,4 +32,4 @@
 - モデルは seed_offset 16 の `cos_armor` を BIKINI へ差し替え（key は既存を維持）、同時に seed_offset 23 で `cos_bikini`「SWIMSUIT (BIKINI)」を追加した。「変更」の注文に対して差し替えと追加の両方をしている。契約と合成は正しく動いたが、モデルの解釈としては項目が 1 つ余る。1 回の観測で、指示文を変える根拠にはまだしない。
 - VRAM ピークが装置上限の 0.28 GiB 手前。入力 23,691 文字のうち大半が `sheet_layout` の 23 項目。次に余裕を作るなら、`parts` の英文をモデルへ渡す形の見直しが候補。
 
-ファイル: `model-output.json`（モデルの差分出力そのまま）、`comfy-status.json`（ComfyUI 履歴の status と node 入力の要約）、`vram.log`（epoch 秒と使用バイト）。
+ファイル: `model-output.json`（モデルの差分出力そのまま）、`comfy-status.json`（ComfyUI 履歴の status と node 入力の要約）、`vram.tsv`（epoch 秒と使用バイト）。
