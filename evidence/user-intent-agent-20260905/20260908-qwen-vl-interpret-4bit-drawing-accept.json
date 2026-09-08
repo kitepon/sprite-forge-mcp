@@ -1,0 +1,103 @@
+{
+  "captured_at": "2026-09-08T20:04:47+09:00",
+  "purpose": "drawing で GPU が training_samples list を返しても interpret は failed にならない。学習欄は採用しない。観察と変更は確認待ちになり、confirm のあと from-bible が完走する。JSON を直したことにはしない。画像・custom_prompt・キャラ説明・生成文は載せない。",
+  "fix_commit": "5085388c64f03e6c8b173ed391597dea9c861f6a",
+  "model": "Qwen3-VL-32B-Instruct",
+  "quantization": "4-bit (VRAM-friendly)",
+  "attention_mode": "sdpa",
+  "max_tokens": 2048,
+  "interpret_image_max_side": 512,
+  "interpret": {
+    "job_id": "a6080204-89b1-43a3-9211-20cfc214c2fc",
+    "prompt_id": null,
+    "http_status": 200,
+    "elapsed_ms": 177748,
+    "status_after_interpret": "awaiting_confirmation",
+    "status_after_confirm": "confirmed",
+    "auth": "comfy",
+    "interpreter_model": "Qwen3-VL-32B-Instruct",
+    "n_observations": 1,
+    "n_changes": 5,
+    "n_questions": 0,
+    "training_samples": null,
+    "change_features": [
+      "face",
+      "hair",
+      "outfit",
+      "background",
+      "composition"
+    ],
+    "change_scopes": [
+      "persistent",
+      "persistent",
+      "persistent",
+      "this_run",
+      "this_run"
+    ],
+    "style_deferred": [],
+    "persistent_outfit": true
+  },
+  "confirm": {
+    "http_status": 200,
+    "elapsed_ms": 202,
+    "status": "confirmed",
+    "accepted_training_samples": null,
+    "n_accepted_changes": 5
+  },
+  "from_bible": {
+    "job_id": "77340b54-44b4-40b0-90b4-1cd343d142f3",
+    "kind": "from_bible",
+    "http_status": 200,
+    "elapsed_ms": 9244,
+    "elapsed_s": 9.0,
+    "status": "completed",
+    "has_path": true,
+    "path_name": "77340b54-44b4-40b0-90b4-1cd343d142f3-from-bible.png",
+    "intent_job_id": "a6080204-89b1-43a3-9211-20cfc214c2fc",
+    "intent_condition_keys": [
+      "background",
+      "composition",
+      "face",
+      "hair",
+      "outfit"
+    ],
+    "image_bytes": 782266,
+    "image_private_relpath": "evidence/user-intent-agent-20260905/private/drawing-accept-20260908/77340b54-44b4-40b0-90b4-1cd343d142f3-from-bible.png"
+  },
+  "isolated_character": {
+    "key": "20260908",
+    "has_training_selection": false,
+    "intent_condition_keys_after_confirm": [
+      "face",
+      "hair",
+      "outfit"
+    ],
+    "deleted_after_smoke": true,
+    "remaining_character_has_ndac1de01": true,
+    "remaining_style_has_bell_glow": true
+  },
+  "vram": {
+    "csv_stopped": true,
+    "n_samples": 139,
+    "peak_used_mib": 32089,
+    "peak_free_mib": 99,
+    "total_mib": 32607,
+    "peak_timestamp": "2026/09/08 19:53:16.332",
+    "qwen_peak_used_mib": 32089,
+    "qwen_peak_free_mib": 99,
+    "qwen_peak_timestamp": "2026/09/08 19:53:16.332",
+    "idle_min_used_mib": 834,
+    "from_bible_window_n": 11,
+    "from_bible_window_peak_used_mib": 7251,
+    "from_bible_window_peak_free_mib": 24937
+  },
+  "has_oom": false,
+  "do_not_repost_job_ids": [
+    "0e9015da-c0de-4ef8-806d-2529caf89ae0",
+    "83bd9e8b-110c-42b7-9cc5-657c816d4619",
+    "66bce369-474c-4208-a255-b3dc329f9cb1",
+    "f4f34940-eed5-41f7-97e8-1287df65e0fc",
+    "a6080204-89b1-43a3-9211-20cfc214c2fc",
+    "77340b54-44b4-40b0-90b4-1cd343d142f3"
+  ]
+}
