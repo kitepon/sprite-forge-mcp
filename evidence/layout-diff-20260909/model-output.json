@@ -1,0 +1,99 @@
+{
+  "summary_ja": "「ARMOR」衣装を水着（ビキニ）に変更しました。オリジナルの装甲衣装パネル（cos_armor）を更新し、新たに「Bikini」衣装のパネルを「ALTERNATE COSTUMES」セクションに追加しました。",
+  "panels": [
+    {
+      "key": "cos_armor",
+      "section": "ALTERNATE COSTUMES",
+      "label": "BIKINI",
+      "kind": "full",
+      "parts": [
+        {
+          "feature": "composition",
+          "description_en": "full body",
+          "avoid_en": "multiple views, reference sheet, collage"
+        },
+        {
+          "feature": "pose",
+          "description_en": "standing, front view",
+          "avoid_en": ""
+        },
+        {
+          "feature": "outfit",
+          "description_en": "bikini swimsuit, two-piece swimwear, white base with gold trim and star patterns, matching thong bottom",
+          "avoid_en": "armor, plate mail, knight gear, heavy clothing"
+        }
+      ],
+      "role_features": [
+        "composition",
+        "outfit",
+        "pose"
+      ],
+      "inherited_features": [
+        "accessory",
+        "background",
+        "composition",
+        "expression",
+        "face",
+        "hair",
+        "lighting",
+        "outfit",
+        "pose",
+        "style",
+        "subject"
+      ],
+      "seed_offset": 16,
+      "description_ja": "ARMOR衣装を水着（ビキニ）に変更。白地にゴールドトリムと星模様の二部式水着を設定。装甲要素を排除し、原作のデザインモチーフを反映させた軽快なスタイルとする。",
+      "reference": {
+        "record_key": "ndac1de01",
+        "sample_index": 1,
+        "path": "/app/.cache/characters/ndac1de01/samples/001.png"
+      }
+    },
+    {
+      "key": "cos_bikini",
+      "section": "ALTERNATE COSTUMES",
+      "label": "SWIMSUIT (BIKINI)",
+      "kind": "full",
+      "parts": [
+        {
+          "feature": "composition",
+          "description_en": "full body",
+          "avoid_en": "multiple views, reference sheet, collage"
+        },
+        {
+          "feature": "pose",
+          "description_en": "standing, front view, hands on hips or relaxed by sides",
+          "avoid_en": ""
+        },
+        {
+          "feature": "outfit",
+          "description_en": "two-piece bikini swimsuit, white fabric with gold star accents and trim, revealing shoulders and legs",
+          "avoid_en": "armor, heavy garments, full coverage clothing"
+        }
+      ],
+      "role_features": [
+        "composition",
+        "outfit",
+        "pose"
+      ],
+      "inherited_features": [
+        "accessory",
+        "background",
+        "composition",
+        "expression",
+        "face",
+        "hair",
+        "lighting",
+        "outfit",
+        "pose",
+        "style",
+        "subject"
+      ],
+      "seed_offset": 23,
+      "description_ja": "新たな水着衣装を追加。白ベースにゴールドの星柄と縁取りを施した二部式ビキニ。露出度の高い設計だが、原作の華やかな雰囲気に合致させるために、装飾的なディテールを強調。",
+      "reference": null
+    }
+  ],
+  "removed_keys": [],
+  "questions": []
+}

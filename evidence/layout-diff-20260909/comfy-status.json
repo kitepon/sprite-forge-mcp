@@ -1,0 +1,49 @@
+{
+ "prompt_id": "2636859d-9759-491f-bf41-2f34497d3390",
+ "status": {
+  "status_str": "success",
+  "completed": true,
+  "messages": [
+   [
+    "execution_start",
+    {
+     "prompt_id": "2636859d-9759-491f-bf41-2f34497d3390",
+     "timestamp": 1788909310538
+    }
+   ],
+   [
+    "execution_cached",
+    {
+     "nodes": [],
+     "prompt_id": "2636859d-9759-491f-bf41-2f34497d3390",
+     "timestamp": 1788909310538
+    }
+   ],
+   [
+    "execution_success",
+    {
+     "prompt_id": "2636859d-9759-491f-bf41-2f34497d3390",
+     "timestamp": 1788909584579
+    }
+   ]
+  ]
+ },
+ "qwen_inputs": {
+  "model_name": "Qwen3-VL-32B-Instruct",
+  "quantization": "4-bit (VRAM-friendly)",
+  "attention_mode": "auto",
+  "use_torch_compile": false,
+  "device": "auto",
+  "preset_prompt": "🖼️ Detailed Description",
+  "custom_prompt": "<23691 chars>",
+  "max_tokens": 2048,
+  "temperature": 0.6,
+  "top_p": 0.9,
+  "num_beams": 1,
+  "repetition_penalty": 1.2,
+  "frame_count": 1,
+  "video_frame_size": "auto",
+  "keep_model_loaded": false,
+  "seed": 1
+ }
+}
