@@ -5,8 +5,44 @@ from pathlib import Path
 
 import pytest
 
-from backend.preview_reviews import PreviewReview
+from backend.preview_reviews import PreviewReview, apply_rating_to_meaning, require_interpreted_generation
 from tests.test_style import make
+
+
+def test_ok_rating_clears_fix_and_adds_focus_labels_to_preserve():
+    meaning = {
+        'fix': ['髪型', '顔'],
+        'preserve': ['衣装', 'スタイル', '体格比例', '背景'],
+        'questions': [],
+        'description_en': '1girl, standing',
+    }
+    result = apply_rating_to_meaning('ok', meaning, ['hair', 'face', 'outfit', 'body', 'style'])
+    assert result['fix'] == []
+    assert result['description_en'] == ''
+    assert result['preserve'][:4] == ['衣装', 'スタイル', '体格比例', '背景']
+    assert '髪' in result['preserve']
+    assert '顔' in result['preserve']
+    assert '体形' in result['preserve']
+    assert '画風' in result['preserve']
+    assert '髪型' not in result['preserve']
+
+
+def test_ng_rating_keeps_vl_meaning():
+    meaning = {'fix': ['髪型'], 'preserve': ['衣装'], 'questions': [], 'description_en': '1girl'}
+    assert apply_rating_to_meaning('ng', meaning, ['hair']) == {
+        'fix': ['髪型'], 'preserve': ['衣装'], 'questions': [], 'description_en': '1girl',
+    }
+
+
+def test_require_interpreted_generation_skips_ok_comment_and_fails_ng_empty():
+    require_interpreted_generation([
+        {'rating': 'ok', 'comment': '衣装は合っている', 'meaning': {'description_en': ''}},
+    ])
+    with pytest.raises(RuntimeError, match='生成文を作れませんでした'):
+        require_interpreted_generation([
+            {'rating': 'ng', 'comment': '髪型が違う', 'meaning': {'description_en': ''}},
+        ])
+
 
 
 def test_ten_previews_keep_ratings_during_generation_and_reload(tmp_path, monkeypatch):

@@ -11,9 +11,10 @@ class Node {
 }
 globalThis.Node = Node;
 globalThis.document = { createElement: tag => new Node(tag), createElementNS: (_, tag) => new Node(tag), createTextNode: text => text };
-const { previewReviewCard, reviewLabel, focusLabel } = await import('../web/preview.js?v=studio-5');
+const { previewReviewCard, reviewLabel, focusLabel, meaningSummary } = await import('../web/preview.js?v=studio-6');
 const { API } = await import('../web/api.js?v=studio-3');
 const all = node => [node, ...node.children.filter(n => n instanceof Node).flatMap(all)];
+const strings = node => all(node).flatMap(n => n.children.filter(c => typeof c === 'string'));
 const initial = {id:'image-a',path:'/image-a.png',review:{rating:'',comment:'',focus:[],revision:0,history:[]}};
 
 test('NGの理由欄を明示し、判定を変えても原文を維持して同じ画像へ順序通り保存する', async () => {
@@ -121,5 +122,30 @@ test('読み取った生成文を出し、訂正は英語生成文を送り、�
   assert.equal(calls.length, 1);
   assert.equal(calls[0].image, 'image-a');
   assert.deepEqual(calls[0].meaning, { fix: ['髪型'], preserve: ['衣装'], questions: [], description_en: '1girl, long hair, white dress, standing' });
+  card.dispose();
+});
+
+test('OKの要約は維持だけ出し、保存済みのfixを画面から隠す', () => {
+  const meaning = { fix: ['髪型', '顔'], preserve: ['衣装', 'スタイル', '体格比例', '背景'], questions: [], description_en: 'x' };
+  assert.equal(meaningSummary('ok', meaning), '維持：衣装、スタイル、体格比例、背景');
+  assert.equal(meaningSummary('ng', meaning), '修正：髪型、顔／維持：衣装、スタイル、体格比例、背景');
+});
+
+test('OKカードは保存済みの直したい箇所を出さず、訂正も残したい欄だけ', () => {
+  const card = previewReviewCard('probe', 'job-a', {
+    id: 'image-a', path: '/image-a.png',
+    review: {
+      rating: 'ok', comment: '', focus: ['hair', 'face', 'outfit', 'body', 'style'], revision: 1, history: [],
+      meaning: { fix: ['髪型', '顔'], preserve: ['衣装', 'スタイル', '体格比例', '背景'], questions: [], description_en: '1girl' },
+      meaning_source: 'ai',
+    },
+  }, 0, () => {});
+  const texts = strings(card.node);
+  const nodes = all(card.node);
+  assert.ok(!texts.some(t => t.includes('直したい箇所')));
+  assert.ok(!texts.some(t => t.includes('髪型')));
+  assert.ok(texts.some(t => t.includes('残したい箇所') && t.includes('衣装')));
+  assert.ok(!nodes.some(n => n.children.includes('生成文（英語）')));
+  assert.ok(!nodes.some(n => n.children.includes('直したい箇所')));
   card.dispose();
 });

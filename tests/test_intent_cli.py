@@ -230,6 +230,7 @@ class IntentRunnerTests(unittest.TestCase):
             'regions': [],
             'topics': [],
             'comment': '袖が違う',
+            'intent': 'fix',
         })
         self.assertEqual(result['preserve'], ['衣装'])
 
@@ -257,22 +258,25 @@ class IntentRunnerTests(unittest.TestCase):
 class PreviewReviewRangeTests(unittest.TestCase):
     def test_observe_range_from_focus_and_comment(self) -> None:
         self.assertEqual(observe_range({'focus': ['hair'], 'comment': ''}), {
-            'regions': ['hair'], 'topics': ['hair'], 'comment': '',
+            'regions': ['hair'], 'topics': ['hair'], 'comment': '', 'intent': 'fix',
         })
         self.assertEqual(observe_range({'focus': ['style'], 'comment': ''}), {
-            'regions': [], 'topics': ['style'], 'comment': '',
+            'regions': [], 'topics': ['style'], 'comment': '', 'intent': 'fix',
         })
         self.assertEqual(observe_range({'focus': ['hair', 'style'], 'comment': ''}), {
-            'regions': ['hair'], 'topics': ['hair', 'style'], 'comment': '',
+            'regions': ['hair'], 'topics': ['hair', 'style'], 'comment': '', 'intent': 'fix',
         })
         self.assertEqual(observe_range({'focus': [], 'comment': '髪型が違う'}), {
-            'regions': ['hair'], 'topics': ['hair'], 'comment': '髪型が違う',
+            'regions': ['hair'], 'topics': ['hair'], 'comment': '髪型が違う', 'intent': 'fix',
         })
         self.assertEqual(observe_range({'focus': ['hair'], 'comment': '顔も違う'}), {
-            'regions': ['hair'], 'topics': ['hair'], 'comment': '顔も違う',
+            'regions': ['hair'], 'topics': ['hair'], 'comment': '顔も違う', 'intent': 'fix',
         })
         self.assertEqual(observe_range({'focus': {'kind': 'whole'}, 'comment': '袖が違う'}), {
-            'regions': [], 'topics': [], 'comment': '袖が違う',
+            'regions': [], 'topics': [], 'comment': '袖が違う', 'intent': 'fix',
+        })
+        self.assertEqual(observe_range({'rating': 'ok', 'focus': ['hair'], 'comment': ''}), {
+            'regions': ['hair'], 'topics': ['hair'], 'comment': '', 'intent': 'preserve',
         })
 
     def test_keep_region_pixels_blacks_out_outside_mask(self) -> None:
@@ -327,6 +331,21 @@ class PreviewReviewRangeTests(unittest.TestCase):
         self.assertFalse(any(_is_sam(workflow) for workflow in comfy.queued))
         self.assertIn('見る範囲は画風', comfy.prompts[0])
         self.assertEqual(_payload_from_prompt(comfy.prompts[-1])['observe_range']['topics'], ['style'])
+
+    def test_ok_focus_observes_as_preserve_not_fix(self) -> None:
+        comfy = FakeComfy()
+        asyncio.run(execute({
+            'stage': 'preview_review',
+            'rating': 'ok',
+            'comment': '',
+            'focus': ['hair'],
+        }, [_png((24, 32), 'red'), _png((24, 32), 'blue')], comfy=comfy))
+        self.assertIn('残したい範囲は髪', comfy.prompts[0])
+        self.assertNotIn('見る範囲は髪', comfy.prompts[0])
+        self.assertIn('直す内容は書かないでください', comfy.prompts[0])
+        payload = _payload_from_prompt(comfy.prompts[-1])
+        self.assertEqual(payload['observe_range']['intent'], 'preserve')
+        self.assertEqual(payload['observe_range']['regions'], ['hair'])
 
     def test_empty_region_mask_is_an_error(self) -> None:
         comfy = FakeComfy(mask_png=_mask_png('black'))

@@ -8,6 +8,8 @@ from typing import Literal
 from pydantic import BaseModel
 from .preview_intent import ReviewCorrection, ReviewMeaning
 
+FOCUS_LABELS = {'hair': '髪', 'face': '顔', 'outfit': '衣装', 'body': '体形', 'style': '画風'}
+
 
 def review_of(entry: dict) -> dict:
     return entry['review'] if isinstance(entry.get('review'), dict) else entry
@@ -28,9 +30,33 @@ def review_needs_interpretation(review: dict) -> bool:
     return False
 
 
+def apply_rating_to_meaning(rating, meaning: dict, focus) -> dict:
+    """外部VLの解釈を、判定の契約に合わせて直す。OKでは直したい内容を残さない。"""
+    result = {
+        **meaning,
+        'fix': list(meaning.get('fix') or []),
+        'preserve': list(meaning.get('preserve') or []),
+        'questions': list(meaning.get('questions') or []),
+        'description_en': meaning.get('description_en') or '',
+    }
+    if rating != 'ok':
+        return result
+    result['fix'] = []
+    result['description_en'] = ''
+    preserve = result['preserve']
+    if isinstance(focus, list):
+        for key in focus:
+            label = FOCUS_LABELS.get(key)
+            if label and label not in preserve:
+                preserve.append(label)
+    return result
+
+
 def require_interpreted_generation(reviews: list[dict]) -> None:
     for entry in reviews:
         review = review_of(entry)
+        if review.get('rating') != 'ng':
+            continue
         if not (review.get('comment') or '').strip():
             continue
         meaning = review.get('meaning') or {}
@@ -125,7 +151,7 @@ class PreviewReviews:
             raise ValueError('このプレビューに含まれる画像を指定してください。')
         saved = await self.save_preview_review(name, job_id, image_id,
                                                PreviewReview(rating=picture['review']['rating'], revision=correction.revision))
-        saved['meaning'] = correction.meaning.model_dump()
+        saved['meaning'] = apply_rating_to_meaning(saved['rating'], correction.meaning.model_dump(), saved.get('focus'))
         saved['meaning_source'] = 'user'
         self._store_review_meaning(name, job_id, image_id, saved)
         return saved
@@ -148,7 +174,7 @@ class PreviewReviews:
                            *[{'kind': 'sample', 'index': s['index'], 'caption': s.get('caption', '')} for s in samples]]}}
         images = [Path(picture['path']).read_bytes(), *[Path(s['path']).read_bytes() for s in samples]]
         meaning = ReviewMeaning.model_validate(await self.intent_interpreter(packet, images, **kwargs))
-        review['meaning'] = meaning.model_dump()
+        review['meaning'] = apply_rating_to_meaning(review['rating'], meaning.model_dump(), review.get('focus'))
         review['meaning_source'] = 'ai'
         review['interpreter'] = packet.get('interpreter')
         self._store_review_meaning(name, source['job_id'], picture['id'], review)

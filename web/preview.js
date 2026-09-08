@@ -6,6 +6,11 @@ import { draft, saveDraft } from './drafts.js?v=studio-3';
 const labels = { ok: 'OK：残したい画像', ng: 'NG：直したい画像', '': '未判定' };
 export const reviewLabel = rating => rating === 'ng' ? 'この画像のどこがNGでしたか？' : rating === 'ok' ? 'この画像で残したいところは？（任意）' : 'OK・NGを選んでから理由を書けます';
 export const focusLabel = rating => rating === 'ng' ? '直したい場所（押した場所をOKの絵に寄せて学習します）' : rating === 'ok' ? '残したい場所の記録（寄せる場所はNGで選びます）' : 'OK・NGを選んでから場所を選べます';
+export const meaningSummary = (rating, meaning) => {
+  if (!meaning) return '';
+  if (rating === 'ok') return `維持：${meaning.preserve.join('、') || '指定なし'}`;
+  return `修正：${meaning.fix.join('、') || '指定なし'}／維持：${meaning.preserve.join('、') || '指定なし'}`;
+};
 
 export function previewReviewCard(name, jobId, image, index, changed) {
   let review = image.review, rating = review.rating, focus = [...review.focus];
@@ -30,35 +35,37 @@ export function previewReviewCard(name, jobId, image, index, changed) {
     help.textContent = rating === 'ng' ? '直してほしい箇所を書いてください（任意）' : '理由は任意です。OK・NGだけでも再学習できます。';
     controls.forEach((node, i) => node.setAttribute('aria-pressed', String(['ok', 'ng', ''][i] === rating)));
     focuses.forEach((node, i) => { node.disabled = !rating; node.setAttribute('aria-pressed', String(focus.includes(['hair', 'face', 'outfit', 'body', 'style'][i]))); });
+    displayMeaning();
   }
   function displayMeaning() {
-    const signature = JSON.stringify([review.meaning, review.meaning_source, review.revision]);
+    const signature = JSON.stringify([rating, review.meaning, review.meaning_source, review.revision]);
     if (signature === meaningSignature) return;
     meaningSignature = signature;
     meaning.replaceChildren();
     history.hidden = !review.history?.length;
     history.replaceChildren(h('summary', {}, '判定とコメントの履歴'), ...(review.history || []).map((item, i) =>
       h('div', { class: 'stack small' }, h('strong', {}, `以前の判定 ${i + 1}：${labels[item.rating]}`), h('p', {}, item.comment || '理由なし'),
-        item.meaning ? h('p', {}, `修正：${item.meaning.fix.join('、') || '指定なし'}／維持：${item.meaning.preserve.join('、') || '指定なし'}`) : null)));
+        item.meaning ? h('p', {}, meaningSummary(item.rating, item.meaning)) : null)));
     if (!review.meaning) return;
-    const current = review.meaning, revision = review.revision;
-    const fix = h('textarea', { rows: 2 }, current.fix.join('\n'));
+    const current = review.meaning, revision = review.revision, ok = rating === 'ok';
     const preserve = h('textarea', { rows: 2 }, current.preserve.join('\n'));
-    const generation = h('textarea', { rows: 2 }, current.description_en || '');
+    const fix = ok ? null : h('textarea', { rows: 2 }, current.fix.join('\n'));
+    const generation = ok ? null : h('textarea', { rows: 2 }, current.description_en || '');
     const lines = control => control.value.split('\n').map(v => v.trim()).filter(Boolean);
     meaning.append(h('strong', {}, review.meaning_source === 'user' ? '訂正した内容' : 'AIが読み取った内容'),
-      h('p', {}, `直したい箇所：${current.fix.join('、') || '指定なし'}`),
+      ok ? null : h('p', {}, `直したい箇所：${current.fix.join('、') || '指定なし'}`),
       h('p', {}, `残したい箇所：${current.preserve.join('、') || '指定なし'}`),
-      current.description_en ? h('details', {}, h('summary', {}, '生成文の詳細'),
-        h('pre', { class: 'training-caption' }, current.description_en)) : null,
+      ok || !current.description_en ? null : h('details', {}, h('summary', {}, '生成文の詳細'),
+        h('pre', { class: 'training-caption' }, current.description_en)),
       ...current.questions.map(q => h('p', { class: 'review-question' }, q)),
       current.questions.length ? h('p', { class: 'small' }, '上の理由に回答を追記するか、下で解釈を訂正してください。') : null,
-      h('details', {}, h('summary', {}, '読み取った内容を訂正する'), field('直したい箇所', fix), field('残したい箇所', preserve),
-        field('生成文（英語）', generation),
+      h('details', {}, h('summary', {}, '読み取った内容を訂正する'),
+        ok ? null : field('直したい箇所', fix), field('残したい箇所', preserve),
+        ok ? null : field('生成文（英語）', generation),
         button('この内容に訂正する', e => action(e.currentTarget, async () => {
           await flush();
           review = await API.correctPreviewInterpretation(name, jobId, image.id, {
-            revision, meaning: { fix: lines(fix), preserve: lines(preserve), questions: [], description_en: generation.value.trim() },
+            revision, meaning: { fix: ok ? [] : lines(fix), preserve: lines(preserve), questions: [], description_en: ok ? '' : generation.value.trim() },
           });
           status.textContent = '訂正を保存しました'; displayMeaning(); changed();
         }), 'quiet')));
@@ -179,7 +186,7 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
         comparison.append(h('details', { class: 'preview-comparison' }, h('summary', {}, '再学習前の画像と判定を見る'),
           h('div', { class: 'preview-review-grid' }, (learning.reviews || []).map(p => h('figure', {}, picture(p.path, '再学習前'),
             h('figcaption', {}, `${labels[p.review.rating]}：${p.review.comment || '理由なし'}`),
-            p.review.meaning ? h('p', {}, `修正：${p.review.meaning.fix.join('、') || '指定なし'}／維持：${p.review.meaning.preserve.join('、') || '指定なし'}`) : null))),
+            p.review.meaning ? h('p', {}, meaningSummary(p.review.rating, p.review.meaning)) : null))),
           old ? button('以前の学習結果を使う', async () => { await flush(); pick(old.job_id); await refresh(); }, 'quiet') : null));
       }
       comparisonSignature = compareKey;

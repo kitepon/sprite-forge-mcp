@@ -368,6 +368,32 @@ def test_learning_and_preview_use_interpreted_generation_text(tmp_path, monkeypa
     asyncio.run(scenario())
 
 
+def test_ok_interpretation_drops_vl_fix_without_moving_vl_words(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+    async def interpret(*args, **kwargs):
+        return {'fix': ['髪型', '顔'], 'preserve': ['衣装'], 'questions': [], 'description_en': GENERATED}
+    service.intent_interpreter = interpret
+    wire_training(monkeypatch)
+    async def scenario():
+        source = await prepared(service, tmp_path, '髪型が違う')
+        await service.save_preview_review(
+            'probe', source['job_id'], source['pictures'][0]['id'],
+            PreviewReview(rating='ok', revision=1, focus=['hair', 'face', 'outfit', 'body', 'style']))
+        job = await settled(service, await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()), steps=1))
+        assert job['status'] == 'completed'
+        view = await service.preview_reviews('probe', source['job_id'])
+        ok = view['pictures'][0]['review']['meaning']
+        ng = view['pictures'][1]['review']['meaning']
+        assert ok['fix'] == []
+        assert ok['description_en'] == ''
+        assert ok['preserve'][0] == '衣装'
+        assert '髪' in ok['preserve'] and '顔' in ok['preserve']
+        assert '髪型' not in ok['preserve']
+        assert ng['fix'] == ['髪型', '顔']
+        assert ng['description_en'] == GENERATED
+    asyncio.run(scenario())
+
+
 def test_empty_generation_text_fails_before_training(tmp_path, monkeypatch):
     service, _ = make(tmp_path, monkeypatch)
     async def interpret(*args, **kwargs):

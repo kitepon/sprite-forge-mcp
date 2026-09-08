@@ -128,7 +128,12 @@ def observe_range(payload: dict) -> dict:
     topics = list(regions)
     if isinstance(focus, list) and "style" in focus and "style" not in topics:
         topics.append("style")
-    return {"regions": regions, "topics": topics, "comment": comment}
+    return {
+        "regions": regions,
+        "topics": topics,
+        "comment": comment,
+        "intent": "preserve" if payload.get("rating") == "ok" else "fix",
+    }
 
 
 def _observe_prompt(index: int, schema: dict, view: dict | None = None) -> str:
@@ -137,7 +142,10 @@ def _observe_prompt(index: int, schema: dict, view: dict | None = None) -> str:
         labels = [OBSERVE_TOPIC_JA[key] for key in view["topics"] if key in OBSERVE_TOPIC_JA]
         extra = []
         if labels:
-            extra.append(f"見る範囲は{'、'.join(labels)}だけです。指定していない部位の特徴は書かないでください。")
+            if view.get("intent") == "preserve":
+                extra.append(f"残したい範囲は{'、'.join(labels)}です。差があっても直す内容は書かないでください。残したい内容だけ書いてください。")
+            else:
+                extra.append(f"見る範囲は{'、'.join(labels)}だけです。指定していない部位の特徴は書かないでください。")
         if view["comment"]:
             extra.append(f"ユーザーの文: {view['comment']}")
             if not labels:
