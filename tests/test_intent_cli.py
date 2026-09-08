@@ -84,11 +84,13 @@ class FakeComfy:
             payload = _payload_from_prompt(prompt)
             stage = payload.get('stage')
             if stage == 'layout':
-                layout = payload['sheet_layout']
+                # 差分契約: 先頭項目だけ名称を変えて返し、他は省略する。
+                first = payload['sheet_layout'][0]
                 text = json.dumps({
                     'summary_ja': '構成の確認',
                     'questions': [],
-                    'panels': [dict(panel, description_ja=panel['label'], reference=None) for panel in layout],
+                    'panels': [dict(first, label=first['label'] + '（変更）', description_ja='名称を変更', reference=None)],
+                    'removed_keys': [],
                 }, ensure_ascii=False)
             elif stage == 'preview_review':
                 text = json.dumps({'fix': [], 'preserve': ['衣装'], 'questions': [], 'description_en': ''}, ensure_ascii=False)

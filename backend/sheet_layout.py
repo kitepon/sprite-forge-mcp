@@ -59,6 +59,25 @@ class LayoutProposal(StrictModel):
     questions: list[str]
 
 
+class LayoutChange(StrictModel):
+    """解釈モデルが返す差分。変更・追加した項目だけを完全な形で持ち、外す項目は識別子で示す。"""
+    summary_ja: str
+    panels: list[LayoutPanel]
+    removed_keys: list[str]
+    questions: list[str]
+
+
+def merge_layout_change(change: LayoutChange, previous: list[dict]) -> LayoutProposal:
+    """差分を現在の構成へ合成する。触れていない項目は順序・内容をそのまま引き継ぐ。"""
+    changed = {panel.key: panel for panel in change.panels}
+    panels = [changed[p["key"]] if p["key"] in changed
+              else LayoutPanel.model_validate({**p, "description_ja": p["label"], "reference": None})
+              for p in previous if p["key"] not in change.removed_keys]
+    existing = {p["key"] for p in previous}
+    panels += [panel for panel in change.panels if panel.key not in existing]
+    return LayoutProposal(summary_ja=change.summary_ja, panels=panels, questions=change.questions)
+
+
 def proposed_layout(proposal):
     return [panel.model_dump(exclude={"description_ja", "reference"}) for panel in proposal.panels]
 

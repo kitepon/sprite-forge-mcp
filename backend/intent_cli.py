@@ -15,7 +15,7 @@ from . import workflows
 from .intent import Proposal, StrictModel
 from .preview_intent import ReviewMeaning
 from .preview_learning import SPATIAL_FOCUS, mask_is_empty, spatial_keys_from_focus_and_text, union_masks
-from .sheet_layout import LayoutProposal
+from .sheet_layout import LayoutChange, merge_layout_change
 
 MODEL = "Qwen3-VL-32B-Instruct"
 AUTH = "comfy"
@@ -107,7 +107,7 @@ def _stage_model(payload: dict):
     if stage == "preview_review":
         return ReviewMeaning
     if stage == "layout":
-        return LayoutProposal
+        return LayoutChange
     return Proposal
 
 
@@ -271,5 +271,8 @@ async def execute(payload: dict, images: list[bytes], *, comfy, keep_model_loade
         compose_payload["observe_range"] = view
     proposal = _validate(model, await _ask(comfy, _compose_prompt(compose_payload, schema, observations),
                                            image=compose_image, keep_model_loaded=keep_model_loaded))
+    if model is LayoutChange:
+        # モデルには差分だけを書かせ、全項目の構成はここで現在の構成へ合成する。
+        proposal = merge_layout_change(proposal, payload["sheet_layout"])
     return {"proposal": proposal.model_dump(), "model": MODEL,
             "elapsed_seconds": round(time.monotonic() - started, 2), "auth": AUTH}

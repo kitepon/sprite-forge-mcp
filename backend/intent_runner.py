@@ -12,13 +12,15 @@ async def interpret(job: dict, images: list[bytes], *, comfy=None, keep_model_lo
                                              "references", "image_comments", "base_conditions", "stage", "panel")}
         # 旧記録には当時の工程既定がない。現在の既定で過去を補わない。
         payload["stage_conditions"] = job.get("stage_conditions", {})
-        payload["panel_specs"] = job.get("panel_specs", [])
         payload["available_styles"] = job.get("available_styles", [])
-        payload["training_captions"] = job.get("training_captions", [])
         payload["record_kind"] = job["record_kind"]
         payload["learning_request"] = "learning_steps" in job
         if job["stage"] == "layout":
+            # 構成の差分だけを求める工程。同じ項目を持つ panel_specs と教材説明は渡さず、入力量を抑える。
             payload["sheet_layout"] = job.get("working_layout", job["sheet_layout"])
+        else:
+            payload["panel_specs"] = job.get("panel_specs", [])
+            payload["training_captions"] = job.get("training_captions", [])
     result = await execute(payload, images, comfy=comfy, keep_model_loaded=keep_model_loaded,
                            reclaim_memory=reclaim_memory)
     job["interpreter"] = {key: result[key] for key in ("model", "elapsed_seconds", "auth")}

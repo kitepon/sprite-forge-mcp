@@ -97,7 +97,49 @@ def test_layout_cli_has_its_own_strict_schema():
     assert "表情で変わる内容はexpressionへ分けます" in prompt
     assert "そのpartのavoid_enへ対象を列挙" in prompt
     assert "共通条件に値が存在しない特徴" in prompt
-    assert result["proposal"]["panels"][0]["key"] == layout[0]["key"]
+    assert "removed_keys" in schema["properties"]
+    assert "注文で変わる差分だけ" in prompt
+    # 差分は現在の構成へ合成され、利用側には全項目の案が届く。
+    assert [p["key"] for p in result["proposal"]["panels"]] == [p["key"] for p in layout]
+    assert result["proposal"]["panels"][0]["label"] == layout[0]["label"] + "（変更）"
+    assert result["proposal"]["panels"][1]["label"] == layout[1]["label"]
+
+
+def test_layout_change_merges_into_current_layout_preserving_untouched_panels():
+    from backend.sheet_layout import LayoutChange, LayoutPanel, merge_layout_change
+    current = legacy_layout()[:4]
+    changed = dict(current[2], label="水着", description_ja="鎧を水着に変更", reference=None, role_features=["outfit"],
+                   parts=[{"feature": "outfit", "description_en": "one-piece swimsuit", "avoid_en": "armor"}])
+    added = dict(current[0], key="new_item", label="追加の単品", kind="item", seed_offset=99,
+                 description_ja="新しい項目", reference=None)
+    change = LayoutChange(summary_ja="3番目を水着に変更", questions=[], removed_keys=[current[1]["key"]],
+                          panels=[LayoutPanel.model_validate(changed), LayoutPanel.model_validate(added)])
+    merged = merge_layout_change(change, current)
+    assert [p.key for p in merged.panels] == [current[0]["key"], current[2]["key"], current[3]["key"], "new_item"]
+    assert merged.panels[1].label == "水着"
+    assert merged.panels[1].parts[0].description_en == "one-piece swimsuit"
+    untouched = merged.panels[0]
+    assert untouched.model_dump(exclude={"description_ja", "reference"}) == current[0]
+    assert untouched.description_ja == current[0]["label"] and untouched.reference is None
+    assert merged.summary_ja == "3番目を水着に変更"
+
+
+def test_layout_stage_prompt_omits_panel_specs_and_training_captions():
+    from backend.intent_runner import interpret
+    from tests.test_intent_cli import FakeComfy, _payload_from_prompt
+    layout = legacy_layout()[:2]
+    base = dict(original_comment="変更", record_kind="character", record_description="", existing_settings={},
+                references=[], image_comments=[], base_conditions={}, panel="", sheet_layout=layout,
+                panel_specs=[{"key": p["key"]} for p in layout], training_captions=[{"caption_en": "x"}])
+    comfy = FakeComfy()
+    asyncio.run(interpret({**base, "stage": "layout"}, [], comfy=comfy))
+    layout_payload = _payload_from_prompt(comfy.prompts[-1])
+    assert "panel_specs" not in layout_payload and "training_captions" not in layout_payload
+    assert layout_payload["sheet_layout"] == layout
+    asyncio.run(interpret({**base, "stage": "sheet"}, [], comfy=comfy))
+    sheet_payload = _payload_from_prompt(comfy.prompts[-1])
+    assert sheet_payload["panel_specs"] == base["panel_specs"]
+    assert sheet_payload["training_captions"] == base["training_captions"]
 
 
 def test_adopted_features_and_requested_view_count_reach_prompt_without_common_settings():
