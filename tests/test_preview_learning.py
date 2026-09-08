@@ -7,9 +7,41 @@ import uuid
 import pytest
 
 from backend import box
+from backend.preview_learning import pair_spatial_regions
 from backend.preview_reviews import PreviewReview
 from backend.preview_intent import ReviewCorrection, ReviewMeaning
 from tests.test_style import make, png
+
+
+def sam_prompts(comfy):
+    return [workflow['2']['inputs']['text'] for workflow in comfy.submitted
+            if any(node.get('class_type') == 'SAM3_Detect' for node in workflow.values())]
+
+
+def quiet_interpret():
+    async def interpret(*args, **kwargs):
+        return {'fix': [], 'preserve': [], 'questions': []}
+    return interpret
+
+
+def wire_training(monkeypatch):
+    async def trained(*args, **kwargs):
+        yield json.dumps({'step': 1, 'total': 1, 'loss': .69})
+    async def fetched(remote, local, **kwargs):
+        local.write_text(json.dumps({'reference_unchanged': True, 'lora_delta_squared': .01}))
+        return 0, ''
+    monkeypatch.setattr(box, 'stream_preference_training', trained)
+    monkeypatch.setattr(box, 'copy_from_box', fetched)
+
+
+def test_pair_spatial_regions_uses_ng_focus_and_general_fix_words():
+    assert pair_spatial_regions({'rating': 'ok', 'focus': ['hair', 'face']}) == ()
+    assert pair_spatial_regions({'rating': 'ng', 'focus': ['hair']}) == ('hair',)
+    assert pair_spatial_regions({'rating': 'ng', 'focus': ['style']}) == ()
+    assert pair_spatial_regions({'rating': 'ng', 'focus': ['hair', 'face', 'hair']}) == ('hair', 'face')
+    assert pair_spatial_regions({'rating': 'ng', 'focus': [], 'meaning': {'fix': ['髪型']}}) == ('hair',)
+    assert pair_spatial_regions({'rating': 'ng', 'focus': [], 'meaning': {'fix': ['顔も違う']}}) == ('face',)
+    assert pair_spatial_regions({'rating': 'ng', 'comment': '髪型が違う', 'focus': []}) == ()
 
 
 async def settled(service, job):
@@ -39,6 +71,8 @@ def test_snapshot_uses_both_ratings_and_keeps_old_lora(tmp_path, monkeypatch):
         assert len(config['pairs']) == 1
         assert config['lora'].endswith('/person.safetensors')
         assert config['size'] == [832, 1216]
+        assert config['masks'] == [None]
+        assert config['pair_regions'] == [[]]
         for path in config['pairs'][0]:
             assert (directory / Path(path).name).read_bytes() == png()
         calls.append(config)
@@ -132,17 +166,11 @@ def test_too_few_steps_does_not_silently_omit_a_rating(tmp_path, monkeypatch):
 
 
 def test_answers_continue_same_request_and_keep_preparation_history(tmp_path, monkeypatch):
-    service, _ = make(tmp_path, monkeypatch)
+    service, comfy = make(tmp_path, monkeypatch)
     async def interpret(*args, **kwargs):
         return {'fix': [], 'preserve': ['衣装'], 'questions': ['NGなのはどの部分ですか？']}
-    async def trained(*args, **kwargs):
-        yield '{"step": 1, "total": 1}'
-    async def fetched(remote, local, **kwargs):
-        local.write_text('{}')
-        return 0, ''
     service.intent_interpreter = interpret
-    monkeypatch.setattr(box, 'stream_preference_training', trained)
-    monkeypatch.setattr(box, 'copy_from_box', fetched)
+    wire_training(monkeypatch)
     async def scenario():
         source = await prepared(service, tmp_path, '衣装は合っている')
         request_id = str(uuid.uuid4())
@@ -156,6 +184,74 @@ def test_answers_continue_same_request_and_keep_preparation_history(tmp_path, mo
         assert result['preparation_history'][0]['questions'] == waiting['questions']
         assert result['preparation_history'][0]['reviews'][1]['review']['revision'] == 1
         assert result['reviews'][1]['review']['revision'] == 2
+        assert result['training_config']['pair_regions'] == [['hair']]
+        assert result['training_config']['prompt'] == source['prompt']
+        assert sam_prompts(comfy) == ['hair', 'hair']
+        ok_id, ng_id = result['pairs'][0]
+        assert (Path(result['dataset']) / f'{ok_id}.mask.png').is_file()
+        assert (Path(result['dataset']) / f'{ng_id}.mask.png').is_file()
+    asyncio.run(scenario())
+
+
+def test_ng_hair_focus_masks_only_hair_and_keeps_source_prompt(tmp_path, monkeypatch):
+    service, comfy = make(tmp_path, monkeypatch)
+    service.intent_interpreter = quiet_interpret()
+    wire_training(monkeypatch)
+    async def scenario():
+        source = await prepared(service, tmp_path)
+        await service.save_preview_review(
+            'probe', source['job_id'], source['pictures'][0]['id'],
+            PreviewReview(rating='ok', revision=1, focus=['hair', 'face', 'outfit', 'body', 'style']))
+        await service.save_preview_review(
+            'probe', source['job_id'], source['pictures'][1]['id'],
+            PreviewReview(rating='ng', revision=1, focus=['hair']))
+        job = await settled(service, await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()), steps=1))
+        assert job['status'] == 'completed'
+        assert job['training_config']['pair_regions'] == [['hair']]
+        assert job['training_config']['prompt'] == source['prompt']
+        assert sam_prompts(comfy) == ['hair', 'hair']
+        ok_id, ng_id = job['pairs'][0]
+        assert (Path(job['dataset']) / f'{ok_id}.mask.png').is_file()
+        assert (Path(job['dataset']) / f'{ng_id}.mask.png').is_file()
+        assert job['training_config']['masks'][0] is not None
+    asyncio.run(scenario())
+
+
+def test_style_only_ng_uses_fullscreen_without_sam(tmp_path, monkeypatch):
+    service, comfy = make(tmp_path, monkeypatch)
+    service.intent_interpreter = quiet_interpret()
+    wire_training(monkeypatch)
+    async def scenario():
+        source = await prepared(service, tmp_path)
+        await service.save_preview_review(
+            'probe', source['job_id'], source['pictures'][1]['id'],
+            PreviewReview(rating='ng', revision=1, focus=['style']))
+        job = await settled(service, await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()), steps=1))
+        assert job['status'] == 'completed'
+        assert job['training_config']['pair_regions'] == [[]]
+        assert job['training_config']['masks'] == [None]
+        assert sam_prompts(comfy) == []
+    asyncio.run(scenario())
+
+
+def test_empty_sam_mask_fails_without_fullscreen_fallback(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+    service.intent_interpreter = quiet_interpret()
+    async def black(_image):
+        return png('#000000')
+    async def scenario():
+        source = await prepared(service, tmp_path)
+        service._view = black
+        await service.save_preview_review(
+            'probe', source['job_id'], source['pictures'][1]['id'],
+            PreviewReview(rating='ng', revision=1, focus=['hair']))
+        started = await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()), steps=1)
+        with pytest.raises(RuntimeError, match='マスクが空です'):
+            await settled(service, started)
+        job = service.events.load_job(started['job_id'])
+        assert job['status'] == 'failed'
+        assert 'マスクが空です' in job['error']
+        assert 'training_config' not in job
     asyncio.run(scenario())
 
 

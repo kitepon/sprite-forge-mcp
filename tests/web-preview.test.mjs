@@ -10,8 +10,8 @@ class Node {
 }
 globalThis.Node = Node;
 globalThis.document = { createElement: tag => new Node(tag), createElementNS: (_, tag) => new Node(tag), createTextNode: text => text };
-const { previewReviewCard, reviewLabel } = await import('../web/preview.js?v=studio-2');
-const { API } = await import('../web/api.js?v=studio-2');
+const { previewReviewCard, reviewLabel, focusLabel } = await import('../web/preview.js?v=studio-4');
+const { API } = await import('../web/api.js?v=studio-3');
 const all = node => [node, ...node.children.filter(n => n instanceof Node).flatMap(all)];
 const initial = {id:'image-a',path:'/image-a.png',review:{rating:'',comment:'',focus:[],revision:0,history:[]}};
 
@@ -77,5 +77,18 @@ test('保存失敗を表示し、再読込みで入力中のコメントを上�
   card.update({...initial.review,revision:8,comment:'別の画面の入力'});
   assert.equal(textarea.value,'残すべき入力');
   assert.ok(nodes.some(n=>n.textContent?.includes('判定を保存できませんでした')));
+  card.dispose();
+});
+
+test('NGの場所は寄せ先、OKの場所は記録だと表示する', async () => {
+  API.savePreviewReview = async (_, __, ___, review) => ({...review, revision: review.revision + 1, history: []});
+  const card = previewReviewCard('ベル', 'job-a', structuredClone(initial), 0, () => {});
+  const nodes = all(card.node);
+  assert.equal(focusLabel(''), 'OK・NGを選んでから場所を選べます');
+  assert.ok(nodes.some(n => n.textContent === focusLabel('')));
+  nodes.find(n => n.children.includes('NG：直したい画像')).events.click();
+  assert.ok(nodes.some(n => n.textContent === focusLabel('ng')));
+  nodes.find(n => n.children.includes('OK：残したい画像')).events.click();
+  assert.ok(nodes.some(n => n.textContent === focusLabel('ok')));
   card.dispose();
 });

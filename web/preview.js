@@ -5,6 +5,7 @@ import { draft, saveDraft } from './drafts.js?v=studio-3';
 
 const labels = { ok: 'OK：残したい画像', ng: 'NG：直したい画像', '': '未判定' };
 export const reviewLabel = rating => rating === 'ng' ? 'この画像のどこがNGでしたか？' : rating === 'ok' ? 'この画像で残したいところは？（任意）' : 'OK・NGを選んでから理由を書けます';
+export const focusLabel = rating => rating === 'ng' ? '直したい場所（押した場所をOKの絵に寄せて学習します）' : rating === 'ok' ? '残したい場所の記録（寄せる場所はNGで選びます）' : 'OK・NGを選んでから場所を選べます';
 
 export function previewReviewCard(name, jobId, image, index, changed) {
   let review = image.review, rating = review.rating, focus = [...review.focus];
@@ -12,6 +13,7 @@ export function previewReviewCard(name, jobId, image, index, changed) {
   const comment = h('textarea', { rows: 3 }, review.comment);
   const caption = h('span', { class: 'field-label' });
   const help = h('small', { class: 'muted' });
+  const place = h('p', { class: 'small muted' });
   const status = h('p', { class: 'small muted', role: 'status' });
   const meaning = h('div', { class: 'review-meaning stack' });
   const history = h('details', { class: 'review-history' });
@@ -22,6 +24,7 @@ export function previewReviewCard(name, jobId, image, index, changed) {
   let saved = JSON.stringify(value());
   function display() {
     caption.textContent = reviewLabel(rating);
+    place.textContent = focusLabel(rating);
     comment.disabled = !rating;
     comment.placeholder = rating === 'ng' ? '例：髪型がサンプルと違う。ツインテールがなくなっている' : '例：顔立ちと衣装はこのまま残したい';
     help.textContent = rating === 'ng' ? '直してほしい箇所を書いてください（任意）' : '理由は任意です。OK・NGだけでも再学習できます。';
@@ -81,7 +84,7 @@ export function previewReviewCard(name, jobId, image, index, changed) {
   const node = h('article', { class: 'preview-review-card stack' }, h('h3', {}, `生成画像 ${index + 1}`),
     picture(image.path, `生成画像 ${index + 1}`), h('div', { class: 'review-rating actions', 'aria-label': 'この画像の判定' }, controls),
     h('label', { class: 'field' }, caption, comment, help),
-    h('div', {}, h('p', { class: 'small muted' }, '対象（任意）'), h('div', { class: 'actions review-focus' }, focuses)),
+    h('div', {}, place, h('div', { class: 'actions review-focus' }, focuses)),
     status, h('details', {}, h('summary', {}, '保存できなかったとき'), reload, button('保存をやり直す', () => persist(), 'text-link')), meaning, history);
   status.textContent = review.revision ? '保存済み' : '未判定';
   display(); displayMeaning();
@@ -121,7 +124,7 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
     counts.textContent = `OK ${ok}枚 ・ NG ${ng}枚 ・ 未判定 ${ratings.length - ok - ng}枚`;
     const running = jobs.some(j => j.kind === 'preview_learning' && j.source_job_id === selected && !terminal(j));
     start.disabled = !ok || !ng || !!source?.relearning_unavailable_reason || running;
-    reason.textContent = source?.relearning_unavailable_reason || (running ? 'この判定の再学習を実行中です。' : !ng && ok ? 'すべてOKなら、そのまま設定画へ進めます。' : !ok && ng ? 'OKがありません。追加生成、注文の修正、参考画像の見直しができます。' : !ok || !ng ? '再学習にはOKとNGをそれぞれ1枚以上選んでください。未判定は使いません。' : 'OKを残し、NGを減らすためにLoRAの重みを修正します。理由の不明点がある場合だけ質問します。');
+    reason.textContent = source?.relearning_unavailable_reason || (running ? 'この判定の再学習を実行中です。' : !ng && ok ? 'すべてOKなら、そのまま設定画へ進めます。' : !ok && ng ? 'OKがありません。追加生成、注文の修正、参考画像の見直しができます。' : !ok || !ng ? '再学習にはOKとNGをそれぞれ1枚以上選んでください。未判定は使いません。' : 'NGで選んだ場所をOKの絵に寄せてLoRAを直します。同じ条件で新しいプレビューを作ります。理由の不明点がある場合だけ質問します。');
     adopt.disabled = !selected || jobs.find(j => j.job_id === selected)?.status !== 'completed' || running;
     setReady(selected === adopted, selected === adopted ? '' : '画像を確認し、「この学習結果を使って設定画へ」を押してください。');
   }

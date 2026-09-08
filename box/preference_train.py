@@ -9,7 +9,7 @@ from pathlib import Path
 import sys
 import time
 
-from preference_loss import preference_loss
+from preference_loss import preference_loss, spatial_errors
 
 
 def main():
@@ -24,6 +24,13 @@ def main():
     data = json.loads(args.input.read_text(encoding='utf-8'))
     if args.output.resolve() == Path(data['lora']).resolve():
         raise ValueError('試作の出力には元LoRAと異なるパスを指定してください。')
+    pairs = data['pairs']
+    if 'masks' in data:
+        masks = data['masks']
+        if len(masks) != len(pairs):
+            raise ValueError('masks の件数が pairs と違います')
+    else:
+        masks = [None] * len(pairs)
     sys.path.insert(0, str(args.sd_scripts))
     import numpy as np
     from PIL import Image
@@ -77,7 +84,7 @@ def main():
         device='cpu', disable_mmap=True)
     vae.to(device, dtype=dtype).eval().requires_grad_(False)
     cached = {}
-    for filename in dict.fromkeys(path for pair in data['pairs'] for path in pair):
+    for filename in dict.fromkeys(path for pair in pairs for path in pair):
         with Image.open(filename) as source:
             picture = source.convert('RGB').resize(tuple(data['size']), Image.Resampling.LANCZOS)
             pixels = torch.from_numpy(np.array(picture)).permute(2, 0, 1).float() / 127.5 - 1
@@ -98,14 +105,27 @@ def main():
                 target_input_ids=tokens, target_attention_mask=token_mask, source_attention_mask=mask,
             ).squeeze(2)
 
-    def errors(prediction, target):
-        return (prediction.float() - target.float()).square().flatten(1).mean(1)
+    def load_spatial_mask(path, height, width):
+        with Image.open(path) as source:
+            array = np.array(source.convert('L').resize((width, height), Image.Resampling.BILINEAR), dtype=np.float32) / 255.0
+        if float(array.max()) <= 0.0:
+            raise ValueError(f'マスクが空です: {path}')
+        return torch.from_numpy(array)[None]
+
+    def errors(prediction, target, mask=None):
+        return spatial_errors(prediction, target, mask)
 
     torch.cuda.reset_peak_memory_stats()
     rows = []
     for step in range(args.steps):
-        pair_index = step % len(data['pairs'])
-        latents = torch.cat([cached[path] for path in data['pairs'][pair_index]]).to(device)
+        pair_index = step % len(pairs)
+        latents = torch.cat([cached[path] for path in pairs[pair_index]]).to(device)
+        spatial = None
+        pair_mask = masks[pair_index]
+        if pair_mask:
+            _, _, height, width = latents.shape
+            spatial = torch.stack([load_spatial_mask(pair_mask[0], height, width),
+                                    load_spatial_mask(pair_mask[1], height, width)], dim=0).to(device=device)
         # OK／NGと固定基準・更新対象で同じ時刻とノイズを使う。
         noise = torch.randn_like(latents[:1]).expand_as(latents)
         times = torch.rand(1, device=device).expand(2)
@@ -115,11 +135,11 @@ def main():
         reference.set_multiplier(data['strength'])
         policy.set_multiplier(0)
         with torch.no_grad():
-            fixed_errors = errors(predict(noisy, times), target)
+            fixed_errors = errors(predict(noisy, times), target, spatial)
         reference.set_multiplier(0)
         policy.set_multiplier(data['strength'])
         optimizer.zero_grad(set_to_none=True)
-        model_errors = errors(predict(noisy.detach().requires_grad_(True), times), target)
+        model_errors = errors(predict(noisy.detach().requires_grad_(True), times), target, spatial)
         loss = preference_loss(model_errors, fixed_errors, args.beta)
         loss.backward()
         gradient_norm = torch.stack([p.grad.float().square().sum() for p in policy.parameters() if p.grad is not None]).sum().sqrt()

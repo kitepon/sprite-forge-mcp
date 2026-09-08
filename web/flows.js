@@ -7,7 +7,7 @@ import { draft, saveDraft, clearDraft, pendingFiles } from './drafts.js?v=studio
 import { commentEditor, referenceNotes, flushCaptions, saveCaption } from './intent.js?v=studio-3';
 import { learning } from './learning.js?v=studio-3';
 import { characterStrength } from './strength.js?v=studio-3';
-import { previewGallery } from './preview.js?v=studio-3';
+import { previewGallery } from './preview.js?v=studio-4';
 
 export const FLOWS = [
   { id: 'sheet', title: 'キャラクターを育てる', desc: '参考画像から、その子らしい設定画へ。', icon: 'layers', steps: ['キャラクター', '参考画像', '学習', 'プレビュー', '設定画'] },

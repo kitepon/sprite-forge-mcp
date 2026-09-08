@@ -1,15 +1,58 @@
 """保存した判定から、LoRA修正と再プレビューまでを実行する。"""
 from copy import deepcopy
+from io import BytesIO
 import asyncio
 import hashlib
 import json
 from pathlib import Path, PureWindowsPath
 import uuid
 
-from . import box
+from PIL import Image, ImageChops
+
+from . import box, workflows
 from .config import BOX_LORAS, BOX_TRAIN
 
 IN_FLIGHT = ('interpreting', 'training', 'previewing')
+SPATIAL_FOCUS = {'hair': 'hair', 'face': 'face', 'outfit': 'clothes', 'body': 'body'}
+FIX_REGION_MARKERS = (
+    ('hair', ('髪', 'ヘア')),
+    ('face', ('顔', '目', '眉')),
+    ('outfit', ('衣装', '服', '服装')),
+    ('body', ('体形', '体型', '体')),
+)
+
+
+def pair_spatial_regions(review: dict) -> tuple[str, ...]:
+    """NGの空間部位。focusがあればそれを使い、なければ解釈の一般語だけを見る。"""
+    if (review.get('rating') or '') != 'ng':
+        return ()
+    seen = set()
+    ordered = []
+    for key in review.get('focus') or []:
+        if key in SPATIAL_FOCUS and key not in seen:
+            seen.add(key)
+            ordered.append(key)
+    if ordered:
+        return tuple(ordered)
+    joined = ' '.join((review.get('meaning') or {}).get('fix') or [])
+    return tuple(region for region, markers in FIX_REGION_MARKERS if any(marker in joined for marker in markers))
+
+
+def mask_is_empty(png: bytes) -> bool:
+    return Image.open(BytesIO(png)).convert('L').getextrema()[1] == 0
+
+
+def union_masks(parts: list[bytes]) -> bytes:
+    if not parts:
+        raise ValueError('マスクがありません')
+    combined = Image.open(BytesIO(parts[0])).convert('L')
+    for part in parts[1:]:
+        combined = ImageChops.lighter(combined, Image.open(BytesIO(part)).convert('L'))
+    if combined.getextrema()[1] == 0:
+        raise ValueError('マスクが空です')
+    buffer = BytesIO()
+    combined.convert('RGBA').save(buffer, format='PNG')
+    return buffer.getvalue()
 
 
 class PreviewLearning:
@@ -125,6 +168,8 @@ class PreviewLearning:
         return False
 
     async def _train_preview_learning(self, job: dict) -> None:
+        job['status'] = 'training'
+        self.events.save_job(job)
         directory = Path(job['dataset'])
         directory.mkdir(parents=True, exist_ok=True)
         source = job['source']
@@ -132,6 +177,20 @@ class PreviewLearning:
         remote_directory = f'{remote_root}/{directory.name}'
         models = PureWindowsPath(BOX_LORAS).parent.as_posix()
         generation = source['generation']
+        by_id = {picture['id']: picture['review'] for picture in job['reviews']}
+        pair_regions = []
+        pair_masks: list[list[str] | None] = []
+        cache: dict[tuple[str, str], bytes] = {}
+        for ok_id, ng_id in job['pairs']:
+            regions = pair_spatial_regions(by_id[ng_id])
+            pair_regions.append(list(regions))
+            if not regions:
+                pair_masks.append(None)
+                continue
+            ok_name, ng_name = f'{ok_id}.mask.png', f'{ng_id}.mask.png'
+            await self._pair_region_mask(ok_id, (directory / f'{ok_id}.png').read_bytes(), regions, directory, ok_name, cache, job['job_id'])
+            await self._pair_region_mask(ng_id, (directory / f'{ng_id}.png').read_bytes(), regions, directory, ng_name, cache, job['job_id'])
+            pair_masks.append([f'{remote_directory}/{ok_name}', f'{remote_directory}/{ng_name}'])
         config = {'model': f"{models}/diffusion_models/{generation['model']}",
                   'qwen3': f"{models}/text_encoders/{generation['text_encoder']}",
                   'vae': f"{models}/vae/{generation['vae']}",
@@ -139,11 +198,11 @@ class PreviewLearning:
                   'strength': source['loras'][0][1], 'prompt': source['prompt'], 'negative': source['negative'],
                   'seed': source['seed'], 'size': [generation['width'], generation['height']],
                   'pairs': [[f'{remote_directory}/{image_id}.png' for image_id in pair] for pair in job['pairs']],
+                  'masks': pair_masks, 'pair_regions': pair_regions,
                   'fixed_loras': [{'path': f'{PureWindowsPath(BOX_LORAS).as_posix()}/{filename}', 'strength': strength}
                                   for filename, strength in source['loras'][1:]]}
         (directory / 'input.json').write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding='utf-8')
         job['training_config'] = config
-        job['status'] = 'training'
         self.events.save_job(job)
         code, output = await box.copy_tree_to_box(directory, remote_root)
         if code:
@@ -165,6 +224,26 @@ class PreviewLearning:
         job['training_result'] = json.loads(metrics.read_text(encoding='utf-8'))
         job['status'] = 'previewing'
         self.events.save_job(job)
+
+    async def _region_mask_png(self, content: bytes, prompt: str, name: str, job_id: str) -> bytes:
+        uploaded = await self.comfy.upload(content, name)
+        prompt_id = await self.comfy.submit(workflows.sam3_mask(uploaded, prompt), job_id)
+        return self._as_rgba_png(await self._view(self._first_image(await self._history_until_done(prompt_id))))
+
+    async def _pair_region_mask(self, image_id, content, regions, dataset, filename, cache, job_id):
+        parts = []
+        for region in regions:
+            cache_key = (image_id, region)
+            if cache_key not in cache:
+                prompt = SPATIAL_FOCUS[region]
+                png = await self._region_mask_png(content, prompt, f'{image_id}-{region}.png', job_id)
+                if mask_is_empty(png):
+                    raise RuntimeError(f'マスクが空です: {prompt}')
+                cache[cache_key] = png
+            parts.append(cache[cache_key])
+        path = dataset / filename
+        path.write_bytes(union_masks(parts))
+        return path
 
     async def _preview_after_learning(self, job: dict) -> None:
         source = job['source']

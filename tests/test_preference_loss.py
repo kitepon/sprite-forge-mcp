@@ -6,7 +6,7 @@ import unittest
 if importlib.util.find_spec('torch') is not None:
     import torch
 
-from box.preference_loss import preference_loss
+from box.preference_loss import preference_loss, spatial_errors
 
 
 @unittest.skipUnless(importlib.util.find_spec('torch'), 'PyTorchを持つGPU学習環境で実行する')
@@ -32,6 +32,17 @@ class PreferenceLossTest(unittest.TestCase):
         swapped.backward()
         self.assertLess(policy.grad[0].item(), 0)
         self.assertGreater(policy.grad[1].item(), 0)
+
+    def test_spatial_errors_mean_without_mask_and_mask_average(self):
+        prediction = torch.tensor([[[[1., 3.]]], [[[1., 3.]]]])
+        target = torch.zeros_like(prediction)
+        none = spatial_errors(prediction, target)
+        self.assertTrue(torch.allclose(none, torch.tensor([5., 5.])))
+        mask = torch.tensor([[[[1., 0.]]], [[[0., 1.]]]])
+        masked = spatial_errors(prediction, target, mask)
+        self.assertTrue(torch.allclose(masked, torch.tensor([1., 9.])))
+        with self.assertRaisesRegex(ValueError, 'マスクが空です'):
+            spatial_errors(prediction, target, torch.zeros_like(mask))
 
 
 if __name__ == '__main__':
