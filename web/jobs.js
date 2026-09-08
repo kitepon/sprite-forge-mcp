@@ -1,15 +1,16 @@
-import { API } from './api.js?v=studio-2';
-import { h, icon, picture, notice, link, dateText } from './ui.js?v=studio-2';
+import { API } from './api.js?v=studio-3';
+import { h, icon, picture, notice, link, dateText } from './ui.js?v=studio-3';
 
 export const intentCaption = job => job?.kind === 'preview_learning' && job.status === 'awaiting_answers' ? 'NGの理由を確認しています・学習は未開始' : job?.kind === 'lora_train' && job.status === 'awaiting_confirmation' ? '教材の確認待ち・学習は未開始' : job?.kind === 'intent' ? ({ draft: '原文を保存済み・未解釈', awaiting_confirmation: '解釈案の確認待ち', confirmed: '確認した条件を採用済み', discarded: '構成案は不採用・原文と案は保存済み' }[job.status] || '') : '';
 export const terminal = job => ['completed', 'success', 'failed', 'error'].includes(job?.status) || !!intentCaption(job);
-export const kindLabel = kind => ({ intent: '注文の解釈', sheet_layout: 'シート構成の保存', character_bible: '設定画', preview: 'プレビュー', lora_train: '学習', from_bible: 'キャラクターの一枚', image: '画風の一枚', redraw_panel: 'パネルの描き直し', sprite: 'スプライト', transparent: '背景を透過', pixelize: 'ドットに整える', refine: '描き直し', variant: 'バリエーション' }[kind] || '画像の処理');
+export const kindLabel = kind => ({ intent: '注文の解釈', sheet_layout: 'シート構成の保存', character_bible: '設定画', preview: 'プレビュー', preview_learning: '判定から再学習', lora_train: '学習', from_bible: 'キャラクターの一枚', image: '画風の一枚', redraw_panel: 'パネルの描き直し', sprite: 'スプライト', transparent: '背景を透過', pixelize: 'ドットに整える', refine: '描き直し', variant: 'バリエーション' }[kind] || '画像の処理');
 export function imagePaths(job = {}) {
   const paths = [job.sheet_path, job.path, ...(job.pictures || []).map(p => typeof p === 'string' ? p : p.path), ...(job.candidates || []).map(p => p.path)];
   return [...new Set(paths.filter(Boolean))];
 }
 export function progress(job) {
   if (job?.kind === 'lora_train' && job.status === 'awaiting_confirmation') return null;
+  if (job?.kind === 'preview_learning' && job.status === 'interpreting' && job.progress?.total > 0) return { value: job.progress.step || 0, total: job.progress.total, unit: '枚' };
   if (['lora_train', 'preview_learning'].includes(job?.kind) && job.progress?.total > 0 && job.status !== 'previewing') return { value: job.progress.step, total: job.progress.total, unit: 'step' };
   if (job?.kind === 'character_bible' && job.total_panels) return { value: job.completed_panels || 0, total: job.total_panels, unit: 'パネル' };
   if (job?.kind === 'preview' && job.total_images) return { value: job.pictures?.length || 0, total: job.total_images, unit: '枚' };
@@ -60,19 +61,30 @@ export async function runJob(spec, title, request, existingJob = null) {
   try {
     const response = request(); submitted = true;
     op.job = await response;
-    notice(op.job.status === 'awaiting_answers' ? '画像の横に確認したい点を表示しました。回答後に同じ再学習を続けられます。' : terminal(op.job) && op.job.status !== 'completed' ? `${title}でエラーが発生しました` : `${title}ができました`, op.job.status === 'failed');
+    notice(startNotice(title, op.job), ['failed', 'error'].includes(op.job.status));
   } catch (error) {
     op.error = error.message;
     op.notStarted = !submitted;
     await refreshJobs();
-    notice(!submitted ? error.message : op.job?.status === 'failed' ? `${title}に失敗しました: ${error.message}` : `応答を受け取れませんでした。制作状況をご確認ください: ${error.message}`, true);
+    if (!submitted) notice(error.message, true);
+    else if (['failed', 'error'].includes(op.job?.status)) notice(`${title}に失敗しました: ${op.job.error || error.message}`, true);
+    else if (op.job && (op.job.status === 'awaiting_answers' || op.job.status === 'completed' || op.job.status === 'success' || !terminal(op.job))) {
+      op.error = '';
+      notice(startNotice(title, op.job));
+    } else notice(`応答を受け取れませんでした。制作状況をご確認ください: ${error.message}`, true);
   } finally { op.requesting = false; save(); emit(); refreshJobs(); }
   return op.job;
+}
+function startNotice(title, job) {
+  if (job?.status === 'awaiting_answers') return '画像の横に確認したい点を表示しました。回答後に同じ再学習を続けられます。';
+  if (['failed', 'error'].includes(job?.status) || (terminal(job) && job?.status !== 'completed' && job?.status !== 'awaiting_answers')) return `${title}でエラーが発生しました`;
+  if (job?.status === 'completed' || job?.status === 'success') return `${title}ができました`;
+  return `${title}を開始しました。制作状況で進みます。`;
 }
 export function jobView(job, { title, startedAt, error, requesting, notStarted, hideImages } = {}) {
   const failed = ['failed', 'error'].includes(job?.status);
   const done = ['completed','success','confirmed'].includes(job?.status); const resting = !!intentCaption(job); const p = progress(job);
-  const caption = intentCaption(job) || (done ? 'できました' : failed ? '処理に失敗しました' : notStarted ? '入力を確認してください' : job?.kind === 'intent' ? '画像と注文を解釈しています' : job?.status === 'queued' ? '準備・GPU の処理待ち' : job ? '最後の報告：処理中' : requesting ? '開始の応答を待っています' : '応答を確認してください');
+  const caption = intentCaption(job) || (done ? 'できました' : failed ? '処理に失敗しました' : notStarted ? '入力を確認してください' : job?.kind === 'preview_learning' && job.status === 'interpreting' ? '判定を読んでいます' : job?.kind === 'preview_learning' && job.status === 'training' ? '判定の内容で LoRA を学習しています' : job?.kind === 'preview_learning' && job.status === 'previewing' ? '学習結果のプレビューを生成しています' : job?.kind === 'intent' ? '画像と注文を解釈しています' : job?.status === 'queued' ? '準備・GPU の処理待ち' : job ? '最後の報告：処理中' : requesting ? '開始の応答を待っています' : '応答を確認してください');
   const elapsed = startedAt && !resting && !done && !failed && !notStarted ? h('span', { class: 'elapsed', 'data-started': startedAt }) : null;
   const view = h('section', { class: `job-view ${failed ? 'failed' : done ? 'completed' : ''}` },
     h('div', { class: 'job-heading' }, h('span', { class: `job-symbol ${done || failed || resting ? '' : 'working'}` }, icon(done ? 'check' : failed ? 'activity' : 'spark', 24)), h('div', {}, h('strong', {}, title || `${job?.name || job?.style || ''} ${kindLabel(job?.kind)}`), h('p', { class: 'muted', role: 'status' }, caption)), elapsed),

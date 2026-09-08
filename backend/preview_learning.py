@@ -1,5 +1,6 @@
 """保存した判定から、LoRA修正と再プレビューまでを実行する。"""
 from copy import deepcopy
+import asyncio
 import hashlib
 import json
 from pathlib import Path, PureWindowsPath
@@ -7,6 +8,8 @@ import uuid
 
 from . import box
 from .config import BOX_LORAS, BOX_TRAIN
+
+IN_FLIGHT = ('interpreting', 'training', 'previewing')
 
 
 class PreviewLearning:
@@ -18,6 +21,8 @@ class PreviewLearning:
             if existing.get('kind') != 'preview_learning' or existing.get('source_job_id') != job_id or existing.get('name') != name:
                 raise ValueError('別の学習に使われた要求IDです。')
             if existing['status'] != 'awaiting_answers':
+                if existing['status'] in IN_FLIGHT:
+                    self._ensure_preview_learning(request_id)
                 return existing
             steps = existing['steps']
         # 要求IDは画像やサーバーパスではなく、呼出しごとのUUID。
@@ -57,69 +62,126 @@ class PreviewLearning:
                'source_job_id': job_id, 'character_created': record['created'], 'source': deepcopy(source),
                'reviews': selected, 'samples': samples, 'pairs': pairs, 'steps': steps,
                'learning_rate': 1e-5, 'beta': 1., 'preparation_history': history,
+               'dataset': str(directory),
                'lora_name': f"{record['key']}_preference_{request_id}.safetensors"}
         self.events.save_job(job)
+        self._ensure_preview_learning(request_id)
+        return self.events.load_job(request_id)
+
+    def _ensure_preview_learning(self, job_id: str) -> asyncio.Task:
+        task = self._preview_learning_tasks.get(job_id)
+        if task is not None and not task.done():
+            return task
+        task = asyncio.create_task(self._run_preview_learning(job_id))
+        self._preview_learning_tasks[job_id] = task
+        return task
+
+    async def resume_preview_learning(self) -> None:
+        """起動時に、解釈・学習・再プレビューの途中で止まっているジョブを再開する。"""
+        for job in self.events.list_jobs():
+            if job.get('kind') == 'preview_learning' and job.get('status') in IN_FLIGHT:
+                self._ensure_preview_learning(job['job_id'])
+
+    async def _run_preview_learning(self, job_id: str) -> None:
+        job = self.events.load_job(job_id)
         with self._job_errors(job):
-            pending = [
-                picture for picture in selected
-                if 'meaning' not in picture['review'] and (picture['review']['comment'].strip() or picture['review']['focus'])
-            ]
-            for i, picture in enumerate(pending):
-                await self._interpret_preview_review(
-                    name, source, picture, samples,
-                    keep_model_loaded=i < len(pending) - 1,
-                    reclaim_memory=i == 0,
-                )
-                self.events.save_job(job)
-            questions = [{'image_id': p['id'], 'questions': p['review']['meaning']['questions']}
-                         for p in selected if p['review'].get('meaning', {}).get('questions')]
-            if questions:
-                job.update(status='awaiting_answers', questions=questions)
-                self.events.save_job(job)
-                return job
-            remote_root = PureWindowsPath(BOX_TRAIN).parent.as_posix()
-            remote_directory = f'{remote_root}/{directory.name}'
-            models = PureWindowsPath(BOX_LORAS).parent.as_posix()
-            generation = source['generation']
-            config = {'model': f"{models}/diffusion_models/{generation['model']}",
-                      'qwen3': f"{models}/text_encoders/{generation['text_encoder']}",
-                      'vae': f"{models}/vae/{generation['vae']}",
-                      'lora': f"{PureWindowsPath(BOX_LORAS).as_posix()}/{source['loras'][0][0]}",
-                      'strength': source['loras'][0][1], 'prompt': source['prompt'], 'negative': source['negative'],
-                      'seed': source['seed'], 'size': [generation['width'], generation['height']],
-                      'pairs': [[f'{remote_directory}/{image_id}.png' for image_id in pair] for pair in pairs],
-                      'fixed_loras': [{'path': f'{PureWindowsPath(BOX_LORAS).as_posix()}/{filename}', 'strength': strength}
-                                      for filename, strength in source['loras'][1:]]}
-            (directory / 'input.json').write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding='utf-8')
-            job['dataset'] = str(directory)
-            job['training_config'] = config
-            job['status'] = 'training'
+            await self._continue_preview_learning(job)
+
+    async def _continue_preview_learning(self, job: dict) -> None:
+        if job['status'] not in IN_FLIGHT:
+            return
+        if job['status'] == 'interpreting':
+            if await self._interpret_preview_learning(job):
+                return
+        if job['status'] in ('interpreting', 'training'):
+            await self._train_preview_learning(job)
+        if job['status'] == 'previewing':
+            await self._preview_after_learning(job)
+
+    async def _interpret_preview_learning(self, job: dict) -> bool:
+        """質問があれば True。学習は始めない。"""
+        selected = job['reviews']
+        pending = [
+            picture for picture in selected
+            if 'meaning' not in picture['review'] and (picture['review']['comment'].strip() or picture['review']['focus'])
+        ]
+        targets = [p for p in selected if picture_needs_meaning(p)]
+        job['progress'] = {'step': sum(1 for p in targets if 'meaning' in p['review']), 'total': len(targets)}
+        self.events.save_job(job)
+        for i, picture in enumerate(pending):
+            await self._interpret_preview_review(
+                job['name'], job['source'], picture, job['samples'],
+                keep_model_loaded=i < len(pending) - 1,
+                reclaim_memory=i == 0,
+            )
+            job['progress'] = {'step': sum(1 for p in targets if 'meaning' in p['review']), 'total': len(targets)}
             self.events.save_job(job)
-            code, output = await box.copy_tree_to_box(directory, remote_root)
-            if code:
-                raise RuntimeError(output)
-            log_path = directory / 'training.log'
-            with log_path.open('w', encoding='utf-8') as log:
-                async for line in box.stream_preference_training(f'{remote_directory}/input.json', Path(job['lora_name']).stem,
-                                                                 steps, BOX_LORAS, job['learning_rate'], job['beta']):
-                    log.write(line + '\n'); log.flush()
-                    if line.startswith('{'):
-                        result = json.loads(line)
-                        if 'step' in result:
-                            job['progress'] = result
-                            self.events.save_job(job)
-            metrics = directory / 'result.json'
-            code, output = await box.copy_from_box(f"{PureWindowsPath(BOX_LORAS).as_posix()}/{Path(job['lora_name']).stem}.json", metrics)
-            if code:
-                raise RuntimeError(output)
-            job['training_result'] = json.loads(metrics.read_text(encoding='utf-8'))
-            job['status'] = 'previewing'
+        questions = [{'image_id': p['id'], 'questions': p['review']['meaning']['questions']}
+                     for p in selected if p['review'].get('meaning', {}).get('questions')]
+        if questions:
+            job.update(status='awaiting_answers', questions=questions)
+            self.events.save_job(job)
+            return True
+        return False
+
+    async def _train_preview_learning(self, job: dict) -> None:
+        directory = Path(job['dataset'])
+        directory.mkdir(parents=True, exist_ok=True)
+        source = job['source']
+        remote_root = PureWindowsPath(BOX_TRAIN).parent.as_posix()
+        remote_directory = f'{remote_root}/{directory.name}'
+        models = PureWindowsPath(BOX_LORAS).parent.as_posix()
+        generation = source['generation']
+        config = {'model': f"{models}/diffusion_models/{generation['model']}",
+                  'qwen3': f"{models}/text_encoders/{generation['text_encoder']}",
+                  'vae': f"{models}/vae/{generation['vae']}",
+                  'lora': f"{PureWindowsPath(BOX_LORAS).as_posix()}/{source['loras'][0][0]}",
+                  'strength': source['loras'][0][1], 'prompt': source['prompt'], 'negative': source['negative'],
+                  'seed': source['seed'], 'size': [generation['width'], generation['height']],
+                  'pairs': [[f'{remote_directory}/{image_id}.png' for image_id in pair] for pair in job['pairs']],
+                  'fixed_loras': [{'path': f'{PureWindowsPath(BOX_LORAS).as_posix()}/{filename}', 'strength': strength}
+                                  for filename, strength in source['loras'][1:]]}
+        (directory / 'input.json').write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding='utf-8')
+        job['training_config'] = config
+        job['status'] = 'training'
+        self.events.save_job(job)
+        code, output = await box.copy_tree_to_box(directory, remote_root)
+        if code:
+            raise RuntimeError(output)
+        log_path = directory / 'training.log'
+        with log_path.open('w', encoding='utf-8') as log:
+            async for line in box.stream_preference_training(f'{remote_directory}/input.json', Path(job['lora_name']).stem,
+                                                             job['steps'], BOX_LORAS, job['learning_rate'], job['beta']):
+                log.write(line + '\n'); log.flush()
+                if line.startswith('{'):
+                    result = json.loads(line)
+                    if 'step' in result:
+                        job['progress'] = result
+                        self.events.save_job(job)
+        metrics = directory / 'result.json'
+        code, output = await box.copy_from_box(f"{PureWindowsPath(BOX_LORAS).as_posix()}/{Path(job['lora_name']).stem}.json", metrics)
+        if code:
+            raise RuntimeError(output)
+        job['training_result'] = json.loads(metrics.read_text(encoding='utf-8'))
+        job['status'] = 'previewing'
+        self.events.save_job(job)
+
+    async def _preview_after_learning(self, job: dict) -> None:
+        source = job['source']
+        preview = self.events.load_job(job['preview_job_id']) if job.get('preview_job_id') else None
+        if preview is None:
             preview = {k: deepcopy(v) for k, v in source.items() if k not in ('created_at', 'updated_at')}
-            preview.update(job_id=str(uuid.uuid4()), status='queued', pictures=[], total_images=10, learning_job_id=request_id)
+            preview.update(job_id=str(uuid.uuid4()), status='queued', pictures=[], total_images=10, learning_job_id=job['job_id'])
             preview['loras'][0] = [job['lora_name'], source['loras'][0][1]]
             job['preview_job_id'] = preview['job_id']
+            job['status'] = 'previewing'
             self.events.save_job(job)
+        if preview.get('status') != 'completed':
             await self._generate_preview_images(preview)
-            job['status'] = 'completed'
-            self.events.save_job(job)
-            return job
+        job['status'] = 'completed'
+        self.events.save_job(job)
+
+
+def picture_needs_meaning(picture: dict) -> bool:
+    review = picture['review']
+    return bool(review['comment'].strip() or review['focus'])

@@ -1,8 +1,8 @@
-import { API } from './api.js?v=studio-2';
-import { h, $, icon, button, link, field, picture, empty, notice, action, pageHead, errorState, dateText, confirmAction } from './ui.js?v=studio-2';
-import { FLOWS, flow, cover, openFlow } from './flows.js?v=studio-2';
-import { jobs, operations, active, connectionError, subscribe, refreshJobs, startJobUpdates, tickElapsed, terminal, kindLabel, imagePaths, jobView, taskPanel } from './jobs.js?v=studio-2';
-import { draft, saveDraft } from './drafts.js?v=studio-2';
+import { API } from './api.js?v=studio-3';
+import { h, $, icon, button, link, field, picture, empty, notice, action, pageHead, errorState, dateText, confirmAction } from './ui.js?v=studio-3';
+import { FLOWS, flow, cover, openFlow } from './flows.js?v=studio-3';
+import { jobs, operations, active, connectionError, subscribe, refreshJobs, startJobUpdates, tickElapsed, terminal, kindLabel, imagePaths, jobView, taskPanel } from './jobs.js?v=studio-3';
+import { draft, saveDraft } from './drafts.js?v=studio-3';
 
 const routes = [{ id: '', label: 'スタジオ', icon: 'home' }, { id: 'library', label: '作品と素材', icon: 'grid' }, { id: 'activity', label: '制作状況', icon: 'activity' }, { id: 'tools', label: '道具箱', icon: 'tool' }];
 let dispose = () => {}; let routeVersion = 0;

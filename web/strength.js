@@ -1,5 +1,5 @@
-import { API } from './api.js?v=studio-2';
-import { h, field, button, action } from './ui.js?v=studio-2';
+import { API } from './api.js?v=studio-3';
+import { h, field, button, action } from './ui.js?v=studio-3';
 
 export function characterStrength(record) {
   const value = h('input', { type: 'number', min: 0, max: 2, step: 0.1, required: true,

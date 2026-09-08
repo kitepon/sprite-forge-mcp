@@ -1,4 +1,4 @@
-import { API } from './api.js?v=studio-2';
+import { API } from './api.js?v=studio-3';
 
 export const $ = (selector, root = document) => root.querySelector(selector);
 export function element(tag, attrs = {}, ...children) {

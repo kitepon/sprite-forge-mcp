@@ -1,7 +1,7 @@
-import { API } from './api.js?v=studio-2';
-import { h, field, button, picture, action, notice, dateText } from './ui.js?v=studio-2';
-import { jobs, subscribe, refreshJobs, runJob, jobView, terminal } from './jobs.js?v=studio-2';
-import { draft, saveDraft } from './drafts.js?v=studio-2';
+import { API } from './api.js?v=studio-3';
+import { h, field, button, picture, action, notice, dateText } from './ui.js?v=studio-3';
+import { jobs, subscribe, refreshJobs, runJob, jobView, terminal } from './jobs.js?v=studio-3';
+import { draft, saveDraft } from './drafts.js?v=studio-3';
 
 const labels = { ok: 'OK：残したい画像', ng: 'NG：直したい画像', '': '未判定' };
 export const reviewLabel = rating => rating === 'ng' ? 'この画像のどこがNGでしたか？' : rating === 'ok' ? 'この画像で残したいところは？（任意）' : 'OK・NGを選んでから理由を書けます';
@@ -104,7 +104,7 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
   const progress = h('div'), comparison = h('div'), error = h('p', { class: 'error-text', role: 'alert' });
   const start = button('この判定でLoRAを再学習する', e => action(e.currentTarget, async () => {
     await flush();
-    const prior = jobs.find(j => j.kind === 'preview_learning' && j.source_job_id === selected && j.status === 'awaiting_answers');
+    const prior = jobs.find(j => j.kind === 'preview_learning' && j.source_job_id === selected && (j.status === 'awaiting_answers' || !terminal(j)));
     const requestId = prior?.job_id || crypto.randomUUID();
     const result = await runJob({ kind: 'preview_learning', name, source_job_id: selected }, '判定から再学習',
       () => API.relearnPreview(name, selected, requestId), prior || null);
@@ -122,7 +122,7 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
     const running = jobs.some(j => j.kind === 'preview_learning' && j.source_job_id === selected && !terminal(j));
     start.disabled = !ok || !ng || !!source?.relearning_unavailable_reason || running;
     reason.textContent = source?.relearning_unavailable_reason || (running ? 'この判定の再学習を実行中です。' : !ng && ok ? 'すべてOKなら、そのまま設定画へ進めます。' : !ok && ng ? 'OKがありません。追加生成、注文の修正、参考画像の見直しができます。' : !ok || !ng ? '再学習にはOKとNGをそれぞれ1枚以上選んでください。未判定は使いません。' : 'OKを残し、NGを減らすためにLoRAの重みを修正します。理由の不明点がある場合だけ質問します。');
-    adopt.disabled = !selected || jobs.find(j => j.job_id === selected)?.status !== 'completed';
+    adopt.disabled = !selected || jobs.find(j => j.job_id === selected)?.status !== 'completed' || running;
     setReady(selected === adopted, selected === adopted ? '' : '画像を確認し、「この学習結果を使って設定画へ」を押してください。');
   }
   function pick(id) {
@@ -178,9 +178,9 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
     } catch (e) { if (!disposed) error.textContent = `判定を読み込めませんでした：${e.message}`; }
     finally { loading = false; }
   }
-  target.append(h('section', { class: 'stack preview-review' }, field('確認する学習結果', select), progress, comparison, counts,
+  target.append(h('section', { class: 'stack preview-review' }, field('確認する学習結果', select), comparison, counts,
     h('p', { class: 'muted' }, '各画像にOK・NGを付けてください。画像を押すと拡大できます。判定は自動保存します。'), grid,
-    h('div', { class: 'stack' }, reason, h('div', { class: 'actions' }, start, adopt)), error));
+    h('div', { class: 'stack' }, progress, reason, h('div', { class: 'actions' }, start, adopt)), error));
   setReady(false, 'プレビューを読み込んでいます。');
   adopted = (await API.character(name)).adopted_preview_job_id;
   cleanup.push(() => { disposed = true; cards.forEach(card => card.dispose()); });

@@ -12,6 +12,13 @@ from backend.preview_intent import ReviewCorrection, ReviewMeaning
 from tests.test_style import make, png
 
 
+async def settled(service, job):
+    task = service._preview_learning_tasks.get(job['job_id'])
+    if task is not None:
+        await task
+    return service.events.load_job(job['job_id'])
+
+
 async def prepared(service, tmp_path, comment=''):
     await service.create_character('probe', 'she/her', lora_name='person.safetensors')
     sample = tmp_path / 'reference.png'
@@ -52,7 +59,9 @@ def test_snapshot_uses_both_ratings_and_keeps_old_lora(tmp_path, monkeypatch):
         source = await prepared(service, tmp_path)
         before = service._load_character('probe')
         request_id = str(uuid.uuid4())
-        job = await service.relearn_preview('probe', source['job_id'], request_id, steps=1)
+        started = await service.relearn_preview('probe', source['job_id'], request_id, steps=1)
+        assert started['status'] == 'interpreting'
+        job = await settled(service, started)
         assert job['status'] == 'completed'
         assert [p['review']['rating'] for p in job['reviews']] == ['ok', 'ng']
         preview = service.events.load_job(job['preview_job_id'])
@@ -78,7 +87,7 @@ def test_comment_distinguishes_generated_image_and_samples_and_asks_only_ambigui
     service.intent_interpreter = interpret
     async def scenario():
         source = await prepared(service, tmp_path, '衣装は合っている')
-        job = await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()))
+        job = await settled(service, await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4())))
         assert job['status'] == 'awaiting_answers'
         image_id = source['pictures'][1]['id']
         assert job['questions'][0]['image_id'] == image_id
@@ -102,8 +111,10 @@ def test_interpretation_failure_stays_failed_and_does_not_train(tmp_path, monkey
     async def scenario():
         source = await prepared(service, tmp_path, '髪型が違う')
         request_id = str(uuid.uuid4())
+        started = await service.relearn_preview('probe', source['job_id'], request_id)
+        assert started['status'] == 'interpreting'
         with pytest.raises(RuntimeError, match='解釈サービス'):
-            await service.relearn_preview('probe', source['job_id'], request_id)
+            await service._preview_learning_tasks[request_id]
         job = service.events.load_job(request_id)
         assert job['status'] == 'failed'
         assert 'training_config' not in job
@@ -135,12 +146,12 @@ def test_answers_continue_same_request_and_keep_preparation_history(tmp_path, mo
     async def scenario():
         source = await prepared(service, tmp_path, '衣装は合っている')
         request_id = str(uuid.uuid4())
-        waiting = await service.relearn_preview('probe', source['job_id'], request_id, steps=1)
+        waiting = await settled(service, await service.relearn_preview('probe', source['job_id'], request_id, steps=1))
         assert waiting['status'] == 'awaiting_answers'
         assert await service.relearn_preview('probe', source['job_id'], request_id) == waiting
         await service.correct_preview_interpretation('probe', source['job_id'], source['pictures'][1]['id'],
                     ReviewCorrection(revision=1, meaning=ReviewMeaning(fix=['髪型'], preserve=['衣装'], questions=[])))
-        result = await service.relearn_preview('probe', source['job_id'], request_id)
+        result = await settled(service, await service.relearn_preview('probe', source['job_id'], request_id))
         assert result['status'] == 'completed' and result['job_id'] == request_id and result['steps'] == 1
         assert result['preparation_history'][0]['questions'] == waiting['questions']
         assert result['preparation_history'][0]['reviews'][1]['review']['revision'] == 1
@@ -167,10 +178,42 @@ def test_preview_burst_keeps_model_loaded_until_last_interpretation(tmp_path, mo
         await service.save_preview_review(
             'probe', source['job_id'], source['pictures'][0]['id'],
             PreviewReview(rating='ok', revision=1, comment='衣装は合っている'))
-        job = await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()), steps=1)
+        job = await settled(service, await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()), steps=1))
         assert job['status'] == 'completed'
         assert calls == [
             {'keep_model_loaded': True, 'reclaim_memory': True},
             {'keep_model_loaded': False, 'reclaim_memory': False},
         ]
+    asyncio.run(scenario())
+
+
+def test_relearn_preview_returns_before_training_and_resume_does_not_double_start(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+    gate = asyncio.Event()
+    async def trained(*args, **kwargs):
+        await gate.wait()
+        yield json.dumps({'step': 1, 'total': 1})
+    async def fetched(remote, local, **kwargs):
+        local.write_text('{}')
+        return 0, ''
+    monkeypatch.setattr(box, 'stream_preference_training', trained)
+    monkeypatch.setattr(box, 'copy_from_box', fetched)
+    async def scenario():
+        source = await prepared(service, tmp_path)
+        started = await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()), steps=1)
+        assert started['status'] == 'interpreting'
+        live = service._ensure_preview_learning(started['job_id'])
+        assert not live.done()
+        await service.resume_preview_learning()
+        assert service._preview_learning_tasks[started['job_id']] is live
+        orphan = service._preview_learning_tasks.pop(started['job_id'])
+        orphan.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await orphan
+        await service.resume_preview_learning()
+        restarted = service._preview_learning_tasks[started['job_id']]
+        assert restarted is not orphan and not restarted.done()
+        gate.set()
+        final = await settled(service, started)
+        assert final['status'] == 'completed'
     asyncio.run(scenario())

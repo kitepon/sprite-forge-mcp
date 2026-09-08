@@ -47,6 +47,7 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         self.characters_root = characters_root or CHARACTERS
         self.styles_root = styles_root or STYLES
         self.intent_interpreter = self._interpret_with_comfy
+        self._preview_learning_tasks: dict[str, asyncio.Task] = {}
 
     async def _interpret_with_comfy(self, job, images, **kwargs):
         return await interpret(job, images, comfy=self.comfy, **kwargs)
