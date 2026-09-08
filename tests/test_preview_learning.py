@@ -7,7 +7,7 @@ import uuid
 import pytest
 
 from backend import box
-from backend.preview_learning import pair_spatial_regions, spatial_keys_from_focus_and_text
+from backend.preview_learning import desired_generation_prompt, pair_spatial_regions, spatial_keys_from_focus_and_text
 from backend.preview_reviews import PreviewReview
 from backend.preview_intent import ReviewCorrection, ReviewMeaning
 from tests.test_style import make, png
@@ -18,9 +18,12 @@ def sam_prompts(comfy):
             if any(node.get('class_type') == 'SAM3_Detect' for node in workflow.values())]
 
 
+GENERATED = '1girl, twintails, white dress, standing'
+
+
 def quiet_interpret():
     async def interpret(*args, **kwargs):
-        return {'fix': [], 'preserve': [], 'questions': []}
+        return {'fix': [], 'preserve': [], 'questions': [], 'description_en': ''}
     return interpret
 
 
@@ -125,7 +128,7 @@ def test_comment_distinguishes_generated_image_and_samples_and_asks_only_ambigui
         assert value['rating'] == 'ng'
         assert value['references'][0]['kind'] == 'generated'
         assert value['references'][1]['kind'] == 'sample'
-        return {'fix': [], 'preserve': ['衣装'], 'questions': ['NGなのはどの部分ですか？']}
+        return {'fix': [], 'preserve': ['衣装'], 'questions': ['NGなのはどの部分ですか？'], 'description_en': ''}
     service.intent_interpreter = interpret
     async def scenario():
         source = await prepared(service, tmp_path, '衣装は合っている')
@@ -136,7 +139,7 @@ def test_comment_distinguishes_generated_image_and_samples_and_asks_only_ambigui
         review = (await service.preview_reviews('probe', source['job_id']))['pictures'][1]['review']
         assert review['meaning']['preserve'] == ['衣装'] and not review['meaning']['fix']
         corrected = await service.correct_preview_interpretation('probe', source['job_id'], image_id,
-                       ReviewCorrection(revision=1, meaning=ReviewMeaning(fix=['髪型'], preserve=['衣装'], questions=[])))
+                       ReviewCorrection(revision=1, meaning=ReviewMeaning(fix=['髪型'], preserve=['衣装'], questions=[], description_en='')))
         assert corrected['history'][0]['meaning'] == review['meaning']
         assert corrected['comment'] == '衣装は合っている'
         saved = await service.save_preview_review('probe', source['job_id'], image_id,
@@ -176,7 +179,7 @@ def test_too_few_steps_does_not_silently_omit_a_rating(tmp_path, monkeypatch):
 def test_answers_continue_same_request_and_keep_preparation_history(tmp_path, monkeypatch):
     service, comfy = make(tmp_path, monkeypatch)
     async def interpret(*args, **kwargs):
-        return {'fix': [], 'preserve': ['衣装'], 'questions': ['NGなのはどの部分ですか？']}
+        return {'fix': [], 'preserve': ['衣装'], 'questions': ['NGなのはどの部分ですか？'], 'description_en': ''}
     service.intent_interpreter = interpret
     wire_training(monkeypatch)
     async def scenario():
@@ -186,14 +189,16 @@ def test_answers_continue_same_request_and_keep_preparation_history(tmp_path, mo
         assert waiting['status'] == 'awaiting_answers'
         assert await service.relearn_preview('probe', source['job_id'], request_id) == waiting
         await service.correct_preview_interpretation('probe', source['job_id'], source['pictures'][1]['id'],
-                    ReviewCorrection(revision=1, meaning=ReviewMeaning(fix=['髪型'], preserve=['衣装'], questions=[])))
+                    ReviewCorrection(revision=1, meaning=ReviewMeaning(fix=['髪型'], preserve=['衣装'], questions=[], description_en=GENERATED)))
         result = await settled(service, await service.relearn_preview('probe', source['job_id'], request_id))
         assert result['status'] == 'completed' and result['job_id'] == request_id and result['steps'] == 1
         assert result['preparation_history'][0]['questions'] == waiting['questions']
         assert result['preparation_history'][0]['reviews'][1]['review']['revision'] == 1
         assert result['reviews'][1]['review']['revision'] == 2
         assert result['training_config']['pair_regions'] == [['hair']]
-        assert result['training_config']['prompt'] == source['prompt']
+        assert result['training_config']['prompt'] == GENERATED
+        assert '衣装は合っている' not in result['training_config']['prompt']
+        assert service.events.load_job(result['preview_job_id'])['prompt'] == GENERATED
         assert sam_prompts(comfy) == ['hair', 'hair']
         ok_id, ng_id = result['pairs'][0]
         assert (Path(result['dataset']) / f'{ok_id}.mask.png').is_file()
@@ -268,7 +273,7 @@ def test_preview_burst_keeps_model_loaded_until_last_interpretation(tmp_path, mo
     calls = []
     async def interpret(packet, images, **kwargs):
         calls.append({k: kwargs[k] for k in ('keep_model_loaded', 'reclaim_memory')})
-        return {'fix': [], 'preserve': ['衣装'], 'questions': []}
+        return {'fix': [], 'preserve': ['衣装'], 'questions': [], 'description_en': GENERATED}
     async def trained(*args, **kwargs):
         yield json.dumps({'step': 1, 'total': 1, 'loss': .69})
     async def fetched(remote, local, **kwargs):
@@ -320,4 +325,86 @@ def test_relearn_preview_returns_before_training_and_resume_does_not_double_star
         gate.set()
         final = await settled(service, started)
         assert final['status'] == 'completed'
+    asyncio.run(scenario())
+
+
+def test_desired_generation_prompt_uses_interpreted_english_not_comment():
+    source = '1girl, standing'
+    assert desired_generation_prompt(source, []) == source
+    assert desired_generation_prompt(source, [{'comment': '髪型が違う', 'meaning': {}}]) == source
+    nested = {'review': {'comment': '日本語の原文は貼らない', 'meaning': {'description_en': GENERATED}}}
+    assert desired_generation_prompt(source, [nested]) == GENERATED
+    assert '日本語' not in desired_generation_prompt(source, [nested])
+    shorter = '1girl, twintails'
+    assert desired_generation_prompt(source, [
+        {'meaning': {'description_en': shorter}},
+        {'review': {'meaning': {'description_en': GENERATED}}},
+    ]) == GENERATED
+    assert desired_generation_prompt(source, [
+        {'meaning': {'description_en': 'red hair'}},
+        {'meaning': {'description_en': 'white dress'}},
+    ]) == 'red hair, white dress'
+    assert desired_generation_prompt(source, [
+        {'meaning': {'description_en': GENERATED}},
+        {'meaning': {'description_en': GENERATED}},
+    ]) == GENERATED
+
+
+def test_learning_and_preview_use_interpreted_generation_text(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+    async def interpret(*args, **kwargs):
+        return {'fix': ['髪型'], 'preserve': ['衣装'], 'questions': [], 'description_en': GENERATED}
+    service.intent_interpreter = interpret
+    wire_training(monkeypatch)
+    async def scenario():
+        source = await prepared(service, tmp_path, '髪型が違う。衣装は合っている')
+        job = await settled(service, await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()), steps=1))
+        assert job['status'] == 'completed'
+        assert job['training_config']['prompt'] == GENERATED
+        assert '髪型が違う' not in job['training_config']['prompt']
+        assert service.events.load_job(job['preview_job_id'])['prompt'] == GENERATED
+        review = (await service.preview_reviews('probe', source['job_id']))['pictures'][1]['review']
+        assert review['meaning']['description_en'] == GENERATED
+    asyncio.run(scenario())
+
+
+def test_empty_generation_text_fails_before_training(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+    async def interpret(*args, **kwargs):
+        return {'fix': ['髪型'], 'preserve': [], 'questions': [], 'description_en': ''}
+    service.intent_interpreter = interpret
+    wire_training(monkeypatch)
+    async def scenario():
+        source = await prepared(service, tmp_path, '髪型が違う')
+        started = await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()), steps=1)
+        with pytest.raises(RuntimeError, match='生成文を作れませんでした'):
+            await settled(service, started)
+        job = service.events.load_job(started['job_id'])
+        assert job['status'] == 'failed'
+        assert '生成文を作れませんでした' in job['error']
+        assert 'training_config' not in job
+    asyncio.run(scenario())
+
+
+def test_legacy_meaning_without_generation_text_is_reinterpreted(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+    calls = []
+    async def interpret(*args, **kwargs):
+        calls.append(1)
+        return {'fix': ['髪型'], 'preserve': ['衣装'], 'questions': [], 'description_en': GENERATED}
+    service.intent_interpreter = interpret
+    wire_training(monkeypatch)
+    async def scenario():
+        source = await prepared(service, tmp_path, '髪型が違う')
+        path = service._preview_reviews_path('probe', source['job_id'])
+        reviews = json.loads(path.read_text(encoding='utf-8'))
+        image_id = source['pictures'][1]['id']
+        reviews[image_id]['meaning'] = {'fix': ['髪型'], 'preserve': ['衣装'], 'questions': []}
+        reviews[image_id]['meaning_source'] = 'ai'
+        path.write_text(json.dumps(reviews, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+        job = await settled(service, await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()), steps=1))
+        assert job['status'] == 'completed'
+        assert len(calls) == 1
+        assert job['training_config']['prompt'] == GENERATED
+        assert '髪型が違う' not in job['training_config']['prompt']
     asyncio.run(scenario())

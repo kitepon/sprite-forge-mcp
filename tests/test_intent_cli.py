@@ -91,7 +91,7 @@ class FakeComfy:
                     'panels': [dict(panel, description_ja=panel['label'], reference=None) for panel in layout],
                 }, ensure_ascii=False)
             elif stage == 'preview_review':
-                text = json.dumps({'fix': [], 'preserve': ['衣装'], 'questions': []}, ensure_ascii=False)
+                text = json.dumps({'fix': [], 'preserve': ['衣装'], 'questions': [], 'description_en': ''}, ensure_ascii=False)
             else:
                 text = json.dumps(EMPTY)
         else:

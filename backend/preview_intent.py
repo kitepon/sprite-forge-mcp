@@ -6,6 +6,7 @@ class ReviewMeaning(StrictModel):
     fix: list[str]
     preserve: list[str]
     questions: list[str]
+    description_en: str
 
 
 class ReviewCorrection(StrictModel):

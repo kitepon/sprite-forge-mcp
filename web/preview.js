@@ -44,16 +44,22 @@ export function previewReviewCard(name, jobId, image, index, changed) {
     const current = review.meaning, revision = review.revision;
     const fix = h('textarea', { rows: 2 }, current.fix.join('\n'));
     const preserve = h('textarea', { rows: 2 }, current.preserve.join('\n'));
+    const generation = h('textarea', { rows: 2 }, current.description_en || '');
     const lines = control => control.value.split('\n').map(v => v.trim()).filter(Boolean);
     meaning.append(h('strong', {}, review.meaning_source === 'user' ? '訂正した内容' : 'AIが読み取った内容'),
       h('p', {}, `直したい箇所：${current.fix.join('、') || '指定なし'}`),
       h('p', {}, `残したい箇所：${current.preserve.join('、') || '指定なし'}`),
+      current.description_en ? h('details', {}, h('summary', {}, '生成文の詳細'),
+        h('pre', { class: 'training-caption' }, current.description_en)) : null,
       ...current.questions.map(q => h('p', { class: 'review-question' }, q)),
       current.questions.length ? h('p', { class: 'small' }, '上の理由に回答を追記するか、下で解釈を訂正してください。') : null,
       h('details', {}, h('summary', {}, '読み取った内容を訂正する'), field('直したい箇所', fix), field('残したい箇所', preserve),
+        field('生成文（英語）', generation),
         button('この内容に訂正する', e => action(e.currentTarget, async () => {
           await flush();
-          review = await API.correctPreviewInterpretation(name, jobId, image.id, { revision, meaning: { fix: lines(fix), preserve: lines(preserve), questions: [] } });
+          review = await API.correctPreviewInterpretation(name, jobId, image.id, {
+            revision, meaning: { fix: lines(fix), preserve: lines(preserve), questions: [], description_en: generation.value.trim() },
+          });
           status.textContent = '訂正を保存しました'; displayMeaning(); changed();
         }), 'quiet')));
   }
@@ -124,7 +130,7 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
     counts.textContent = `OK ${ok}枚 ・ NG ${ng}枚 ・ 未判定 ${ratings.length - ok - ng}枚`;
     const running = jobs.some(j => j.kind === 'preview_learning' && j.source_job_id === selected && !terminal(j));
     start.disabled = !ok || !ng || !!source?.relearning_unavailable_reason || running;
-    reason.textContent = source?.relearning_unavailable_reason || (running ? 'この判定の再学習を実行中です。' : !ng && ok ? 'すべてOKなら、そのまま設定画へ進めます。' : !ok && ng ? 'OKがありません。追加生成、注文の修正、参考画像の見直しができます。' : !ok || !ng ? '再学習にはOKとNGをそれぞれ1枚以上選んでください。未判定は使いません。' : 'NGで選んだ場所をOKの絵に寄せてLoRAを直します。同じ条件で新しいプレビューを作ります。理由の不明点がある場合だけ質問します。');
+    reason.textContent = source?.relearning_unavailable_reason || (running ? 'この判定の再学習を実行中です。' : !ng && ok ? 'すべてOKなら、そのまま設定画へ進めます。' : !ok && ng ? 'OKがありません。追加生成、注文の修正、参考画像の見直しができます。' : !ok || !ng ? '再学習にはOKとNGをそれぞれ1枚以上選んでください。未判定は使いません。' : 'NGで選んだ場所をOKの絵に寄せてLoRAを直します。読み取った生成文で新しいプレビューを作ります。理由の不明点がある場合だけ質問します。');
     adopt.disabled = !selected || jobs.find(j => j.job_id === selected)?.status !== 'completed' || running;
     setReady(selected === adopted, selected === adopted ? '' : '画像を確認し、「この学習結果を使って設定画へ」を押してください。');
   }

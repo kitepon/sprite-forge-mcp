@@ -1,6 +1,6 @@
 import { API } from './api.js?v=studio-3';
 import { h, $, icon, button, link, field, picture, empty, notice, action, pageHead, errorState, dateText, confirmAction } from './ui.js?v=studio-3';
-import { FLOWS, flow, cover, openFlow } from './flows.js?v=studio-4';
+import { FLOWS, flow, cover, openFlow } from './flows.js?v=studio-5';
 import { jobs, operations, active, connectionError, subscribe, refreshJobs, startJobUpdates, tickElapsed, terminal, kindLabel, imagePaths, jobView, taskPanel } from './jobs.js?v=studio-3';
 import { draft, saveDraft } from './drafts.js?v=studio-3';
 

@@ -21,6 +21,6 @@ def test_review_body_and_interpretation_share_service_state(tmp_path, monkeypatc
         response = client.get(url)
         assert response.json()['pictures'][0]['review']['comment'] == '髪が違う'
         response = client.post(f'{url}/{image_id}/interpretation', json={
-            'revision': 1, 'meaning': {'fix': ['髪型'], 'preserve': ['衣装'], 'questions': []}})
+            'revision': 1, 'meaning': {'fix': ['髪型'], 'preserve': ['衣装'], 'questions': [], 'description_en': '1girl, twintails, white dress, standing'}})
         assert response.status_code == 200
         assert response.json()['meaning_source'] == 'user'

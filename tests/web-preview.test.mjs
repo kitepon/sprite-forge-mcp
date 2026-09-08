@@ -4,13 +4,14 @@ globalThis.localStorage = { getItem: () => null, setItem() {} };
 class Node {
   constructor(tag) { this.tag = tag; this.children = []; this.value = ''; this.attrs = {}; }
   setAttribute(key, value) { this.attrs[key] = value; }
+  removeAttribute(key) { delete this.attrs[key]; }
   addEventListener(key, value) { (this.events ||= {})[key] = value; }
   append(...children) { this.children.push(...children); if (this.tag === 'textarea') this.value = this.children.join(''); }
   replaceChildren(...children) { this.children = children; }
 }
 globalThis.Node = Node;
 globalThis.document = { createElement: tag => new Node(tag), createElementNS: (_, tag) => new Node(tag), createTextNode: text => text };
-const { previewReviewCard, reviewLabel, focusLabel } = await import('../web/preview.js?v=studio-4');
+const { previewReviewCard, reviewLabel, focusLabel } = await import('../web/preview.js?v=studio-5');
 const { API } = await import('../web/api.js?v=studio-3');
 const all = node => [node, ...node.children.filter(n => n instanceof Node).flatMap(all)];
 const initial = {id:'image-a',path:'/image-a.png',review:{rating:'',comment:'',focus:[],revision:0,history:[]}};
@@ -90,5 +91,35 @@ test('NGの場所は寄せ先、OKの場所は記録だと表示する', async (
   assert.ok(nodes.some(n => n.textContent === focusLabel('ng')));
   nodes.find(n => n.children.includes('OK：残したい画像')).events.click();
   assert.ok(nodes.some(n => n.textContent === focusLabel('ok')));
+  card.dispose();
+});
+
+test('読み取った生成文を出し、訂正は英語生成文を送り、先頭の欄はコメントのまま', async () => {
+  const generated = '1girl, twintails, white dress, standing';
+  const calls = [];
+  API.savePreviewReview = async () => { throw new Error('判定保存が呼ばれた'); };
+  API.correctPreviewInterpretation = async (name, job, image, correction) => {
+    calls.push({ name, job, image, ...correction });
+    return { rating: 'ng', comment: '髪型が違う。衣装は合っている', focus: [], revision: 2, history: [],
+      meaning: correction.meaning, meaning_source: 'user' };
+  };
+  const card = previewReviewCard('probe', 'job-a', {
+    id: 'image-a', path: '/image-a.png',
+    review: { rating: 'ng', comment: '髪型が違う。衣装は合っている', focus: [], revision: 1, history: [],
+      meaning: { fix: ['髪型'], preserve: ['衣装'], questions: [], description_en: generated }, meaning_source: 'ai' },
+  }, 0, () => {});
+  const nodes = all(card.node);
+  const textareas = nodes.filter(n => n.tag === 'textarea');
+  const pre = nodes.find(n => n.tag === 'pre');
+  assert.equal(textareas[0].value, '髪型が違う。衣装は合っている');
+  assert.ok(pre.children.includes(generated));
+  assert.ok(nodes.some(n => n.children.includes('生成文（英語）')));
+  const generation = textareas.at(-1);
+  generation.value = '1girl, long hair, white dress, standing';
+  const correct = nodes.find(n => n.children.includes('この内容に訂正する'));
+  await correct.events.click({ currentTarget: correct });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].image, 'image-a');
+  assert.deepEqual(calls[0].meaning, { fix: ['髪型'], preserve: ['衣装'], questions: [], description_en: '1girl, long hair, white dress, standing' });
   card.dispose();
 });

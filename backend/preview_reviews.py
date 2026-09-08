@@ -9,6 +9,37 @@ from pydantic import BaseModel
 from .preview_intent import ReviewCorrection, ReviewMeaning
 
 
+def review_of(entry: dict) -> dict:
+    return entry['review'] if isinstance(entry.get('review'), dict) else entry
+
+
+def review_has_input(review: dict) -> bool:
+    return bool((review.get('comment') or '').strip() or review.get('focus'))
+
+
+def review_needs_interpretation(review: dict) -> bool:
+    if not review_has_input(review):
+        return False
+    meaning = review.get('meaning')
+    if not isinstance(meaning, dict):
+        return True
+    if (review.get('comment') or '').strip() and 'description_en' not in meaning:
+        return True
+    return False
+
+
+def require_interpreted_generation(reviews: list[dict]) -> None:
+    for entry in reviews:
+        review = review_of(entry)
+        if not (review.get('comment') or '').strip():
+            continue
+        meaning = review.get('meaning') or {}
+        if meaning.get('questions'):
+            continue
+        if not str(meaning.get('description_en') or '').strip():
+            raise RuntimeError('判定の理解から生成文を作れませんでした。')
+
+
 class PreviewReview(BaseModel):
     rating: Literal['ok', 'ng', '']
     revision: int
@@ -107,7 +138,7 @@ class PreviewReviews:
 
     async def _interpret_preview_review(self, name, source, picture, samples, **kwargs):
         review = picture['review']
-        if 'meaning' in review or not (review['comment'].strip() or review['focus']):
+        if not review_needs_interpretation(review):
             return
         packet = {'stage': 'preview_review', 'review_input': {
             'stage': 'preview_review', 'image_id': picture['id'], 'rating': review['rating'],

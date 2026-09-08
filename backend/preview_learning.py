@@ -11,6 +11,7 @@ from PIL import Image, ImageChops
 
 from . import box, workflows
 from .config import BOX_LORAS, BOX_TRAIN
+from .preview_reviews import review_has_input, review_needs_interpretation, review_of, require_interpreted_generation
 
 IN_FLIGHT = ('interpreting', 'training', 'previewing')
 SPATIAL_FOCUS = {'hair': 'hair', 'face': 'face', 'outfit': 'clothes', 'body': 'body'}
@@ -154,11 +155,8 @@ class PreviewLearning:
     async def _interpret_preview_learning(self, job: dict) -> bool:
         """質問があれば True。学習は始めない。"""
         selected = job['reviews']
-        pending = [
-            picture for picture in selected
-            if 'meaning' not in picture['review'] and (picture['review']['comment'].strip() or picture['review']['focus'])
-        ]
-        targets = [p for p in selected if picture_needs_meaning(p)]
+        pending = [picture for picture in selected if review_needs_interpretation(picture['review'])]
+        targets = [p for p in selected if review_has_input(p['review'])]
         job['progress'] = {'step': sum(1 for p in targets if 'meaning' in p['review']), 'total': len(targets)}
         self.events.save_job(job)
         for i, picture in enumerate(pending):
@@ -178,6 +176,7 @@ class PreviewLearning:
         return False
 
     async def _train_preview_learning(self, job: dict) -> None:
+        require_interpreted_generation(job['reviews'])
         job['status'] = 'training'
         self.events.save_job(job)
         directory = Path(job['dataset'])
@@ -205,7 +204,8 @@ class PreviewLearning:
                   'qwen3': f"{models}/text_encoders/{generation['text_encoder']}",
                   'vae': f"{models}/vae/{generation['vae']}",
                   'lora': f"{PureWindowsPath(BOX_LORAS).as_posix()}/{source['loras'][0][0]}",
-                  'strength': source['loras'][0][1], 'prompt': source['prompt'], 'negative': source['negative'],
+                  'strength': source['loras'][0][1], 'prompt': desired_generation_prompt(source['prompt'], job['reviews']),
+                  'negative': source['negative'],
                   'seed': source['seed'], 'size': [generation['width'], generation['height']],
                   'pairs': [[f'{remote_directory}/{image_id}.png' for image_id in pair] for pair in job['pairs']],
                   'masks': pair_masks, 'pair_regions': pair_regions,
@@ -262,6 +262,7 @@ class PreviewLearning:
             preview = {k: deepcopy(v) for k, v in source.items() if k not in ('created_at', 'updated_at')}
             preview.update(job_id=str(uuid.uuid4()), status='queued', pictures=[], total_images=10, learning_job_id=job['job_id'])
             preview['loras'][0] = [job['lora_name'], source['loras'][0][1]]
+            preview['prompt'] = desired_generation_prompt(source['prompt'], job['reviews'])
             job['preview_job_id'] = preview['job_id']
             job['status'] = 'previewing'
             self.events.save_job(job)
@@ -271,6 +272,24 @@ class PreviewLearning:
         self.events.save_job(job)
 
 
-def picture_needs_meaning(picture: dict) -> bool:
-    review = picture['review']
-    return bool(review['comment'].strip() or review['focus'])
+def desired_generation_prompt(source_prompt: str, reviews: list[dict]) -> str:
+    """判定の理解から作った生成文。無ければ元の生成文。コメント原文は使わない。"""
+    texts = []
+    seen = set()
+    for entry in reviews:
+        review = review_of(entry)
+        text = str((review.get('meaning') or {}).get('description_en') or '').strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        texts.append(text)
+    if not texts:
+        return source_prompt
+    if len(texts) == 1:
+        return texts[0]
+    kept = [text for text in texts if not any(text != other and text in other for other in texts)]
+    if not kept:
+        return texts[0]
+    if len(kept) == 1:
+        return kept[0]
+    return ', '.join(kept)
