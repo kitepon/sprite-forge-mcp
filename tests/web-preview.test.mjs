@@ -6,12 +6,12 @@ class Node {
   setAttribute(key, value) { this.attrs[key] = value; }
   removeAttribute(key) { delete this.attrs[key]; }
   addEventListener(key, value) { (this.events ||= {})[key] = value; }
-  append(...children) { this.children.push(...children); if (this.tag === 'textarea') this.value = this.children.join(''); }
-  replaceChildren(...children) { this.children = children; }
+  append(...children) { this.children.push(...children.map(c => c instanceof Node ? c : String(c))); if (this.tag === 'textarea') this.value = this.children.join(''); }
+  replaceChildren(...children) { this.children = []; this.append(...children); }
 }
 globalThis.Node = Node;
 globalThis.document = { createElement: tag => new Node(tag), createElementNS: (_, tag) => new Node(tag), createTextNode: text => text };
-const { previewReviewCard, reviewLabel, focusLabel, meaningSummary } = await import('../web/preview.js?v=studio-6');
+const { previewReviewCard, reviewLabel, focusLabel, meaningSummary } = await import('../web/preview.js?v=studio-7');
 const { API } = await import('../web/api.js?v=studio-3');
 const all = node => [node, ...node.children.filter(n => n instanceof Node).flatMap(all)];
 const strings = node => all(node).flatMap(n => n.children.filter(c => typeof c === 'string'));
@@ -147,5 +147,6 @@ test('OKカードは保存済みの直したい箇所を出さず、訂正も残
   assert.ok(texts.some(t => t.includes('残したい箇所') && t.includes('衣装')));
   assert.ok(!nodes.some(n => n.children.includes('生成文（英語）')));
   assert.ok(!nodes.some(n => n.children.includes('直したい箇所')));
+  assert.ok(!nodes.some(n => n.children.includes('null')));
   card.dispose();
 });

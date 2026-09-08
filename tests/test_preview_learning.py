@@ -386,8 +386,8 @@ def test_ok_interpretation_drops_vl_fix_without_moving_vl_words(tmp_path, monkey
         ng = view['pictures'][1]['review']['meaning']
         assert ok['fix'] == []
         assert ok['description_en'] == ''
-        assert ok['preserve'][0] == '衣装'
-        assert '髪' in ok['preserve'] and '顔' in ok['preserve']
+        assert ok['preserve'][:2] == ['髪', '顔']
+        assert '衣装' in ok['preserve']
         assert '髪型' not in ok['preserve']
         assert ng['fix'] == ['髪型', '顔']
         assert ng['description_en'] == GENERATED

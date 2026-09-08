@@ -43,12 +43,8 @@ def apply_rating_to_meaning(rating, meaning: dict, focus) -> dict:
         return result
     result['fix'] = []
     result['description_en'] = ''
-    preserve = result['preserve']
-    if isinstance(focus, list):
-        for key in focus:
-            label = FOCUS_LABELS.get(key)
-            if label and label not in preserve:
-                preserve.append(label)
+    chosen = [FOCUS_LABELS[key] for key in (focus if isinstance(focus, list) else []) if key in FOCUS_LABELS]
+    result['preserve'] = chosen + [item for item in result['preserve'] if item not in chosen]
     return result
 
 
@@ -117,6 +113,8 @@ class PreviewReviews:
         for picture in job.get('pictures', []):
             image_id = picture.get('id') or Path(picture['path']).stem
             review = reviews.get(image_id, {'rating': '', 'comment': '', 'focus': [], 'revision': 0, 'history': []})
+            if review.get('rating') == 'ok' and isinstance(review.get('meaning'), dict):
+                review = {**review, 'meaning': apply_rating_to_meaning('ok', review['meaning'], review.get('focus'))}
             pictures.append({**picture, 'id': image_id, 'review': review})
         reason = '' if job.get('generation') and job.get('character_created') else '以前の生成条件の記録が不足しています。再学習するには新しくプレビューを生成してください。'
         return {'job_id': job_id, 'name': name, 'pictures': pictures, 'generation': job.get('generation'),

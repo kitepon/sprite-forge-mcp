@@ -19,12 +19,31 @@ def test_ok_rating_clears_fix_and_adds_focus_labels_to_preserve():
     result = apply_rating_to_meaning('ok', meaning, ['hair', 'face', 'outfit', 'body', 'style'])
     assert result['fix'] == []
     assert result['description_en'] == ''
-    assert result['preserve'][:4] == ['衣装', 'スタイル', '体格比例', '背景']
-    assert '髪' in result['preserve']
-    assert '顔' in result['preserve']
-    assert '体形' in result['preserve']
-    assert '画風' in result['preserve']
-    assert '髪型' not in result['preserve']
+    assert result['preserve'] == ['髪', '顔', '衣装', '体形', '画風', 'スタイル', '体格比例', '背景']
+
+
+def test_preview_reviews_normalizes_stored_ok_meaning_without_rewriting_json(tmp_path, monkeypatch):
+    import json
+    service, _ = make(tmp_path, monkeypatch)
+
+    async def scenario():
+        await service.create_character('ベル', 'she/her', lora_name='person.safetensors')
+        job = await service.preview_character('ベル', seed=7)
+        image = job['pictures'][0]['id']
+        await service.save_preview_review('ベル', job['job_id'], image,
+                                          PreviewReview(rating='ok', revision=0, focus=['hair', 'face', 'outfit', 'body', 'style']))
+        path = service._preview_reviews_path('ベル', job['job_id'])
+        stored = json.loads(path.read_text(encoding='utf-8'))
+        stored[image]['meaning'] = {'fix': ['髪型', '顔'], 'preserve': ['衣装', '体型', 'スタイル'], 'questions': [], 'description_en': ''}
+        stored[image]['meaning_source'] = 'ai'
+        path.write_text(json.dumps(stored, ensure_ascii=False), encoding='utf-8')
+        view = await service.preview_reviews('ベル', job['job_id'])
+        meaning = view['pictures'][0]['review']['meaning']
+        assert meaning['fix'] == []
+        assert meaning['preserve'] == ['髪', '顔', '衣装', '体形', '画風', '体型', 'スタイル']
+        assert json.loads(path.read_text(encoding='utf-8'))[image]['meaning']['fix'] == ['髪型', '顔']
+
+    asyncio.run(scenario())
 
 
 def test_ng_rating_keeps_vl_meaning():

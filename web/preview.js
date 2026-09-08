@@ -52,7 +52,7 @@ export function previewReviewCard(name, jobId, image, index, changed) {
     const fix = ok ? null : h('textarea', { rows: 2 }, current.fix.join('\n'));
     const generation = ok ? null : h('textarea', { rows: 2 }, current.description_en || '');
     const lines = control => control.value.split('\n').map(v => v.trim()).filter(Boolean);
-    meaning.append(h('strong', {}, review.meaning_source === 'user' ? '訂正した内容' : 'AIが読み取った内容'),
+    meaning.append(...[h('strong', {}, review.meaning_source === 'user' ? '訂正した内容' : 'AIが読み取った内容'),
       ok ? null : h('p', {}, `直したい箇所：${current.fix.join('、') || '指定なし'}`),
       h('p', {}, `残したい箇所：${current.preserve.join('、') || '指定なし'}`),
       ok || !current.description_en ? null : h('details', {}, h('summary', {}, '生成文の詳細'),
@@ -68,7 +68,7 @@ export function previewReviewCard(name, jobId, image, index, changed) {
             revision, meaning: { fix: ok ? [] : lines(fix), preserve: lines(preserve), questions: [], description_en: ok ? '' : generation.value.trim() },
           });
           status.textContent = '訂正を保存しました'; displayMeaning(); changed();
-        }), 'quiet')));
+        }), 'quiet'))].filter(Boolean));
   }
   function persist() {
     clearTimeout(timer); timer = null;
