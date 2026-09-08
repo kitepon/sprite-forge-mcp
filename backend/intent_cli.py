@@ -5,8 +5,10 @@ import asyncio
 import json
 import re
 import time
+from io import BytesIO
 from pathlib import Path
 
+from PIL import Image
 from pydantic import ValidationError
 
 from . import workflows
@@ -18,6 +20,7 @@ MODEL = "Qwen3-VL-32B-Instruct"
 AUTH = "comfy"
 CLIENT_ID = "sprite-forge-intent"
 OBSERVE_MARK = "この画像の見た目を JSON で返してください。画風を表す語句は書かないでください。"
+INTERPRET_MAX_SIDE = 512
 
 
 class Sighting(StrictModel):
@@ -123,6 +126,18 @@ def _observe_prompt(index: int, schema: dict) -> str:
     )
 
 
+def _interpret_image_png(content: bytes, max_side: int = INTERPRET_MAX_SIDE) -> bytes:
+    """解釈用コピーだけ長辺を揃える。台帳の原画像は触らない。拡大しない。"""
+    image = Image.open(BytesIO(content))
+    image.load()
+    if max(image.size) > max_side:
+        image = image.copy()
+        image.thumbnail((max_side, max_side), Image.LANCZOS)
+    output = BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
+
+
 def _compose_prompt(payload: dict, schema: dict, observations: list[dict]) -> str:
     instruction = Path(__file__).with_name(_instruction_name(payload)).read_text()
     parts = [instruction.rstrip(), "入力:", json.dumps(payload, ensure_ascii=False)]
@@ -159,7 +174,8 @@ async def execute(payload: dict, images: list[bytes], *, comfy, keep_model_loade
         await comfy.free()
     model = _stage_model(payload)
     schema = _strict_schema(model)
-    names = [await comfy.upload(content, f"intent-{index}.png") for index, content in enumerate(images)]
+    names = [await comfy.upload(_interpret_image_png(content), f"intent-{index}.png")
+             for index, content in enumerate(images)]
     observations = []
     if len(names) >= 2:
         observe_schema = _strict_schema(Sighting)

@@ -3,8 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 import unittest
+from io import BytesIO
 
-from backend.intent_cli import AUTH, MODEL, OBSERVE_MARK, execute
+from PIL import Image, UnidentifiedImageError
+
+from backend.intent_cli import AUTH, INTERPRET_MAX_SIDE, MODEL, OBSERVE_MARK, execute
 from backend.intent_runner import interpret
 
 SCHEMA_LEAD = '出力は次の JSON Schema に厳密に従い、前後に説明を付けないでください。'
@@ -24,12 +27,14 @@ class FakeComfy:
         self.freed = 0
         self.queue_running: list = []
         self.queue_pending: list = []
+        self.uploads: list[bytes] = []
         self._n = 0
 
     async def queue(self) -> dict:
         return {'queue_running': self.queue_running, 'queue_pending': self.queue_pending}
 
     async def upload(self, content: bytes, name: str) -> str:
+        self.uploads.append(content)
         return name
 
     async def submit(self, workflow: dict, client_id: str) -> str:
@@ -71,6 +76,13 @@ class FakeComfy:
 
     async def free(self) -> None:
         self.freed += 1
+
+
+def _png(size: tuple[int, int], color: str = 'red') -> bytes:
+    image = Image.new('RGB', size, color)
+    output = BytesIO()
+    image.save(output, format='PNG')
+    return output.getvalue()
 
 
 def _payload_from_prompt(prompt: str) -> dict:
@@ -117,7 +129,8 @@ class IntentCliTests(unittest.TestCase):
     def test_two_images_observe_then_compose_without_video(self) -> None:
         comfy = FakeComfy()
         result = asyncio.run(execute(
-            EMPTY, [b'one', b'two'], comfy=comfy, keep_model_loaded=False, reclaim_memory=True))
+            EMPTY, [_png((24, 32), 'red'), _png((24, 32), 'blue')],
+            comfy=comfy, keep_model_loaded=False, reclaim_memory=True))
         self.assertEqual(comfy.freed, 1)
         self.assertEqual(comfy.keeps, [True, True, False])
         self.assertEqual(len(comfy.queued), 3)
@@ -150,6 +163,25 @@ class IntentCliTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, '解釈のJSONがスキーマに合いません'):
             asyncio.run(execute(EMPTY, [], comfy=Mismatch()))
+
+    def test_large_image_is_shrunk_before_upload(self) -> None:
+        comfy = FakeComfy()
+        asyncio.run(execute(EMPTY, [_png((800, 600))], comfy=comfy))
+        uploaded = Image.open(BytesIO(comfy.uploads[0]))
+        self.assertEqual(uploaded.size, (512, 384))
+        self.assertLessEqual(max(uploaded.size), INTERPRET_MAX_SIDE)
+
+    def test_small_image_is_not_enlarged(self) -> None:
+        comfy = FakeComfy()
+        asyncio.run(execute(EMPTY, [_png((24, 32))], comfy=comfy))
+        uploaded = Image.open(BytesIO(comfy.uploads[0]))
+        self.assertEqual(uploaded.size, (24, 32))
+
+    def test_invalid_image_is_an_error(self) -> None:
+        comfy = FakeComfy()
+        with self.assertRaises(UnidentifiedImageError):
+            asyncio.run(execute(EMPTY, [b'not-an-image'], comfy=comfy))
+        self.assertEqual(comfy.uploads, [])
 
 
 class IntentRunnerTests(unittest.TestCase):
