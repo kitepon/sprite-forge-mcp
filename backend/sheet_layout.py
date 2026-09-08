@@ -68,13 +68,18 @@ class LayoutChange(StrictModel):
 
 
 def merge_layout_change(change: LayoutChange, previous: list[dict]) -> LayoutProposal:
-    """差分を現在の構成へ合成する。触れていない項目は順序・内容をそのまま引き継ぐ。"""
-    changed = {panel.key: panel for panel in change.panels}
-    panels = [changed[p["key"]] if p["key"] in changed
+    """差分を現在の構成へ合成する。触れていない項目は順序・内容をそのまま引き継ぐ。
+
+    項目の恒久識別子は seed_offset（validate_layout_proposal と同じ規則）。既存の seed_offset を持つ差分は
+    その項目の置き換えとし、key は既存のものを引き継ぐ。モデルが衣装名に合わせて key を書き換えても
+    panel_overrides の対応が切れない。
+    """
+    changed = {panel.seed_offset: panel for panel in change.panels}
+    panels = [changed[p["seed_offset"]].model_copy(update={"key": p["key"]}) if p["seed_offset"] in changed
               else LayoutPanel.model_validate({**p, "description_ja": p["label"], "reference": None})
               for p in previous if p["key"] not in change.removed_keys]
-    existing = {p["key"] for p in previous}
-    panels += [panel for panel in change.panels if panel.key not in existing]
+    existing = {p["seed_offset"] for p in previous}
+    panels += [panel for panel in change.panels if panel.seed_offset not in existing]
     return LayoutProposal(summary_ja=change.summary_ja, panels=panels, questions=change.questions)
 
 

@@ -124,6 +124,19 @@ def test_layout_change_merges_into_current_layout_preserving_untouched_panels():
     assert merged.summary_ja == "3番目を水着に変更"
 
 
+def test_layout_change_matches_slot_by_seed_offset_when_model_renames_key():
+    # fox 実測（2026-09-09）: 「ARMOR を水着に変更」で Qwen3-VL は seed_offset を維持したまま key を cos_bikini へ書き換えた。
+    from backend.sheet_layout import LayoutChange, LayoutPanel, merge_layout_change, validate_layout_proposal
+    current = legacy_layout()[:4]
+    renamed = dict(current[2], key="cos_bikini", label="BIKINI", description_ja="鎧を水着に変更", reference=None,
+                   role_features=["outfit"], parts=[{"feature": "outfit", "description_en": "bikini", "avoid_en": ""}])
+    change = LayoutChange(summary_ja="変更", questions=[], removed_keys=[], panels=[LayoutPanel.model_validate(renamed)])
+    merged = merge_layout_change(change, current)
+    assert [p.key for p in merged.panels] == [p["key"] for p in current]
+    assert merged.panels[2].label == "BIKINI" and merged.panels[2].seed_offset == current[2]["seed_offset"]
+    validate_layout_proposal(merged, {"sheet_layout": current, "references": []})
+
+
 def test_layout_stage_prompt_omits_panel_specs_and_training_captions():
     from backend.intent_runner import interpret
     from tests.test_intent_cli import FakeComfy, _payload_from_prompt
