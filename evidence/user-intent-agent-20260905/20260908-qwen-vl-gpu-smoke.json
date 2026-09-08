@@ -1,0 +1,57 @@
+{
+  "when": "2026-09-08T10:15+09:00",
+  "what": "GPU real Qwen3-VL-32B-Instruct 8-bit text interpret via production container backend.intent_cli._ask",
+  "entry": {
+    "host": "main-server",
+    "container": "sprite-forge-mcp-sprite-forge-1",
+    "workdir": "/app",
+    "python": "/app/.venv/bin/python",
+    "module": "backend.intent_cli._ask",
+    "auth": "comfy",
+    "model": "Qwen3-VL-32B-Instruct",
+    "quantization": "8-bit (Balanced)",
+    "keep_model_loaded": true,
+    "image": null,
+    "video_key": false,
+    "ledger": false,
+    "free_not_called": true,
+    "no_model_fallback": true
+  },
+  "queue_before": {"running": [], "pending": []},
+  "runs": [
+    {
+      "prompt_id": "8c946c74-f893-4071-9cf0-c3a01a7e774c",
+      "when_utc": "2026-09-08T01:06:46.000000Z",
+      "prompt": "Reply with exactly the word pong.",
+      "comfy_duration_ms": 115723,
+      "execution_cached_nodes": [],
+      "text": "pong",
+      "text_len": 4,
+      "note": "Previous session production _ask. Uncached nodes. Cold GPU load of 32B 8-bit."
+    },
+    {
+      "prompt_id": "6421e2a6-95c7-416c-94f4-f08ce4ebb441",
+      "when_utc": "2026-09-08T01:15:08.000000Z",
+      "prompt": "Reply with exactly the word pong.",
+      "wall_clock_s": 1.03,
+      "comfy_duration_ms": 1,
+      "execution_cached_nodes": ["2", "3"],
+      "text": "pong",
+      "text_len": 4,
+      "note": "Same prompt as 8c946c74. Graph cache hit. Not counted as GPU compute."
+    },
+    {
+      "prompt_id": "9ed55fc6-546a-4e7d-a23f-2c522bc2b71d",
+      "when_utc": "2026-09-08T01:15:50.000000Z",
+      "prompt": "Reply with exactly the word pong. Marker 20260908T1015-uncached.",
+      "wall_clock_s": 2.04,
+      "comfy_duration_ms": 1378,
+      "execution_cached_nodes": [],
+      "text": "pong",
+      "text_len": 4,
+      "note": "Unique prompt so nodes uncached. Model already resident. Warm GPU interpret."
+    }
+  ],
+  "judgement": "pass",
+  "preview_feedback_05_quality": "not_started"
+}
