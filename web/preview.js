@@ -127,7 +127,7 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
     if (result?.preview_job_id) pick(result.preview_job_id);
     await refresh();
   }));
-  const adopt = button('この学習結果を使って設定画へ', e => action(e.currentTarget, async () => {
+  const adopt = button('この学習結果を使って一枚シートへ', e => action(e.currentTarget, async () => {
     await flush(); const record = await API.adoptPreview(name, selected);
     adopted = record.adopted_preview_job_id; setReady(true, ''); await next();
   }));
@@ -137,9 +137,9 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
     counts.textContent = `OK ${ok}枚 ・ NG ${ng}枚 ・ 未判定 ${ratings.length - ok - ng}枚`;
     const running = jobs.some(j => j.kind === 'preview_learning' && j.source_job_id === selected && !terminal(j));
     start.disabled = !ok || !ng || !!source?.relearning_unavailable_reason || running;
-    reason.textContent = source?.relearning_unavailable_reason || (running ? 'この判定の再学習を実行中です。' : !ng && ok ? 'すべてOKなら、そのまま設定画へ進めます。' : !ok && ng ? 'OKがありません。追加生成、注文の修正、参考画像の見直しができます。' : !ok || !ng ? '再学習にはOKとNGをそれぞれ1枚以上選んでください。未判定は使いません。' : 'NGで選んだ場所をOKの絵に寄せてLoRAを直します。読み取った生成文で新しいプレビューを作ります。理由の不明点がある場合だけ質問します。');
+    reason.textContent = source?.relearning_unavailable_reason || (running ? 'この判定の再学習を実行中です。' : !ng && ok ? 'すべてOKなら、そのまま一枚シートへ進めます。' : !ok && ng ? 'OKがありません。追加生成、注文の修正、参考画像の見直しができます。' : !ok || !ng ? '再学習にはOKとNGをそれぞれ1枚以上選んでください。未判定は使いません。' : 'NGで選んだ場所をOKの絵に寄せてLoRAを直します。読み取った生成文で新しいプレビューを作ります。理由の不明点がある場合だけ質問します。');
     adopt.disabled = !selected || jobs.find(j => j.job_id === selected)?.status !== 'completed' || running;
-    setReady(selected === adopted, selected === adopted ? '' : '画像を確認し、「この学習結果を使って設定画へ」を押してください。');
+    setReady(selected === adopted, selected === adopted ? '' : '画像を確認し、「この学習結果を使って一枚シートへ」を押してください。');
   }
   function pick(id) {
     if (selected === id) return;
