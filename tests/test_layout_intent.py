@@ -152,7 +152,8 @@ def test_layout_stage_prompt_omits_panel_specs_and_training_captions():
     asyncio.run(interpret({**base, "stage": "sheet"}, [], comfy=comfy))
     sheet_payload = _payload_from_prompt(comfy.prompts[-1])
     assert sheet_payload["panel_specs"] == base["panel_specs"]
-    assert sheet_payload["training_captions"] == base["training_captions"]
+    # 生成工程では教材説明を渡さない。渡すと学習欄を埋め始め、JSON が切れる。
+    assert "training_captions" not in sheet_payload
 
 
 def test_adopted_features_and_requested_view_count_reach_prompt_without_common_settings():
