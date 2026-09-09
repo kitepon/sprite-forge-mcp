@@ -43,7 +43,7 @@ def test_generate_approve_and_regenerate_update_ledger(tmp_path, monkeypatch):
     assert "approved_sheet" not in record
     graph = comfy.submitted[-1]
     assert graph["23"]["inputs"]["seed"] == 11
-    assert graph["5"]["inputs"]["width"] == 832 and graph["5"]["inputs"]["height"] == 1216
+    assert graph["22"]["inputs"]["width"] == 832 and graph["22"]["inputs"]["height"] == 1216
     assert comfy.submitted[-1]["4"]["inputs"]["lora_name"] == "fixture.safetensors"
 
     approved = service.approve_character_sheet("probe", job["job_id"])
