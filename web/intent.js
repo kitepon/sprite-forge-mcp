@@ -123,8 +123,8 @@ export async function commentEditor(target, { name, kind, stage, panel = '', int
           change.style_name = JSON.parse(e.target.value); change.style_deferred = false;
           paint({proposal, observations});
         } }, h('option', { value: 'null' }, '選択してください'),
-          ...(stage !== 'panel' || !job.existing_settings?.sheet_style ? [h('option', { value: '""' }, '追加の画風を使わない（キャラクターの画風を使う）')] : []),
-          (job.available_styles || []).filter(s => stage !== 'panel' || s.name === job.existing_settings?.sheet_style).map(s => h('option', { value: JSON.stringify(s.name) }, s.name)));
+          h('option', { value: '""' }, '追加の画風を使わない（キャラクターの画風を使う）'),
+          (job.available_styles || []).map(s => h('option', { value: JSON.stringify(s.name) }, s.name)));
         selected.value = JSON.stringify(change.style_name ?? null);
         const defer = h('input', { type: 'checkbox', checked: !!change.style_deferred, disabled, 'aria-label': '今回は画風の希望を反映しない', onchange: e => {
           change.style_deferred = e.target.checked;
@@ -133,11 +133,13 @@ export async function commentEditor(target, { name, kind, stage, panel = '', int
         } });
         output.append(h('article', {class:'intent-change stack'}, h('div', {class:'section-heading'}, h('strong', {}, '画風'), scope),
           ...source, h('p', {}, change.reason_ja),
-          ...(kind === 'character' ? [field('他の画風を使いたい場合はこちらから選択', selected, stage === 'panel' ? '元のシートと同じ画風だけ選べます。' : '登録済みの画風を追加できます。一つのシートの画風は統一します。')] : []),
-          ...(stage === 'panel' ? [h('p', {class:'muted small'}, '部分描き直しは元のシートの画風を維持します。画風を変える時は、設定画全体の注文から指定してください。')] : []),
+          ...(kind === 'character' && stage !== 'panel' ? [field('他の画風を使いたい場合はこちらから選択', selected, '登録済みの画風を追加できます。一つのシートの画風は統一します。')] : []),
+          ...(stage === 'panel' ? [h('p', {class:'muted small'}, '部分描き直しは合格した一枚シートの姿から描くため、画風は変えられません。画風を変える時は、一枚シートから作り直してください。')] : []),
           ...(kind === 'style' ? [h('p', {class:'muted small'}, 'この画風自体を変える希望は、素材と学習の工程で確認してください。')] : []),
           h('label', { class: 'intent-defer' }, defer, h('span', {}, '今回は画風の希望を反映しない')),
-          h('p', {class:'muted small'}, `チェックすると現在の画風設定（${job.existing_settings?.[stage === 'panel' ? 'sheet_style' : 'style'] || '追加の画風なし'}）を変えず、ほかの希望だけを採用します。画風の希望は履歴に残りますが、後から自動で反映されることはありません。`)));
+          h('p', {class:'muted small'}, stage === 'panel'
+            ? 'チェックすると画風の希望を反映せず、ほかの希望だけを採用します。画風の希望は履歴に残りますが、後から自動で反映されることはありません。'
+            : `チェックすると現在の画風設定（${job.existing_settings?.style || '追加の画風なし'}）を変えず、ほかの希望だけを採用します。画風の希望は履歴に残りますが、後から自動で反映されることはありません。`)));
         continue;
       }
       const panelSpecs = job.panel_specs || [];

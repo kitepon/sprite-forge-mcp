@@ -105,8 +105,6 @@ class IntentServices:
                "base_conditions": deepcopy(record.get("intent_conditions", {}))}
         job["available_styles"] = [{key: item[key] for key in ("name", "note", "lora_name")}
                                    for item in await self.list_styles() if item.get("lora_name")]
-        if request.stage == "panel":
-            job["existing_settings"]["sheet_style"] = (record.get("bible") or {}).get("style", "")
         if request.kind == "character" and request.stage == "preview":
             job["stage_conditions"] = {**deepcopy(PREVIEW_CONDITIONS),
                                        "subject": {"description_en": bible.subject_tag(record["char_desc"]), "avoid_en": ""},
@@ -232,6 +230,10 @@ class IntentServices:
         learning = job["stage"] in ("samples", "training")
         styles = [c for c in proposal.changes if c.feature == "style" and not c.style_deferred and not learning]
         for change in styles:
+            if job["stage"] == "panel":
+                raise ValueError("部分描き直しは合格した一枚シートの姿から描くため、画風は変えられません。"
+                                 "画風を変える時は、一枚シートから作り直してください。"
+                                 "この注文を使わずに進める場合は「今回は画風の希望を反映しない」を選んでください。")
             if change.style_name is None:
                 raise ValueError("画風の希望はまだ反映できません。使う画風を選ぶか、確認画面で「今回は画風の希望を反映しない」を選んでください。")
             if job["record_kind"] != "character":

@@ -90,10 +90,10 @@ test('設定画とパネル修正へ採用した注文を送る', async t => {
     calls.push(new URL(url, 'http://test'));
     return {ok:true,json:async()=>({})};
   });
-  await API.bible('ベル',5,'水彩','sheet-order');
+  await API.bible('ベル',5,'sheet-order');
   await API.redraw('ベル','item_shoes','',9,'','panel-order','intent');
   assert.equal(calls[0].searchParams.get('intent_job_id'),'sheet-order');
-  assert.equal(calls[0].searchParams.get('style'),'水彩');
+  assert.equal(calls[0].searchParams.get('style'),null);
   assert.equal(calls[1].searchParams.get('intent_job_id'),'panel-order');
   assert.equal(calls[1].searchParams.get('panel'),'item_shoes');
   assert.equal(calls[1].searchParams.get('tags'),'');

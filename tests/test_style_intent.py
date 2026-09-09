@@ -163,18 +163,19 @@ def test_redraw_ignores_character_style_changes(tmp_path, monkeypatch, saved_sty
         job.update(status="awaiting_confirmation", proposal=value)
         service.events.save_job(job)
         count = len(comfy.submitted)
-        if saved_style:
-            accepted = await service.confirm_comment_intent(job["job_id"], Proposal.model_validate(value))
-            assert "style" not in accepted["effective_conditions"]
-            commented = await service.redraw_panel("probe", "turn_front", intent_job_id=job["job_id"])
-            assert len(comfy.submitted) == count + 1
-            assert "4" not in comfy.submitted[-1] and "40" not in comfy.submitted[-1]
-            assert "probe_style" not in commented["prompt"]
-            assert comfy.submitted[-1]["20"]["inputs"]["prompt"] == commented["instruction"]
-        else:
-            with pytest.raises(ValueError, match="部分描き直し"):
-                await service.confirm_comment_intent(job["job_id"], Proposal.model_validate(value))
-            assert len(comfy.submitted) == count
+        with pytest.raises(ValueError, match="部分描き直し"):
+            await service.confirm_comment_intent(job["job_id"], Proposal.model_validate(value))
+        assert len(comfy.submitted) == count
+        value["changes"][0].update(style_name=None, style_deferred=True)
+        job.update(status="awaiting_confirmation", proposal=value)
+        service.events.save_job(job)
+        accepted = await service.confirm_comment_intent(job["job_id"], Proposal.model_validate(value))
+        assert "style" not in accepted["effective_conditions"]
+        commented = await service.redraw_panel("probe", "turn_front", intent_job_id=job["job_id"])
+        assert len(comfy.submitted) == count + 1
+        assert "4" not in comfy.submitted[-1] and "40" not in comfy.submitted[-1]
+        assert "probe_style" not in commented["prompt"]
+        assert comfy.submitted[-1]["20"]["inputs"]["prompt"] == commented["instruction"]
 
     asyncio.run(scenario())
 
