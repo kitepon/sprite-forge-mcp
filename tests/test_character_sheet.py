@@ -4,6 +4,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import pytest
+
 from backend import bible
 from backend.services import Services
 from tests.test_style import make, png
@@ -21,14 +23,12 @@ def assert_reference_sheet(job, graph, seed):
     assert bible.SINGLE_VIEW_NEGATIVE not in job["negative"]
 
 
-def test_sheet_anchor_prefers_approved_then_samples(tmp_path):
-    fallback = tmp_path / "panel.png"
-    approved = tmp_path / "approved_sheet.png"
-    samples = tmp_path / "samples.png"
-    assert Services._sheet_anchor({}, fallback) == fallback
-    assert Services._sheet_anchor({"samples_sheet": str(samples)}, fallback) == samples
-    assert Services._sheet_anchor(
-        {"approved_sheet": str(approved), "samples_sheet": str(samples)}, fallback) == approved
+def test_bible_does_not_start_without_an_approved_sheet(tmp_path, monkeypatch):
+    service, comfy = make(tmp_path, monkeypatch)
+    asyncio.run(service.create_character("probe", "she/her", lora_name="fixture.safetensors"))
+    with pytest.raises(ValueError, match="approve_character_sheet"):
+        asyncio.run(service.generate_character_bible("probe"))
+    assert comfy.submitted == []
 
 
 def test_generate_without_lora_does_not_train(tmp_path, monkeypatch):

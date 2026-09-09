@@ -9,7 +9,7 @@ from backend import bible
 from backend.intent import Proposal, validate_proposal
 from backend.intent import IntentRequest
 from tests.test_intent import proposal
-from tests.test_style import make, png
+from tests.test_style import make, panel_orders, png
 
 
 def change(feature, text, scope="this_run", panel=None):
@@ -138,12 +138,19 @@ async def setup(service, tmp_path):
     source.write_bytes(png())
     await service.create_character("probe", "she/her", lora_name="person.safetensors")
     record = await service.add_samples("probe", str(source))
+    approved = service._character_dir("probe") / "approved_sheet.png"
+    approved.write_bytes(png())
+    record["approved_sheet"] = str(approved)
     root = tmp_path / "panels"
     root.mkdir()
     for panel in bible.PANELS:
         (root / f"{panel.key}.png").write_bytes(png())
+    reference = tmp_path / "bible-reference"
+    reference.mkdir()
+    (reference / "figure.png").write_bytes(png())
+    (reference / "head.png").write_bytes(png())
     record["bible"] = {"job_id": "initial", "panels_dir": str(root),
-                       "loras": [["person.safetensors", 0.8]], "trigger": record["trigger"],
+                       "source": str(approved), "reference_dir": str(reference), "trigger": record["trigger"],
                        "sheet_path": str(tmp_path / "sheet.png"), "html_path": str(tmp_path / "sheet.html")}
     service._save_character(record)
 
@@ -167,10 +174,10 @@ def test_sheet_preserves_scope_records_actual_inputs_and_reuses_panel_correction
         assert len(intent["accepted"]["changes"]) == 3
         assert "panel_overrides" not in await service.character_info("probe")
         result = await service.generate_character_bible("probe", seed=10, intent_job_id=intent["job_id"])
-        assert len(result["panel_requests"]) == len(comfy.submitted) == 23
-        for request, graph in zip(result["panel_requests"], comfy.submitted):
-            assert graph["20"]["inputs"]["text"] == request["prompt"]
-            assert graph["21"]["inputs"]["text"] == request["negative"]
+        assert len(result["panel_requests"]) == len(panel_orders(comfy)) == 23
+        for request, graph in zip(result["panel_requests"], panel_orders(comfy)):
+            assert graph["20"]["inputs"]["prompt"] == request["instruction"]
+            assert graph["21"]["inputs"]["prompt"] == request["negative"]
             assert graph["23"]["inputs"]["seed"] == request["seed"]
         assert "yellow coat" in result["panel_requests"][0]["prompt"]
         assert "red boots" in result["panel_requests"][-1]["prompt"]
@@ -283,7 +290,8 @@ def test_panel_saving_is_after_composition_and_preserves_concurrent_updates(tmp_
     original = comfy.submit
 
     async def submit(graph, client_id):
-        if not comfy.submitted and failure != "html":
+        if (graph.get("20", {}).get("class_type") == "TextEncodeJoyImageEdit"
+                and not panel_orders(comfy) and failure != "html"):
             record = await service.character_info("probe")
             record["panel_overrides"] = {"turn_front" if failure == "same_panel" else "turn_back":
                                           {"tags": "newer edit", "avoid": "", "seed": 17}}
@@ -393,4 +401,10 @@ def test_public_entry_resolves_the_confirmed_panel_order(tmp_path, monkeypatch, 
                 return result.structured_content
         result = asyncio.run(call())
     assert result["intent_job_id"] == intent["job_id"]
-    assert "green boots" in comfy.submitted[-1]["20"]["inputs"]["text"]
+    if stage == "sheet":
+        assert "green boots" in result["panel_requests"][-1]["prompt"]
+        instruction = result["panel_requests"][-1]["instruction"]
+    else:
+        assert "green boots" in result["prompt"]
+        instruction = result["instruction"]
+    assert panel_orders(comfy)[-1]["20"]["inputs"]["prompt"] == instruction

@@ -65,6 +65,23 @@ def make(tmp_path, monkeypatch):
     return service, comfy
 
 
+def approve_sheet(service, name):
+    """設定画の起点になる合格シートを台帳へ置く。生成から合格までの経路は test_character_sheet が確かめる。"""
+    record = service._load_character(name)
+    sheet = service._character_dir(name) / "approved_sheet.png"
+    sheet.parent.mkdir(parents=True, exist_ok=True)
+    sheet.write_bytes(png("#b0c4de"))
+    record["approved_sheet"] = str(sheet)
+    service._save_character(record)
+    return sheet
+
+
+def panel_orders(comfy):
+    """設定画のパネル注文だけを順に返す。合格シートを切り出す SAM の注文は数えない。"""
+    return [graph for graph in comfy.submitted
+            if graph.get("20", {}).get("class_type") == "TextEncodeJoyImageEdit"]
+
+
 def test_style_is_pictures_then_a_lora_then_a_look_for_new_pictures(tmp_path, monkeypatch):
     service, comfy = make(tmp_path, monkeypatch)
     run = asyncio.run
@@ -107,9 +124,11 @@ def test_character_in_a_style_stacks_both_loras(tmp_path, monkeypatch):
     assert preview["prompt"].startswith("bell_idol, glow_style, 1girl, waving")
     record = run(service.set_character_style("Bell", "glow", 0.6))
     assert record["style"] == "glow" and record["style_strength"] == 0.6
+    approve_sheet(service, "Bell")
     job = run(service.generate_character_bible("Bell"))
-    assert job["style"] == "glow" and comfy.submitted[-1]["40"]["inputs"]["strength_model"] == 0.6
-    assert comfy.submitted[-1]["20"]["inputs"]["text"].startswith("bell_idol, glow_style, ")
+    panel = panel_orders(comfy)[-1]
+    assert "style" not in job and "4" not in panel and "40" not in panel
+    assert panel["20"]["inputs"]["prompt"] == job["panel_requests"][-1]["instruction"]
     picture = run(service.generate_from_bible("Bell", "on stage"))
     assert comfy.submitted[-1]["20"]["inputs"]["text"] == "bell_idol, glow_style, on stage"
     run(service.set_character_style("Bell", ""))
@@ -159,6 +178,7 @@ def test_generation_failures_are_recorded_and_reraised(tmp_path, monkeypatch, ki
     draft = tmp_path / "draft.png"
     draft.write_bytes(png())
     if kind == "redraw_panel":
+        approve_sheet(service, "Bell")
         run(service.generate_character_bible("Bell"))
 
     def fail(*args, **kwargs):

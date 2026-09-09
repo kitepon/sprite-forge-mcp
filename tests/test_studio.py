@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend import app, box
-from tests.test_style import make, png
+from tests.test_style import approve_sheet, make, png
 
 
 @pytest.mark.parametrize("kind", ["character", "style"])
@@ -55,9 +55,10 @@ def test_completed_panels_and_previews_are_visible_before_entire_job_finishes(tm
     assert snapshots[1]["status"] == "running" and len(snapshots[1]["pictures"]) == 1
     assert Path(snapshots[1]["pictures"][0]["path"]).is_file()
     snapshots.clear()
+    approve_sheet(service, "Bell")
     run(service.generate_character_bible("Bell"))
-    assert snapshots[1]["completed_panels"] == 1 and snapshots[1]["total_panels"] == 23
-    assert len(snapshots[1]["panels"]) == 1 and Path(snapshots[1]["panels"][0]).is_file()
+    assert snapshots[2]["completed_panels"] == 1 and snapshots[2]["total_panels"] == 23
+    assert len(snapshots[2]["panels"]) == 1 and Path(snapshots[2]["panels"][0]).is_file()
     assert snapshots[-1]["completed_panels"] == 22
 
 

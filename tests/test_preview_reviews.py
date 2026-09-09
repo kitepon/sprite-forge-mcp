@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from backend.preview_reviews import PreviewReview, apply_rating_to_meaning, require_interpreted_generation
-from tests.test_style import make
+from tests.test_style import approve_sheet, make, panel_orders
 
 
 def test_ok_rating_clears_fix_and_adds_focus_labels_to_preserve():
@@ -147,8 +147,16 @@ def test_adopted_lora_is_used_by_setting_sheet_and_old_version_can_be_restored(t
         assert adopted['lora_name'] == 'new.safetensors' and adopted['character_strength'] == .65
         assert await service.adopt_preview_lora('probe', new['job_id']) == adopted
         comfy.submitted.clear()
-        await service.generate_character_bible('probe')
-        assert comfy.submitted and all(graph['4']['inputs']['lora_name'] == 'new.safetensors' for graph in comfy.submitted)
+        approve_sheet(service, 'probe')
+        sheet = await service.generate_character_bible('probe')
+        panels = panel_orders(comfy)
+        assert comfy.submitted[0]['4']['class_type'] == 'SAM3_Detect'
+        assert comfy.submitted[0]['4']['inputs']['individual_masks'] is True
+        assert len(panels) == sheet['total_panels']
+        assert all('4' not in graph and '40' not in graph for graph in panels)
+        assert [graph['20']['inputs']['prompt'] for graph in panels] == [
+            request['instruction'] for request in sheet['panel_requests']
+        ]
         restored = await service.adopt_preview_lora('probe', old['job_id'])
         assert restored['lora_name'] == 'old.safetensors'
         assert restored['lora_history'][-1]['lora_name'] == 'new.safetensors'

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from backend import box
-from tests.test_style import make, png
+from tests.test_style import approve_sheet, make, panel_orders, png
 from tests.test_training_materials import accept_observations
 
 
@@ -68,12 +68,13 @@ def test_caption_saved_during_sheet_generation_survives_completion(tmp_path, mon
     async def scenario():
         await service.create_character("probe", "she/her", lora_name="fixture.safetensors")
         await service.add_samples("probe", str(picture), "old observation")
+        approve_sheet(service, "probe")
         job = await service.generate_character_bible("probe")
         return job, await service.character_info("probe")
 
     job, record = asyncio.run(scenario())
-    if job["status"] != "completed" or during != ["new observation"] or len(comfy.submitted) != 23:
-        pytest.fail(f"reproduction setup failed: status={job['status']}, during={during}, panels={len(comfy.submitted)}")
+    if job["status"] != "completed" or during != ["new observation"] or len(panel_orders(comfy)) != 23:
+        pytest.fail(f"reproduction setup failed: status={job['status']}, during={during}, panels={len(panel_orders(comfy))}")
     assert record["samples"][0]["caption"] == "new observation", record["samples"]
     assert record["bible"]["job_id"] == job["job_id"]
 
@@ -113,9 +114,14 @@ def test_redraw_keeps_edits_saved_during_generation(tmp_path, monkeypatch, repla
     panel_root = tmp_path / "panels"
     panel_root.mkdir()
     (panel_root / "turn_front.png").write_bytes(png())
+    reference = tmp_path / "reference"
+    reference.mkdir()
+    (reference / "figure.png").write_bytes(png())
+    (reference / "head.png").write_bytes(png())
     initial_bible = {"job_id": "original", "panels_dir": str(panel_root),
-                     "loras": [["fixture.safetensors", 0.8]], "trigger": "probe",
+                     "reference_dir": str(reference),
                      "sheet_path": str(tmp_path / "sheet.png"), "html_path": str(tmp_path / "sheet.html"),
+                     "source": str(picture),
                      "at": "before redraw"}
     replacement_bible = {"job_id": "newer", "panels_dir": str(tmp_path / "new-panels"),
                          "sheet_path": str(tmp_path / "new-sheet.png"), "html_path": str(tmp_path / "new-sheet.html"),

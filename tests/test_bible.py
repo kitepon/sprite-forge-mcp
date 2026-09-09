@@ -12,6 +12,7 @@ from backend import bible, box
 from backend.bible import PANELS, panel_prompt, subject_tag
 from backend.events import EventStore
 from backend.services import Services
+from tests.test_style import approve_sheet, panel_orders
 
 
 def png(color: str = "#44aaff") -> bytes:
@@ -80,12 +81,10 @@ def test_three_stages_each_stop_for_correction(tmp_path, monkeypatch):
     record = run(service.set_caption("Bell", 1, "white long coat, hood"))
     record = run(service.remove_sample("Bell", 0))
     assert [s["index"] for s in record["samples"]] == [1] and not (tmp_path / "characters" / "Bell" / "samples" / "000.png").exists()
-    try:
+    with pytest.raises(ValueError, match="approve_character_sheet"):
         run(service.generate_character_bible("Bell"))
-    except ValueError as error:
-        assert "train_character_lora" in str(error)
-    else:
-        raise AssertionError("the bible must not train by itself")
+    with pytest.raises(ValueError, match="train_character_lora"):
+        run(service.generate_character_sheet("Bell"))
 
     # stage 2: train (only when asked), then preview in seconds
     from tests.test_training_materials import accept_observations
@@ -99,22 +98,31 @@ def test_three_stages_each_stop_for_correction(tmp_path, monkeypatch):
     assert comfy.submitted[-1]["4"]["inputs"]["lora_name"] == training["lora_name"] and comfy.submitted[-1]["23"]["inputs"]["seed"] == 8
     comfy.submitted.clear()
 
-    # stage 3: the sheet, then a redraw by words
+    # 第3段階: 合格シートを作成し、言葉で描き直す
+    character_sheet = run(service.generate_character_sheet("Bell", seed=1))
+    approved = service.approve_character_sheet("Bell", character_sheet["job_id"])
+    assert approved["approved_sheet_job_id"] == character_sheet["job_id"]
     job = run(service.generate_character_bible("Bell", seed=1))
-    assert job["status"] == "completed" and len(job["panels"]) == len(PANELS) == 23 and len(comfy.submitted) == 23
-    first = comfy.submitted[0]
-    assert first["20"]["inputs"]["text"] == "bell, 1girl, full body, standing, front view, looking at viewer, arms at sides, simple background, white background"
-    assert first["21"]["inputs"]["text"] == bible.NEGATIVE and first["22"]["inputs"]["width"] == 832
-    assert Image.open(job["sheet_path"]).width == 2040 and "TRAINING PICTURES" in open(job["html_path"], encoding="utf-8").read()
+    panels = panel_orders(comfy)
+    assert job["status"] == "completed" and len(job["panels"]) == len(PANELS) == 23 and len(panels) == 23
+    sam = comfy.submitted[-24]
+    assert sam["4"]["class_type"] == "SAM3_Detect" and sam["4"]["inputs"]["individual_masks"] is True
+    first = panels[0]
+    assert job["panel_requests"][0]["prompt"] == "bell, 1girl, full body, standing, front view, looking at viewer, arms at sides, simple background, white background"
+    assert first["20"]["inputs"]["prompt"] == job["panel_requests"][0]["instruction"]
+    assert first["21"]["inputs"]["prompt"] == job["panel_requests"][0]["negative"] and first["22"]["inputs"]["width"] == 832
+    assert "4" not in first and "40" not in first
+    assert Image.open(job["sheet_path"]).width == 2040 and "APPROVED REFERENCE SHEET" in open(job["html_path"], encoding="utf-8").read()
     assert run(service.character_info("Bell"))["bible"]["sheet_path"] == job["sheet_path"]
     redraw = run(service.redraw_panel("Bell", "cos_dress", "ball gown, floor-length dress", seed=9, avoid="frills, boots"))
     assert redraw["prompt"] == "bell, 1girl, ball gown, floor-length dress, simple background, white background"
-    assert comfy.submitted[-1]["21"]["inputs"]["text"] == bible.NEGATIVE + ", frills, boots" and redraw["previous"].endswith(".png")
+    assert comfy.submitted[-1]["21"]["inputs"]["prompt"] == bible.NEGATIVE + ", frills, boots" and redraw["previous"].endswith(".png")
+    assert comfy.submitted[-1]["20"]["inputs"]["prompt"] == redraw["instruction"]
     assert run(service.character_info("Bell"))["panel_overrides"] == {"cos_dress": {"tags": "ball gown, floor-length dress", "avoid": "frills, boots", "seed": 9}}
     comfy.submitted.clear()
     run(service.generate_character_bible("Bell", seed=1))  # the correction sticks for the next sheet
-    dress = comfy.submitted[[p.key for p in PANELS].index("cos_dress")]
-    assert dress["20"]["inputs"]["text"] == redraw["prompt"] and dress["21"]["inputs"]["text"].endswith("frills, boots") and dress["23"]["inputs"]["seed"] == 9
+    dress = panel_orders(comfy)[[p.key for p in PANELS].index("cos_dress")]
+    assert dress["20"]["inputs"]["prompt"] == redraw["instruction"] and dress["21"]["inputs"]["prompt"].endswith("frills, boots") and dress["23"]["inputs"]["seed"] == 9
     picture = run(service.generate_from_bible("Bell", "waving, stage", seed=5))
     assert comfy.submitted[-1]["20"]["inputs"]["text"] == "bell, waving, stage" and picture["lora_name"] == training["lora_name"]
     assert [c["name"] for c in run(service.list_characters())] == ["Bell"]
@@ -123,8 +131,11 @@ def test_three_stages_each_stop_for_correction(tmp_path, monkeypatch):
 def test_adopting_an_existing_lora_skips_training(tmp_path, monkeypatch):
     service, comfy = make(tmp_path, monkeypatch)
     asyncio.run(service.create_character("Bell", "she/her", lora_name="BellGrok.safetensors", trigger="bell_idol"))
+    approve_sheet(service, "Bell")
     job = asyncio.run(service.generate_character_bible("Bell"))
-    assert job["lora_name"] == "BellGrok.safetensors" and comfy.submitted[0]["20"]["inputs"]["text"].startswith("bell_idol, 1girl, ")
+    assert job["status"] == "completed"
+    assert job["panel_requests"][0]["prompt"].startswith("bell_idol, 1girl, ")
+    assert panel_orders(comfy)[0]["20"]["inputs"]["prompt"] == job["panel_requests"][0]["instruction"]
 
 
 def test_panel_prompts_carry_content_only_and_the_subject_comes_from_the_description():
@@ -151,6 +162,7 @@ def test_failed_regeneration_preserves_previous_bible_and_history(tmp_path, monk
     service, comfy = make(tmp_path, monkeypatch)
     run = asyncio.run
     run(service.create_character("Bell", "she/her", lora_name="bell.safetensors"))
+    approve_sheet(service, "Bell")
     first = run(service.generate_character_bible("Bell"))
     redraw = run(service.redraw_panel("Bell", "turn_front", "waving"))
     before = run(service.character_info("Bell"))
@@ -184,6 +196,7 @@ def test_successful_regeneration_publishes_new_paths_and_redraw_uses_them(tmp_pa
     service, _ = make(tmp_path, monkeypatch)
     run = asyncio.run
     run(service.create_character("Bell", "she/her", lora_name="bell.safetensors"))
+    approve_sheet(service, "Bell")
     first = run(service.generate_character_bible("Bell"))
     old_paths = [Path(p) for p in first["panels"] + [first["sheet_path"], first["html_path"]]]
     old_contents = {p: p.read_bytes() for p in old_paths}
@@ -206,6 +219,7 @@ def test_retry_panel_offers_candidates_and_adopting_one_replaces_only_that_panel
     async def distinct(_image): return png(next(colors))
     run = asyncio.run
     run(service.create_character("Bell", "she/her", lora_name="bell.safetensors"))
+    approve_sheet(service, "Bell")
     run(service.generate_character_bible("Bell", seed=1))
     before = run(service.character_info("Bell"))
     panel_path = Path(before["bible"]["panels_dir"]) / "turn_front.png"
@@ -213,11 +227,11 @@ def test_retry_panel_offers_candidates_and_adopting_one_replaces_only_that_panel
     service._view = distinct; comfy.submitted.clear()
 
     retry = run(service.retry_panel("Bell", "turn_front", count=4))
-    assert retry["status"] == "completed" and retry["kind"] == "panel_retry" and len(comfy.submitted) == 4
+    assert retry["status"] == "completed" and retry["kind"] == "panel_retry" and len(panel_orders(comfy)) == 4
     seeds = [c["seed"] for c in retry["candidates"]]
     assert len(set(seeds)) == 4 and retry["current_seed"] not in seeds
-    assert [w["23"]["inputs"]["seed"] for w in comfy.submitted] == seeds
-    assert all(w["20"]["inputs"]["text"] == retry["prompt"] for w in comfy.submitted)
+    assert [w["23"]["inputs"]["seed"] for w in panel_orders(comfy)] == seeds
+    assert all(w["20"]["inputs"]["prompt"] == retry["instruction"] for w in panel_orders(comfy))
     assert retry["prompt"] == "bell, 1girl, full body, standing, front view, looking at viewer, arms at sides, simple background, white background"
     candidate_bytes = [Path(c["path"]).read_bytes() for c in retry["candidates"]]
     assert len({b for b in candidate_bytes}) == 4 and all(Path(c["path"]).parent.name == "candidates" for c in retry["candidates"])
@@ -243,7 +257,7 @@ def test_retry_panel_offers_candidates_and_adopting_one_replaces_only_that_panel
     # 採用した seed は次の設定画へ引き継がれ、設定画を作り直した後は古い候補を採用できない
     service._view = view_image; comfy.submitted.clear()
     run(service.generate_character_bible("Bell", seed=1))
-    assert comfy.submitted[[p.key for p in PANELS].index("turn_front")]["23"]["inputs"]["seed"] == seeds[2]
+    assert panel_orders(comfy)[[p.key for p in PANELS].index("turn_front")]["23"]["inputs"]["seed"] == seeds[2]
     with pytest.raises(ValueError):
         run(service.adopt_panel("Bell", retry["job_id"], seeds[0]))
 
@@ -252,6 +266,7 @@ def test_redraw_supports_bibles_saved_before_versioned_paths(tmp_path, monkeypat
     service, _ = make(tmp_path, monkeypatch)
     run = asyncio.run
     run(service.create_character("Bell", "she/her", lora_name="bell.safetensors"))
+    approve_sheet(service, "Bell")
     run(service.generate_character_bible("Bell"))
     record = run(service.character_info("Bell"))
     info = record["bible"]

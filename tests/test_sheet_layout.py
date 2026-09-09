@@ -11,7 +11,7 @@ from backend.intent import IntentRequest, Proposal
 from backend.sheet_layout import LayoutUpdate, legacy_layout, panel_from
 from backend.panel_intent import resolve_panel
 from tests.test_sheet_panel_intent import change
-from tests.test_style import make
+from tests.test_style import approve_sheet, make, panel_orders
 
 
 def update(before, panels):
@@ -62,6 +62,7 @@ def test_generates_custom_panels_with_stable_seeds_and_old_sheet_keeps_its_layou
 
     async def scenario():
         await service.create_character("custom", "a quadrupedal dragon", lora_name="fixture.safetensors")
+        approve_sheet(service, "custom")
         before = await service.get_sheet_layout("custom")
         chosen = deepcopy([before[2], before[0]])
         for p, label in zip(chosen, ["SIDE", "FRONT"]):
@@ -71,9 +72,15 @@ def test_generates_custom_panels_with_stable_seeds_and_old_sheet_keeps_its_layou
             p["role_features"] = ["subject", "pose"]
         await service.save_sheet_layout("custom", update(before, chosen))
         first = await service.generate_character_bible("custom", seed=10)
-        assert first["total_panels"] == len(comfy.submitted) == 2
+        panels = panel_orders(comfy)
+        assert first["total_panels"] == len(panels) == 2
+        assert comfy.submitted[0]["4"]["class_type"] == "SAM3_Detect"
+        assert comfy.submitted[0]["4"]["inputs"]["individual_masks"] is True
         assert [r["seed"] for r in first["panel_requests"]] == [12, 10]
         assert all("human" in r["negative"] for r in first["panel_requests"])
+        assert [g["20"]["inputs"]["prompt"] for g in panels] == [
+            r["instruction"] for r in first["panel_requests"]
+        ]
         original_html = Path(first["html_path"]).read_text()
         assert "CREATURE" in original_html and "ALTERNATE COSTUMES" not in original_html
         after = deepcopy(chosen[::-1])
@@ -99,6 +106,7 @@ def test_layout_changes_invalidate_old_sheet_order_before_confirm_or_generate(tm
 
     async def scenario():
         await service.create_character("custom", "he/him", lora_name="fixture.safetensors")
+        approve_sheet(service, "custom")
         job = await service.save_comment(IntentRequest(name="custom", stage="sheet", comment="衣装を変更"))
         proposal = Proposal(observations=[], questions=[], changes=[])
         job.update(status="awaiting_confirmation", proposal=proposal.model_dump())
@@ -130,6 +138,7 @@ def test_more_than_23_panels_are_all_composed(tmp_path, monkeypatch):
 
     async def scenario():
         await service.create_character("custom", "he/him", lora_name="fixture.safetensors")
+        approve_sheet(service, "custom")
         before = await service.get_sheet_layout("custom")
         panels = []
         for i in range(29):
@@ -153,6 +162,7 @@ def test_layout_changed_during_generation_is_not_rolled_back(tmp_path, monkeypat
 
     async def scenario():
         await service.create_character("custom", "he/him", lora_name="fixture.safetensors")
+        approve_sheet(service, "custom")
         before = await service.get_sheet_layout("custom")
         chosen = before[:2]
         await service.save_sheet_layout("custom", update(before, chosen))
@@ -207,6 +217,7 @@ def test_panel_order_is_bound_to_the_actual_sheet_even_with_same_layout(tmp_path
 
     async def scenario():
         await service.create_character("custom", "he/him", lora_name="fixture.safetensors")
+        approve_sheet(service, "custom")
         before = await service.get_sheet_layout("custom")
         await service.save_sheet_layout("custom", update(before, before[:1]))
         await service.generate_character_bible("custom")
@@ -226,6 +237,7 @@ def test_old_sheet_keeps_redraw_metadata_when_a_new_sheet_finishes(tmp_path, mon
 
     async def scenario():
         await service.create_character("custom", "he/him", lora_name="fixture.safetensors")
+        approve_sheet(service, "custom")
         before = await service.get_sheet_layout("custom")
         await service.save_sheet_layout("custom", update(before, before[:1]))
         first = await service.generate_character_bible("custom")
