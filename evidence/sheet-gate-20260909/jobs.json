@@ -1,0 +1,34 @@
+{
+  "date": "2026-09-09",
+  "production_commit": "2cc745f",
+  "redeployed": false,
+  "character": {"name": "ベル", "key": "ndac1de01"},
+  "lora": ["ndac1de01_preference_f24a5a97-167b-492e-b7b1-85c6f767efe5.safetensors", 0.8],
+  "seed": 20260909,
+  "turbo": false,
+  "style": "",
+  "sheet": {
+    "job_id": "59129db2-7e0f-4d1d-aca4-bba1def5adb2",
+    "kind": "character_sheet",
+    "status": "completed",
+    "elapsed_s": 10.1,
+    "http_s": 11.0,
+    "size": [832, 1216],
+    "path": "/app/.cache/generated/59129db2-7e0f-4d1d-aca4-bba1def5adb2-character-sheet.png",
+    "approved_sheet": "/app/.cache/characters/ndac1de01/approved_sheet.png",
+    "sha1": "c4319cd91f220496e54cc5f2dec7bbe3a1560de8",
+    "judge": "pass"
+  },
+  "bible": {
+    "job_id": "ed77e95f-083a-4de8-9632-add6fef5a718",
+    "kind": "character_bible",
+    "status": "completed",
+    "http_s": 154.063,
+    "completed_panels": 24,
+    "total_panels": 24,
+    "source": "/app/.cache/characters/ndac1de01/approved_sheet.png",
+    "sheet_path": "/app/.cache/generated/bible_ndac1de01_ed77e95f-083a-4de8-9632-add6fef5a718.png",
+    "html_path": "/app/.cache/generated/bible_ndac1de01_ed77e95f-083a-4de8-9632-add6fef5a718.html",
+    "sheet_size": [2040, 4928]
+  }
+}
