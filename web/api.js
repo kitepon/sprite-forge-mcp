@@ -38,6 +38,8 @@ export const API = {
   confirmLayout: (jobId, proposal) => api(`/api/layout/${encodeURIComponent(jobId)}/confirm`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(proposal) }),
   discardLayout: jobId => api(`/api/layout/${encodeURIComponent(jobId)}/discard`, { method: 'POST' }),
   redraw: (name, panel, tags = "", seed = 1, avoid = "", intent_job_id = "", input_mode = "auto") => api(`/api/panel?${new URLSearchParams({ name, panel, tags, seed, avoid, intent_job_id, input_mode })}`, { method: "POST" }),
+  retryPanel: (name, panel, count = 4) => api(`/api/panel/retry?${new URLSearchParams({ name, panel, count })}`, { method: "POST" }),
+  adoptPanel: (name, job_id, seed) => api(`/api/panel/adopt?${new URLSearchParams({ name, job_id, seed })}`, { method: "POST" }),
   fromBible: (name, prompt, seed = 1, style = "", intent_job_id = "") => api(`/api/from-bible?${new URLSearchParams({ name, prompt, seed, style, intent_job_id })}`, { method: "POST" }),
   image: (prompt, style, seed = 1, intent_job_id = "") => api(`/api/image?${new URLSearchParams({ prompt, style, seed, intent_job_id })}`, { method: "POST" }),
   styles: () => api("/api/styles"),

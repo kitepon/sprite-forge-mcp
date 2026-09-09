@@ -1,4 +1,4 @@
-import { API } from './api.js?v=studio-3';
+import { API } from './api.js?v=studio-4';
 import { h, field, button, action, picture } from './ui.js?v=studio-3';
 import { draft, saveDraft, clearDraft } from './drafts.js?v=studio-3';
 import { flushCaptions } from './intent.js?v=studio-3';

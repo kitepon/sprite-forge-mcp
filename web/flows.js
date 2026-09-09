@@ -1,8 +1,8 @@
-import { API } from './api.js?v=studio-3';
+import { API } from './api.js?v=studio-4';
 import { layoutEditor } from './layout.js?v=studio-3';
 import { state } from './state.js?v=studio-3';
 import { h, icon, field, button, link, picture, empty, notice, action, pageHead, errorState, confirmAction } from './ui.js?v=studio-3';
-import { taskPanel } from './jobs.js?v=studio-3';
+import { taskPanel } from './jobs.js?v=studio-4';
 import { draft, saveDraft, clearDraft, pendingFiles } from './drafts.js?v=studio-3';
 import { commentEditor, referenceNotes, flushCaptions, saveCaption } from './intent.js?v=studio-3';
 import { learning } from './learning.js?v=studio-3';
@@ -214,7 +214,24 @@ async function redraw(target, name, rec, cleanup, updated) {
     }));
   }; paint();
   await loadComment();
-target.append(h('details', { class: 'redraw-editor' }, h('summary', {}, icon('tool'), '気になるところを描き直す'), h('div', { class: 'stack' }, h('p', { class: 'muted' }, '画像から直すパネルを選んでください。「このパネルに残す」は生成が成功してから保存し、「今回だけ」は次回へ残しません。'), picker, selectedTitle, commentBox, field('注文の使い方', mode, '採用した注文を使う時は、詳細設定の英語欄は使いません。'), advanced(field('英語の自由入力', tags, '自由入力はパネルの内容全体を置き換えます。採用した条件とは併用できません。'), field('避けたいもの（英語）', avoid), field('Seed', seed)), taskPanel({ kind: 'redraw_panel', name }, 'パネルの描き直し', '選んだパネルを描き直す', async () => { await panelEditor.save(); const interpreted = mode.value === 'intent'; return API.redraw(name, selected.key, interpreted ? '' : tags.value, number(seed), interpreted ? '' : avoid.value, interpreted ? panelEditor.confirmedJob() : '', mode.value); }, cleanup, job => {
+  // 出し直し候補: 同じ内容で seed だけ変えた 4 枚を並べ、選んだ一枚だけ設定画へ入れる。
+  const candidates = h('div', { class: 'stack retry-candidates' });
+  const showCandidates = job => {
+    const panel = panels.find(p => p.key === job.panel); const label = panel ? `${panel.section} · ${panel.label}` : job.panel;
+    const current = rec.bible?.panels_dir ? `${rec.bible.panels_dir}/${job.panel}.png` : '';
+    const adopt = candidate => e => action(e.currentTarget, async () => {
+      const done = await API.adoptPanel(name, job.job_id, candidate.seed);
+      notice(`${label}を候補で差し替えました。前の絵は履歴に残っています。`);
+      const fresh = await API.character(name); if (!target.isConnected) return; await refresh(fresh); updated(fresh); showCandidates(done);
+    });
+    candidates.replaceChildren(h('h3', {}, `${label} の出し直し候補`),
+      h('p', { class: 'muted' }, job.adopted ? '採用した一枚を設定画へ入れました。別の候補に変えることもできます。' : '気に入った一枚を選ぶと、設定画のこの項目だけ差し替わります。選ぶまで設定画は変わりません。'),
+      h('div', { class: 'result-grid' }, h('figure', {}, picture(current, `${label}（今の絵）`, { version: rec.bible?.at }), h('figcaption', {}, '今の絵')),
+        ...job.candidates.map((candidate, index) => { const adopted = job.adopted?.seed === candidate.seed; return h('figure', { class: adopted ? 'adopted' : '' }, picture(candidate.path, `${label} 候補 ${index + 1}`), h('figcaption', {}, `候補 ${index + 1}`, adopted ? h('span', { class: 'badge green' }, '採用中') : button('この一枚を採用', adopt(candidate), 'small-button'))); })));
+  };
+  target.append(h('div', { class: 'stack' }, h('h3', {}, '気になる項目を出し直す'), h('p', { class: 'muted' }, '項目を選んで押すと、同じ内容のまま seed だけ変えた 4 枚を描きます。気に入った一枚を選ぶまで設定画は変わりません。'), picker, selectedTitle,
+    taskPanel({ kind: 'panel_retry', name }, '項目の出し直し', 'この項目を 4 枚描き直す', async () => { await panelEditor.save(); return API.retryPanel(name, selected.key, 4); }, cleanup, showCandidates, { hideCompletedImages: true }), candidates));
+target.append(h('details', { class: 'redraw-editor' }, h('summary', {}, icon('tool'), '注文を付けて描き直す'), h('div', { class: 'stack' }, h('p', { class: 'muted' }, '上で選んだ項目に、言葉で注文を付けて描き直します。「このパネルに残す」は生成が成功してから保存し、「今回だけ」は次回へ残しません。'), commentBox, field('注文の使い方', mode, '採用した注文を使う時は、詳細設定の英語欄は使いません。'), advanced(field('英語の自由入力', tags, '自由入力はパネルの内容全体を置き換えます。採用した条件とは併用できません。'), field('避けたいもの（英語）', avoid), field('Seed', seed)), taskPanel({ kind: 'redraw_panel', name }, 'パネルの描き直し', '選んだパネルを描き直す', async () => { await panelEditor.save(); const interpreted = mode.value === 'intent'; return API.redraw(name, selected.key, interpreted ? '' : tags.value, number(seed), interpreted ? '' : avoid.value, interpreted ? panelEditor.confirmedJob() : '', mode.value); }, cleanup, job => {
     // The old picture remains visible in the result for side-by-side comparison.
     if (job.previous) { const previous = h('div', { class: 'comparison' }, h('h3', {}, '描き直す前'), picture(job.previous, '描き直す前')); const old = target.querySelector('.comparison'); old?.remove(); target.append(previous); }
     API.character(name).then(async fresh => { if (!target.isConnected) return; await refresh(fresh); updated(fresh); }).catch(error => notice(error.message, true));

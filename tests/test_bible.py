@@ -200,6 +200,54 @@ def test_successful_regeneration_publishes_new_paths_and_redraw_uses_them(tmp_pa
     assert all(p.read_bytes() == data for p, data in old_contents.items())
 
 
+def test_retry_panel_offers_candidates_and_adopting_one_replaces_only_that_panel(tmp_path, monkeypatch):
+    service, comfy = make(tmp_path, monkeypatch)
+    colors = iter(["#ff0000", "#00ff00", "#0000ff", "#ffff00", "#ff00ff"])
+    async def distinct(_image): return png(next(colors))
+    run = asyncio.run
+    run(service.create_character("Bell", "she/her", lora_name="bell.safetensors"))
+    run(service.generate_character_bible("Bell", seed=1))
+    before = run(service.character_info("Bell"))
+    panel_path = Path(before["bible"]["panels_dir"]) / "turn_front.png"
+    original = panel_path.read_bytes(); sheet_before = Path(before["bible"]["sheet_path"]).read_bytes()
+    service._view = distinct; comfy.submitted.clear()
+
+    retry = run(service.retry_panel("Bell", "turn_front", count=4))
+    assert retry["status"] == "completed" and retry["kind"] == "panel_retry" and len(comfy.submitted) == 4
+    seeds = [c["seed"] for c in retry["candidates"]]
+    assert len(set(seeds)) == 4 and retry["current_seed"] not in seeds
+    assert [w["23"]["inputs"]["seed"] for w in comfy.submitted] == seeds
+    assert all(w["20"]["inputs"]["text"] == retry["prompt"] for w in comfy.submitted)
+    assert retry["prompt"] == "bell, 1girl, full body, standing, front view, looking at viewer, arms at sides, simple background, white background"
+    candidate_bytes = [Path(c["path"]).read_bytes() for c in retry["candidates"]]
+    assert len({b for b in candidate_bytes}) == 4 and all(Path(c["path"]).parent.name == "candidates" for c in retry["candidates"])
+    # 候補を並べただけでは設定画も台帳も変わらない
+    assert panel_path.read_bytes() == original and run(service.character_info("Bell")) == before
+
+    adopted = run(service.adopt_panel("Bell", retry["job_id"], seeds[1]))
+    assert adopted["adopted"]["seed"] == seeds[1] and panel_path.read_bytes() == candidate_bytes[1]
+    history = Path(before["bible"]["panels_dir"]) / "history"
+    first_backup = history / f"turn_front-{retry['job_id'][:8]}-{seeds[1]}.png"
+    assert first_backup.read_bytes() == original and adopted["adopted"]["previous"] == str(first_backup)
+    after = run(service.character_info("Bell"))
+    assert after["bible"]["panel_overrides"]["turn_front"] == {"seed": seeds[1]} and after["panel_overrides"]["turn_front"] == {"seed": seeds[1]}
+    assert Path(after["bible"]["sheet_path"]).read_bytes() != sheet_before and after["bible"]["job_id"] == before["bible"]["job_id"]
+
+    # 同じ候補群から採用し直しても、直前の絵は別名で履歴に残る
+    run(service.adopt_panel("Bell", retry["job_id"], seeds[2]))
+    assert panel_path.read_bytes() == candidate_bytes[2]
+    assert (history / f"turn_front-{retry['job_id'][:8]}-{seeds[2]}.png").read_bytes() == candidate_bytes[1] and first_backup.read_bytes() == original
+    with pytest.raises(ValueError):
+        run(service.adopt_panel("Bell", retry["job_id"], 12345))
+
+    # 採用した seed は次の設定画へ引き継がれ、設定画を作り直した後は古い候補を採用できない
+    service._view = view_image; comfy.submitted.clear()
+    run(service.generate_character_bible("Bell", seed=1))
+    assert comfy.submitted[[p.key for p in PANELS].index("turn_front")]["23"]["inputs"]["seed"] == seeds[2]
+    with pytest.raises(ValueError):
+        run(service.adopt_panel("Bell", retry["job_id"], seeds[0]))
+
+
 def test_redraw_supports_bibles_saved_before_versioned_paths(tmp_path, monkeypatch):
     service, _ = make(tmp_path, monkeypatch)
     run = asyncio.run

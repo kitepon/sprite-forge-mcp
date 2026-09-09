@@ -1,7 +1,7 @@
-import { API } from './api.js?v=studio-3';
+import { API } from './api.js?v=studio-4';
 import { h, field, button, picture, notice } from './ui.js?v=studio-3';
 import { referenceNotes, commentEditor, flushCaptions, savedLearningExplanation } from './intent.js?v=studio-3';
-import { subscribe, jobs, refreshJobs, jobView, connectionError } from './jobs.js?v=studio-3';
+import { subscribe, jobs, refreshJobs, jobView, connectionError } from './jobs.js?v=studio-4';
 import { trainingMaterials } from './training.js?v=studio-3';
 import { draft, saveDraft } from './drafts.js?v=studio-3';
 

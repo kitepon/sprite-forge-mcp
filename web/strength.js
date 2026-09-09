@@ -1,4 +1,4 @@
-import { API } from './api.js?v=studio-3';
+import { API } from './api.js?v=studio-4';
 import { h, field, button, action } from './ui.js?v=studio-3';
 
 export function characterStrength(record) {

@@ -6,6 +6,7 @@ import hashlib
 import asyncio
 import base64
 import json
+import random
 import shutil
 import struct
 import time
@@ -513,15 +514,10 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         record = self._load_character(name) if name else {}
         return [{**value, "tags": panel_from(value).tags} for value in layout_for(record, generated=generated)]
 
-    async def redraw_panel(self, name: str, panel: str, tags: str = "", seed: int = 1, avoid: str = "",
-                           turbo: bool = False, intent_job_id: str = "", input_mode: str = "auto") -> dict[str, Any]:
-        """Fix one panel of a finished bible by instruction: redraw it with the same LoRA from
-        ``tags`` (content words; empty = the panel's default tags), ``avoid`` (words the picture
-        must not contain — diffusion ignores "no X" in the prompt, so they go to the negative side)
-        and ``seed``, then rebuild the sheet and HTML. Any panel, any words — the review-and-adjust step."""
-        record = self._load_character(name)
+    def _bible_source(self, record: dict[str, Any], panel: str):
+        """完成済み設定画の生成条件（構成・LoRA・呼び出し語・出力先）と、対象パネルの仕様を返す。"""
         if not record.get("bible"):
-            raise ValueError(f"{name!r} has no bible yet: generate_character_bible first")
+            raise ValueError(f"{record['name']!r} has no bible yet: generate_character_bible first")
         layout = layout_for(record, generated=True)
         specs = [panel_from(value) for value in layout]
         if "loras" in record["bible"]:
@@ -539,6 +535,31 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         spec = next((p for p in specs if p.key == panel), None)
         if spec is None:
             raise ValueError(f"unknown panel {panel!r}; see list_bible_panels")
+        return layout, specs, spec, chain, info
+
+    def _place_panel(self, name: str, info: dict[str, Any], specs, panel: str, content: bytes, tag: str):
+        """パネル画像を差し替え、旧画像を history/<panel>-<tag>.png へ退避し、シートと HTML を組み直す。"""
+        panel_root = Path(info["panels_dir"])
+        panel_path = panel_root / f"{panel}.png"
+        previous = panel_root / "history" / f"{panel}-{tag}.png"
+        previous.parent.mkdir(parents=True, exist_ok=True)
+        if panel_path.exists():
+            shutil.move(panel_path, previous)  # nothing is thrown away; the old panel stays in history/
+        panel_path.write_bytes(content)
+        panels = [(p.key, panel_root / f"{p.key}.png") for p in specs if (panel_root / f"{p.key}.png").is_file()]
+        anchor = Path(info["source"])
+        sheet = bible.compose_model_sheet(name, info.get("attr", ""), panels, anchor, Path(info["sheet_path"]), specs)
+        html = bible.write_html(name, info.get("attr", ""), panels, anchor, Path(info["html_path"]), specs)
+        return panel_path, previous, sheet, html
+
+    async def redraw_panel(self, name: str, panel: str, tags: str = "", seed: int = 1, avoid: str = "",
+                           turbo: bool = False, intent_job_id: str = "", input_mode: str = "auto") -> dict[str, Any]:
+        """Fix one panel of a finished bible by instruction: redraw it with the same LoRA from
+        ``tags`` (content words; empty = the panel's default tags), ``avoid`` (words the picture
+        must not contain — diffusion ignores "no X" in the prompt, so they go to the negative side)
+        and ``seed``, then rebuild the sheet and HTML. Any panel, any words — the review-and-adjust step."""
+        record = self._load_character(name)
+        layout, specs, spec, chain, info = self._bible_source(record, panel)
         intent = self._generation_intent(record, "character", "panel", intent_job_id, panel)
         overrides = deepcopy(record["bible"].get("panel_overrides", record.get("panel_overrides", {})))
         future_overrides = deepcopy(record.get("panel_overrides", {}))
@@ -575,17 +596,7 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
             if (record["bible"]["job_id"] == source_bible_id
                     and record["bible"].get("panel_overrides", overrides).get(panel) != overrides.get(panel)):
                 raise ValueError("同じ設定画のパネルが更新されています。今回の画像で上書きしていません。")
-            panel_root = Path(info["panels_dir"])
-            panel_path = panel_root / f"{panel}.png"
-            previous = panel_root / "history" / f"{panel}-{job_id[:8]}.png"
-            previous.parent.mkdir(parents=True, exist_ok=True)
-            if panel_path.exists():
-                shutil.move(panel_path, previous)  # nothing is thrown away; the old panel stays in history/
-            panel_path.write_bytes(bible.crop_nonwhite(content))
-            panels = [(p.key, panel_root / f"{p.key}.png") for p in specs if (panel_root / f"{p.key}.png").is_file()]
-            anchor = Path(info["source"])
-            sheet = bible.compose_model_sheet(name, info.get("attr", ""), panels, anchor, Path(info["sheet_path"]), specs)
-            html = bible.write_html(name, info.get("attr", ""), panels, anchor, Path(info["html_path"]), specs)
+            panel_path, previous, sheet, html = self._place_panel(name, info, specs, panel, bible.crop_nonwhite(content), job_id[:8])
             artifact_overrides = deepcopy(overrides)
             if typed:
                 if any(c["scope"] == "panel" for c in intent["intent_changes"]):
@@ -612,6 +623,74 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
                        sheet_path=str(sheet), html_path=str(html), elapsed_s=elapsed)
             self.events.save_job(job); self.events.append(job_id, "panel_completed", {"panel": panel, "path": str(panel_path), "elapsed_s": elapsed})
             return job
+
+    async def retry_panel(self, name: str, panel: str, count: int = 4, turbo: bool = False) -> dict[str, Any]:
+        """同じ内容・同じ LoRA で、seed だけ変えた候補を ``count`` 枚描く。設定画はまだ変えない。
+        気に入った一枚は ``adopt_panel`` で差し替える。複数の顔や身体が混ざった項目の出し直し用。"""
+        record = self._load_character(name)
+        layout, specs, spec, chain, info = self._bible_source(record, panel)
+        if count < 1:
+            raise ValueError("候補は 1 枚以上を指定してください。")
+        overrides = deepcopy(record["bible"].get("panel_overrides", record.get("panel_overrides", {})))
+        saved = overrides.get(panel, {})
+        intent = self._generation_intent(record, "character", "panel", "", panel)
+        request = resolve_panel(spec, info["trigger"], info["char_desc"], intent["intent_conditions"], [], saved)
+        current_seed = saved.get("seed", record["bible"].get("seed", 1) + next(p["seed_offset"] for p in layout if p["key"] == panel))
+        seeds: list[int] = []
+        while len(seeds) < count:
+            candidate = random.randrange(1, 2**31)
+            if candidate != current_seed and candidate not in seeds:
+                seeds.append(candidate)
+        job_id = str(uuid.uuid4())
+        job = {"job_id": job_id, "kind": "panel_retry", "status": "queued", "name": name, "panel": panel,
+               "prompt": request["prompt"], "negative": request["negative"], "seeds": seeds, "current_seed": current_seed,
+               "total_images": count, "candidates": [], "lora_name": info["lora_name"], "loras": chain,
+               "source_bible": record["bible"]["job_id"], "panel_override": deepcopy(saved), **intent}
+        self.events.save_job(job); self._record_call("retry_panel", job_id, {"name": name, "panel": panel, "count": count})
+        self.events.append(job_id, "queued", {"prompt": request["prompt"], "seeds": seeds})
+        with self._job_errors(job):
+            width, height = bible.size(spec)
+            root = Path(info["panels_dir"]) / "candidates"
+            root.mkdir(parents=True, exist_ok=True)
+            candidates: list[dict[str, Any]] = []
+            for index, seed in enumerate(seeds):
+                content, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
+                    request["prompt"], seed, turbo=turbo, loras=chain, negative=request["negative"], width=width, height=height))
+                path = root / f"{panel}-{job_id[:8]}-{index}.png"
+                path.write_bytes(bible.crop_nonwhite(content))
+                candidates.append({"seed": seed, "path": str(path), "elapsed_s": elapsed})
+                job.update(status="running", candidates=list(candidates))
+                self.events.save_job(job)
+            job.update(status="completed", candidates=candidates)
+            self.events.save_job(job); self.events.append(job_id, "image_completed", {"panel": panel, "pictures": [c["path"] for c in candidates]})
+            return job
+
+    async def adopt_panel(self, name: str, job_id: str, seed: int) -> dict[str, Any]:
+        """``retry_panel`` の候補から一枚を選んで設定画へ入れる。旧画像は history/ に残し、
+        選んだ seed を次回の設定画にも引き継ぐ。"""
+        job = self.events.load_job(job_id)
+        if not job or job.get("kind") != "panel_retry" or job["status"] != "completed" or job["name"] != name:
+            raise ValueError("この項目の出し直し候補が見つかりません。")
+        chosen = next((c for c in job["candidates"] if c["seed"] == seed), None)
+        if chosen is None:
+            raise ValueError("指定した seed の候補はありません。")
+        record = self._load_character(name)
+        if record["bible"]["job_id"] != job["source_bible"]:
+            raise ValueError("候補を作った後に設定画が作り直されています。今の設定画で出し直してください。")
+        panel = job["panel"]
+        layout, specs, spec, chain, info = self._bible_source(record, panel)
+        # 同じ候補群から採用し直しても、直前の絵がそれぞれ history/ に残るよう seed で名前を分ける。
+        panel_path, previous, sheet, html = self._place_panel(name, info, specs, panel, Path(chosen["path"]).read_bytes(), f"{job_id[:8]}-{seed}")
+        override = {**job["panel_override"], "seed": seed}
+        record["bible"].setdefault("panel_overrides", {})[panel] = deepcopy(override)
+        record["bible"]["at"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        if panel in matching_keys(layout, layout_for(record)):
+            record.setdefault("panel_overrides", {})[panel] = deepcopy(override)
+        self._save_character(record)
+        job.update(adopted={"seed": seed, "path": str(panel_path), "previous": str(previous) if previous.exists() else None,
+                            "sheet_path": str(sheet), "html_path": str(html)})
+        self.events.save_job(job); self.events.append(job_id, "panel_completed", {"panel": panel, "path": str(panel_path), "seed": seed})
+        return job
 
     async def _resolve_image(self, ref: str) -> Path:
         """One entry point for every picture an owner or Bot brings in: a path or id inside the
