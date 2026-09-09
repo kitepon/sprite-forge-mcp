@@ -20,7 +20,9 @@ async def interpret(job: dict, images: list[bytes], *, comfy=None, keep_model_lo
             payload["sheet_layout"] = job.get("working_layout", job["sheet_layout"])
         else:
             payload["panel_specs"] = job.get("panel_specs", [])
-            payload["training_captions"] = job.get("training_captions", [])
+            if job["stage"] in ("samples", "training"):
+                # 教材説明は学習工程だけ渡す。生成工程へ渡すと学習欄を埋め始め、JSON が切れる。
+                payload["training_captions"] = job.get("training_captions", [])
     result = await execute(payload, images, comfy=comfy, keep_model_loaded=keep_model_loaded,
                            reclaim_memory=reclaim_memory)
     job["interpreter"] = {key: result[key] for key in ("model", "elapsed_seconds", "auth")}

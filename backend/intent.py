@@ -66,10 +66,15 @@ class TrainingSample(StrictModel):
     reason_ja: str
 
 
-class Proposal(StrictModel):
+class GenerationProposal(StrictModel):
+    """生成工程の解釈案。学習欄はスキーマに載せない（出力切断の原因になる）。"""
+
     observations: list[Observation]
     changes: list[Change]
     questions: list[str]
+
+
+class Proposal(GenerationProposal):
     training_samples: list[TrainingSample] | None = None
 
 
