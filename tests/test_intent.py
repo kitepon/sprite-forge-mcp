@@ -269,8 +269,16 @@ def test_sheet_keeps_reference_layout():
     prompt = sheet_content(conditions)
     assert prompt == (
         "character reference sheet, multiple views, turnaround, front view, side view, back view, "
-        "expression sheet, neutral, smile, angry, sad, blue jacket")
+        "blue jacket")
+    assert "expression sheet" not in prompt
     assert generation_negative(sheet_conditions(conditions)) == bible.QUALITY_NEGATIVE
+    with_expression = {
+        **conditions,
+        "expression": proposal(feature="expression", text="slight smile")["changes"][0],
+    }
+    assert sheet_content(with_expression) == (
+        "character reference sheet, multiple views, turnaround, front view, side view, back view, "
+        "blue jacket, slight smile")
 
 
 def test_preview_interpretation_receives_stage_defaults_without_persisting_them(tmp_path, monkeypatch):

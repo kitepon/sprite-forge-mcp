@@ -15,7 +15,6 @@ PREVIEW_TAGS = "full body, standing, front view, looking at viewer"
 SHEET_CONDITIONS = {
     "composition": {"description_en": "character reference sheet, multiple views", "avoid_en": ""},
     "pose": {"description_en": "turnaround, front view, side view, back view", "avoid_en": ""},
-    "expression": {"description_en": "expression sheet, neutral, smile, angry, sad", "avoid_en": ""},
 }
 DRAWING_CONDITIONS = {"composition": {"description_en": "", "avoid_en": SINGLE_VIEW_NEGATIVE}}
 PREVIEW_CONDITIONS = {
@@ -163,7 +162,7 @@ def preview_content(tags: str, conditions: dict) -> str:
 
 
 def sheet_conditions(conditions: dict) -> dict:
-    """一枚シートは参照シートの構図を保つ。プレビューの単体全身へ戻さない。"""
+    """一枚シートは向きの参照シート構図を保つ。表情は台帳にあるときだけ足す。"""
     extras = {key: value for key, value in conditions.items() if key not in SHEET_CONDITIONS}
     return {**SHEET_CONDITIONS, **extras}
 
