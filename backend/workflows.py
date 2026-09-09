@@ -67,8 +67,10 @@ def toonout(image_name: str) -> Graph:
     return {"1":{"class_type":"LoadImage","inputs":{"image":image_name}},"2":{"class_type":"BiRefNetRMBG","inputs":{"image":["1",0],"model":"BiRefNet_toonout","sensitivity":1.0,"mask_blur":0,"mask_offset":0,"invert_output":False,"refine_foreground":False,"background":"Alpha","background_color":"#222222"}},"3":{"class_type":"SaveImage","inputs":{"images":["2",0],"filename_prefix":"sprite-forge/toonout"}}}
 
 
-def sam3_mask(image_name: str, prompt: str = "character", points: str | None = None) -> Graph:
-    detect: dict[str, Any]={"model":["1",0],"image":["3",0],"threshold":.5,"refine_iterations":2,"individual_masks":False,"conditioning":["2",0]}
+def sam3_mask(image_name: str, prompt: str = "character", points: str | None = None, *,
+              individual: bool = False) -> Graph:
+    """SAM 3.1 のマスク。``individual`` は見つけた対象を一体ずつ別のマスクで返す。"""
+    detect: dict[str, Any]={"model":["1",0],"image":["3",0],"threshold":.5,"refine_iterations":2,"individual_masks":individual,"conditioning":["2",0]}
     if points: detect["positive_coords"]=points
     return {"1":{"class_type":"CheckpointLoaderSimple","inputs":{"ckpt_name":"sam3.1_multiplex_fp16.safetensors"}},"2":{"class_type":"CLIPTextEncode","inputs":{"text":prompt,"clip":["1",1]}},"3":{"class_type":"LoadImage","inputs":{"image":image_name}},"4":{"class_type":"SAM3_Detect","inputs":detect},"5":{"class_type":"MaskToImage","inputs":{"mask":["4",0]}},"6":{"class_type":"SaveImage","inputs":{"images":["5",0],"filename_prefix":"sprite-forge/sam3-mask"}}}
 

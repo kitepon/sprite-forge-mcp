@@ -1,8 +1,9 @@
-"""Character bible (model sheet), LoRA edition.
+"""Character bible (model sheet), drawn from the approved reference sheet.
 
-The owner brings pictures of a character (usually made elsewhere). A LoRA is trained on them,
-and every panel is drawn by Anima + that LoRA from content tags only (view, expression, outfit,
-chibi, item). The LoRA carries the character and the look; the product never describes a style.
+The owner brings pictures of a character, a LoRA is trained on them, and one sheet is drawn and
+approved. Every panel of the bible is then drawn by the edit model from a single figure cut out of
+that approved sheet, so the panels show the character the owner accepted. Content (view, expression,
+outfit, chibi, item) comes from the panel and the owner's order; the product never describes a style.
 """
 from __future__ import annotations
 
@@ -155,6 +156,44 @@ def crop_nonwhite(content: bytes, pad: int = 10) -> bytes:
     return _png(rgb.crop((max(left - pad, 0), max(top - pad, 0), min(right + pad, rgb.width), min(bottom + pad, rgb.height))))
 
 
+def figure_mask(masks: list[bytes]) -> Image.Image:
+    """SAM が個体ごとに返したマスクから、参照にする一体を選ぶ。設定画は全身の情報が要るので、
+    最も背の高い一体を採る。"""
+    found = []
+    for content in masks:
+        mask = _load(content).convert("L").point(lambda v: 255 if v > 127 else 0)
+        box = mask.getbbox()
+        if box:
+            found.append((box[3] - box[1], mask))
+    if not found:
+        raise ValueError("合格シートから人物を見つけられませんでした。")
+    return max(found, key=lambda pair: pair[0])[1]
+
+
+def figure_on_white(sheet: Path, mask: Image.Image) -> Image.Image:
+    """マスクで選んだ人物一体を白地へ移し、その輪郭で切る。編集モデルは参照の構図を出力へ写すので、
+    設定画のパネルを一体で描かせるには、参照も一体でなければならない。余白は足さない——隣の人物の
+    裾が入ると、編集モデルが二体を描く。"""
+    box = mask.getbbox()
+    if box is None:
+        raise ValueError(f"合格シートの人物マスクが空です: {sheet}")
+    rgb = Image.open(sheet).convert("RGB")
+    white = Image.new("RGB", rgb.size, (255, 255, 255))
+    return Image.composite(rgb, white, mask).crop(box)
+
+
+def head_crop(figure: Image.Image, share: float = .34) -> Image.Image:
+    """顔だけを求めるパネルへ見せる参照。全身を渡すと全身で返るため、人物の上部だけを切る。"""
+    head = figure.crop((0, 0, figure.width, max(1, round(figure.height * share))))
+    box = _ink_mask(head).getbbox()
+    return head.crop(box) if box else head
+
+
+def reference_key(panel: Panel) -> str:
+    """そのパネルで見せる参照の種類。顔のパネルだけ頭部、それ以外は人物一体を渡す。"""
+    return "head" if panel.kind == "face" else "figure"
+
+
 def palette(rgb: Image.Image, k: int = 7) -> list[tuple[int, int, int]]:
     mask = _ink_mask(rgb).get_flattened_data()
     pixels = [px for px, keep in zip(rgb.convert("RGB").get_flattened_data(), mask) if keep]
@@ -209,9 +248,9 @@ def sheet_rows(specs):
     return rows
 
 
-def compose_model_sheet(name: str, attr: str, panels: list[tuple[str, Path]], master: Path,
+def compose_model_sheet(name: str, attr: str, panels: list[tuple[str, Path]], reference: Path,
                         destination: Path, specs: list[Panel] | None = None) -> Path:
-    """Compose the sectioned bible PNG: the training pictures, then every section, then the palette."""
+    """Compose the sectioned bible PNG: the approved reference sheet, then every section, then the palette."""
     imgs = {key: Image.open(path).convert("RGB") for key, path in panels}
     specs = list(PANELS) if specs is None else specs
     rows = sheet_rows(specs)
@@ -250,8 +289,8 @@ def compose_model_sheet(name: str, attr: str, panels: list[tuple[str, Path]], ma
     d.rectangle([0, 0, W, 96], fill=(28, 31, 38))
     d.text((40, 22), "CHARACTER BIBLE", font=fT, fill=(242, 242, 245))
     d.text((44, 72), f"{name}  ·  {attr}  ·  sprite-forge model sheet", font=fSub, fill=(165, 176, 192))
-    y = sec("TRAINING PICTURES (LoRA material)", 120)
-    m = Image.open(master).convert("RGB")
+    y = sec("APPROVED REFERENCE SHEET (source of these panels)", 120)
+    m = Image.open(reference).convert("RGB")
     sc = min((W - 80) / m.width, 520 / m.height)
     m = m.resize((int(m.width * sc), int(m.height * sc)), Image.LANCZOS)
     sheet.paste(m, (40 + (W - 80 - m.width) // 2, y))
@@ -279,7 +318,7 @@ def _b64(image: Image.Image, maxpx: int = 560) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-def write_html(name: str, attr: str, panels: list[tuple[str, Path]], master: Path, destination: Path,
+def write_html(name: str, attr: str, panels: list[tuple[str, Path]], reference: Path, destination: Path,
                specs: list[Panel] | None = None) -> Path:
     """Self-contained (base64) HTML bible with the same sections as the PNG."""
     imgs = {key: Image.open(path) for key, path in panels}
@@ -291,12 +330,12 @@ def write_html(name: str, attr: str, panels: list[tuple[str, Path]], master: Pat
            "border-left:4px solid #4682dc;padding-left:10px}.wrap{padding:0 20px 40px}"
            ".row{display:flex;flex-wrap:wrap;gap:14px;padding:0 8px}.cell{background:#1d2026;border:1px solid #333;"
            "border-radius:10px;padding:8px;text-align:center}.cell img{max-height:300px;max-width:240px;display:block;border-radius:6px;background:#fff}"
-           ".cell span{font-size:12px;color:#9aa3b2;display:block;margin-top:6px}.master img{max-width:96%;border-radius:10px;background:#fff}"
+           ".cell span{font-size:12px;color:#9aa3b2;display:block;margin-top:6px}.reference img{max-width:96%;border-radius:10px;background:#fff}"
            ".pal{display:flex;gap:10px;padding:0 16px;flex-wrap:wrap}.sw{width:88px}.sw div{height:48px;border-radius:6px;border:1px solid #555}"
            ".sw code{font-size:11px;color:#9aa3b2}")
     parts = [f"<!doctype html><meta charset=utf-8><title>{escape(name)} — character bible</title><style>{css}</style>",
              f"<header><h1>{escape(name)}</h1><div style='color:#9aa3b2'>{escape(attr or 'character bible')} · sprite-forge</div></header><div class=wrap>",
-             f"<h2>TRAINING PICTURES</h2><div class='row master'><div class=cell><img src='{_b64(Image.open(master), 1400)}'></div></div>"]
+             f"<h2>APPROVED REFERENCE SHEET</h2><div class='row reference'><div class=cell><img src='{_b64(Image.open(reference), 1400)}'></div></div>"]
     for title, keys, *_ in sheet_rows(specs):
         parts.append(f"<h2>{escape(title)}</h2><div class=row>")
         for key in keys:
