@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import unittest
+import unittest.mock
 from io import BytesIO
 
 from PIL import Image, UnidentifiedImageError
@@ -128,12 +129,29 @@ class IntentCliTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'Comfyが渡されていない'):
             asyncio.run(execute(EMPTY, [], comfy=None))
 
-    def test_busy_gpu_is_an_error(self) -> None:
+    def test_busy_gpu_waits_until_idle(self) -> None:
         comfy = FakeComfy()
         comfy.queue_running = [{'prompt_id': 'busy'}]
-        with self.assertRaisesRegex(RuntimeError, 'GPUが生成中なので解釈を始められない'):
-            asyncio.run(execute(EMPTY, [], comfy=comfy))
-        self.assertEqual(comfy.freed, 0)
+        polls = {'n': 0}
+        original_queue = comfy.queue
+
+        async def queue_then_clear():
+            polls['n'] += 1
+            await original_queue()
+            if polls['n'] >= 2:
+                comfy.queue_running = []
+            return {'queue_running': list(comfy.queue_running), 'queue_pending': list(comfy.queue_pending)}
+
+        comfy.queue = queue_then_clear
+
+        async def instant(_seconds):
+            return None
+
+        with unittest.mock.patch('backend.intent_cli.asyncio.sleep', instant):
+            result = asyncio.run(execute(EMPTY, [], comfy=comfy))
+        self.assertGreaterEqual(polls['n'], 2)
+        self.assertEqual(comfy.freed, 1)
+        self.assertEqual(result['model'], MODEL)
 
     def test_text_only_reclaims_then_unloads(self) -> None:
         comfy = FakeComfy()

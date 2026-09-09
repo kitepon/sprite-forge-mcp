@@ -236,15 +236,22 @@ def _validate(model, raw: str):
         raise RuntimeError(f"解釈のJSONがスキーマに合いません: {error}") from error
 
 
+async def _wait_until_idle(comfy) -> None:
+    """描画と解釈は同一GPUなので、キューが空いてから解釈を始める。"""
+    while True:
+        queue = await comfy.queue()
+        if not queue.get("queue_running") and not queue.get("queue_pending"):
+            return
+        await asyncio.sleep(1)
+
+
 async def execute(payload: dict, images: list[bytes], *, comfy, keep_model_loaded: bool = False,
                   reclaim_memory: bool = True) -> dict:
     if comfy is None:
         raise RuntimeError("Comfyが渡されていない")
     started = time.monotonic()
     if reclaim_memory:
-        queue = await comfy.queue()
-        if queue.get("queue_running") or queue.get("queue_pending"):
-            raise RuntimeError("GPUが生成中なので解釈を始められない")
+        await _wait_until_idle(comfy)
         await comfy.free()
     model = _stage_model(payload)
     schema = _strict_schema(model)
