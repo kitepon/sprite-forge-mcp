@@ -391,6 +391,67 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
             self.events.save_job(job); self.events.append(job_id, "image_completed", {"pictures": [p["path"] for p in pictures]})
             return job
 
+    @staticmethod
+    def _sheet_anchor(record: dict[str, Any], fallback: Path | str) -> Path:
+        return Path(record.get("approved_sheet") or record.get("samples_sheet") or fallback)
+
+    async def generate_character_sheet(self, name: str, seed: int = 1, style: str = "", turbo: bool = False,
+                                       intent_job_id: str = "") -> dict[str, Any]:
+        """学習済み LoRA で一枚のキャラクターシートを描く。合否は approve_character_sheet で残す。学習は始めない。"""
+        record = self._load_character(name)
+        if not record.get("lora_name"):
+            raise ValueError(f"{name!r} has no LoRA yet: train_character_lora first")
+        intent = self._generation_intent(record, "character", "preview", intent_job_id)
+        chain, style_word, style = self._generation_loras(record, style, intent)
+        job_id = str(uuid.uuid4())
+        content = preview_content(PREVIEW_TAGS, intent["intent_conditions"])
+        subject = "" if "subject" in intent["intent_conditions"] else bible.subject_tag(record["char_desc"])
+        background = "" if "background" in intent["intent_conditions"] else bible.COMMON
+        prompt = ", ".join(part for part in (record["trigger"], style_word, subject, content, background) if part)
+        negative = generation_negative(intent["intent_conditions"])
+        job = {"job_id": job_id, "kind": "character_sheet", "status": "queued", "name": name, "prompt": prompt,
+               "seed": seed, "loras": chain, "style": style, "negative": negative,
+               "character_created": record["created"], **intent}
+        self.events.save_job(job)
+        self._record_call("generate_character_sheet", job_id, {"name": name, "seed": seed})
+        with self._job_errors(job):
+            image, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
+                prompt, seed, turbo=turbo, loras=chain, negative=negative, width=832, height=1216))
+            path = self._write_generated(f"{job_id}-character-sheet.png", image)
+            job.update(status="completed", path=str(path), elapsed_s=elapsed)
+            self.events.save_job(job)
+            self.events.append(job_id, "image_completed", {"path": str(path), "elapsed_s": elapsed})
+            record = self._load_character(name)
+            record["pending_sheet"] = str(path)
+            record["pending_sheet_job_id"] = job_id
+            self._save_character(record)
+            return job
+
+    async def regenerate_character_sheet(self, name: str, seed: int = 0, style: str = "", turbo: bool = False,
+                                         intent_job_id: str = "") -> dict[str, Any]:
+        """不合格の一枚を、同じ経路でもう一度描く。学習は始めない。"""
+        if seed <= 0:
+            seed = random.randrange(1, 2**31)
+        return await self.generate_character_sheet(name, seed=seed, style=style, turbo=turbo,
+                                                   intent_job_id=intent_job_id)
+
+    def approve_character_sheet(self, name: str, job_id: str) -> dict[str, Any]:
+        """合格した一枚シートを台帳へ残し、次の設定画の起点にする。"""
+        record = self._load_character(name)
+        job = self.events.load_job(job_id)
+        if not job or job.get("kind") != "character_sheet" or job.get("name") != record["name"]:
+            raise ValueError("このキャラクターの一枚シートを指定してください。")
+        if job.get("status") != "completed" or not job.get("path"):
+            raise ValueError("生成が完了した一枚シートを指定してください。")
+        source = Path(job["path"])
+        if not source.is_file():
+            raise FileNotFoundError(f"image not found: {source}")
+        dest = self._character_dir(name) / "approved_sheet.png"
+        dest.write_bytes(source.read_bytes())
+        record["approved_sheet"] = str(dest)
+        record["approved_sheet_job_id"] = job_id
+        return self._save_character(record)
+
     async def generate_character_bible(self, name: str, seed: int = 1, turbo: bool = False,
                                        attr: str = "", style: str = "", intent_job_id: str = "") -> dict[str, Any]:
         """確認済みの構成で設定画を作る。学習は独立した明示操作のまま。"""
@@ -436,7 +497,7 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
                 job.update(completed_panels=len(panels), panels=[str(path) for _, path in panels])
                 self.events.save_job(job)
                 self.events.append(job_id, "panel_completed", {"panel": panel.key, "path": str(panel_path), "elapsed_s": elapsed})
-            anchor = Path(record.get("samples_sheet") or panels[0][1])
+            anchor = self._sheet_anchor(record, panels[0][1])
             sheet = bible.compose_model_sheet(name, attr, panels, anchor, self.generated_root / f"bible_{key}_{job_id}.png", specs)
             html = bible.write_html(name, attr, panels, anchor, self.generated_root / f"bible_{key}_{job_id}.html", specs)
             record = self._load_character(name)
@@ -449,10 +510,11 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
                                                    {r["panel"]: r["seed"] for r in requests}, intent_job_id)
             record["bible"] = {"job_id": job_id, "sheet_path": str(sheet), "html_path": str(html), "panels_dir": str(panel_root),
                                "layout": layout, "panel_overrides": artifact_overrides, "loras": chain, "trigger": trigger,
-                               "attr": attr, "seed": seed, "style": job["style"], "at": datetime.now(UTC).isoformat().replace("+00:00", "Z")}
+                               "attr": attr, "seed": seed, "style": job["style"], "source": str(anchor),
+                               "at": datetime.now(UTC).isoformat().replace("+00:00", "Z")}
             self._save_character(record)
             job.update(status="completed", completed_panels=len(panels), panels=[str(path) for _, path in panels],
-                       sheet_path=str(sheet), html_path=str(html))
+                       sheet_path=str(sheet), html_path=str(html), source=str(anchor))
             self.events.save_job(job)
             self.events.append(job_id, "completed", {"sheet_path": str(sheet), "html_path": str(html), "lora_name": lora_name})
             return job
@@ -531,7 +593,7 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         info = {"trigger": trigger, "char_desc": record["char_desc"],
                 "lora_name": chain[0][0], "panels_dir": record["bible"]["panels_dir"], "attr": record["bible"].get("attr", ""),
                 "sheet_path": record["bible"]["sheet_path"], "html_path": record["bible"]["html_path"],
-                "source": record.get("samples_sheet") or str(Path(record["bible"]["panels_dir"]) / f"{specs[0].key}.png")}
+                "source": str(self._sheet_anchor(record, Path(record["bible"]["panels_dir"]) / f"{specs[0].key}.png"))}
         spec = next((p for p in specs if p.key == panel), None)
         if spec is None:
             raise ValueError(f"unknown panel {panel!r}; see list_bible_panels")
