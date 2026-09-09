@@ -58,3 +58,7 @@ HANDOFF.md
 
 # Private comparison inputs and raw model replies (never publish)
 evidence/user-intent-agent-20260905/private/
+
+# Probe output images (large; the scripts and README carry the findings)
+evidence/bible-sheet-source-20260910/out*/
+evidence/bible-sheet-source-20260910/crops/
