@@ -12,6 +12,11 @@ RecordKind = Literal["character", "style"]
 Stage = Literal["samples", "training", "preview", "sheet", "panel", "drawing", "layout"]
 Feature = Literal["face", "hair", "outfit", "style", "expression", "pose", "accessory", "background", "subject", "composition", "lighting"]
 PREVIEW_TAGS = "full body, standing, front view, looking at viewer"
+SHEET_CONDITIONS = {
+    "composition": {"description_en": "character reference sheet, multiple views", "avoid_en": ""},
+    "pose": {"description_en": "turnaround, front view, side view, back view", "avoid_en": ""},
+    "expression": {"description_en": "expression sheet, neutral, smile, angry, sad", "avoid_en": ""},
+}
 DRAWING_CONDITIONS = {"composition": {"description_en": "", "avoid_en": SINGLE_VIEW_NEGATIVE}}
 PREVIEW_CONDITIONS = {
     "composition": {**DRAWING_CONDITIONS["composition"], "description_en": "full body"},
@@ -155,6 +160,16 @@ def preview_content(tags: str, conditions: dict) -> str:
     if tags and tags != PREVIEW_TAGS:
         raise ValueError("英語の自由入力と解釈した注文は同時に使えません。自由入力の内容を制作への注文に含めて解釈してください。")
     return prompt_parts({**PREVIEW_CONDITIONS, **conditions})[0]
+
+
+def sheet_conditions(conditions: dict) -> dict:
+    """一枚シートは参照シートの構図を保つ。プレビューの単体全身へ戻さない。"""
+    extras = {key: value for key, value in conditions.items() if key not in SHEET_CONDITIONS}
+    return {**SHEET_CONDITIONS, **extras}
+
+
+def sheet_content(conditions: dict) -> str:
+    return prompt_parts(sheet_conditions(conditions))[0]
 
 
 def generation_negative(conditions: dict) -> str:

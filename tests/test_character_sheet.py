@@ -4,8 +4,21 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from backend import bible
 from backend.services import Services
 from tests.test_style import make, png
+
+
+def assert_reference_sheet(job, graph, seed):
+    assert job["kind"] == "character_sheet" and job["status"] == "completed"
+    assert job["seed"] == seed and job["prompt"] == graph["20"]["inputs"]["text"]
+    assert job["negative"] == graph["21"]["inputs"]["text"] == bible.QUALITY_NEGATIVE
+    assert graph["22"]["inputs"]["width"] == 1216 and graph["22"]["inputs"]["height"] == 832
+    assert "character reference sheet" in job["prompt"]
+    assert "turnaround, front view, side view, back view" in job["prompt"]
+    assert "expression sheet, neutral, smile, angry, sad" in job["prompt"]
+    assert "full body, standing, front view, looking at viewer" not in job["prompt"]
+    assert bible.SINGLE_VIEW_NEGATIVE not in job["negative"]
 
 
 def test_sheet_anchor_prefers_approved_then_samples(tmp_path):
@@ -36,15 +49,14 @@ def test_generate_approve_and_regenerate_update_ledger(tmp_path, monkeypatch):
     run(service.create_character("probe", "she/her", lora_name="fixture.safetensors"))
     job = run(service.generate_character_sheet("probe", seed=11))
     record = run(service.character_info("probe"))
-    assert job["kind"] == "character_sheet" and job["status"] == "completed"
-    assert job["seed"] == 11 and Path(job["path"]).is_file()
+    graph = comfy.submitted[-1]
+    assert_reference_sheet(job, graph, 11)
+    assert Path(job["path"]).is_file()
     assert record["pending_sheet"] == job["path"]
     assert record["pending_sheet_job_id"] == job["job_id"]
     assert "approved_sheet" not in record
-    graph = comfy.submitted[-1]
     assert graph["23"]["inputs"]["seed"] == 11
-    assert graph["22"]["inputs"]["width"] == 832 and graph["22"]["inputs"]["height"] == 1216
-    assert comfy.submitted[-1]["4"]["inputs"]["lora_name"] == "fixture.safetensors"
+    assert graph["4"]["inputs"]["lora_name"] == "fixture.safetensors"
 
     approved = service.approve_character_sheet("probe", job["job_id"])
     dest = Path(approved["approved_sheet"])
@@ -61,8 +73,12 @@ def test_generate_approve_and_regenerate_update_ledger(tmp_path, monkeypatch):
 
     redraw = run(service.regenerate_character_sheet("probe", seed=0))
     fresh = run(service.character_info("probe"))
+    redraw_graph = comfy.submitted[-1]
+    assert_reference_sheet(redraw, redraw_graph, redraw["seed"])
     assert redraw["job_id"] != job["job_id"]
     assert redraw["seed"] > 0
+    assert redraw["prompt"] == job["prompt"]
+    assert redraw["negative"] == job["negative"]
     assert fresh["pending_sheet"] == redraw["path"]
     assert fresh["pending_sheet_job_id"] == redraw["job_id"]
     assert fresh["approved_sheet"] == approved["approved_sheet"]
@@ -93,6 +109,9 @@ def test_ui_keeps_sheet_judgment_before_bible():
     assert "['キャラクター', '参考画像', '学習', 'プレビュー', '一枚シート', '設定画']" in flows
     assert "['キャラクター', '画風', 'プレビュー', '一枚シート', '設定画']" in flows
     assert "合格した一枚を、設定画の起点にしてください。" in flows
+    assert "向きと表情を並べた参照シート" in flows
+    assert "API.regenerateSheet(name, 0, style)" in flows
+    assert "if (job) API.character(name).then(record => refresh(record, job))" in flows
     assert "pending_sheet ? 4" in main
     assert "この学習結果を使って一枚シートへ" in preview
     assert "/sheet/approve" in api

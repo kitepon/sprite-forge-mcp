@@ -31,7 +31,7 @@ from .config import CACHE, CHARACTERS, STYLES, UPLOADS
 from .events import EventStore
 from .intent_service import IntentServices
 from .intent_runner import interpret
-from .intent import IntentRequest, Proposal, PREVIEW_TAGS, drawing_content, generation_negative, preview_content, validate_proposal
+from .intent import IntentRequest, Proposal, PREVIEW_TAGS, drawing_content, generation_negative, preview_content, sheet_conditions, sheet_content, validate_proposal
 from .panel_intent import resolve_panel, saved_corrections
 from .sheet_layout import LayoutServices, layout_for, matching_keys, panel_from
 from .preview_reviews import PreviewReviews
@@ -404,11 +404,12 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         intent = self._generation_intent(record, "character", "preview", intent_job_id)
         chain, style_word, style = self._generation_loras(record, style, intent)
         job_id = str(uuid.uuid4())
-        content = preview_content(PREVIEW_TAGS, intent["intent_conditions"])
-        subject = "" if "subject" in intent["intent_conditions"] else bible.subject_tag(record["char_desc"])
-        background = "" if "background" in intent["intent_conditions"] else bible.COMMON
+        conditions = sheet_conditions(intent["intent_conditions"])
+        content = sheet_content(intent["intent_conditions"])
+        subject = "" if "subject" in conditions else bible.subject_tag(record["char_desc"])
+        background = "" if "background" in conditions else bible.COMMON
         prompt = ", ".join(part for part in (record["trigger"], style_word, subject, content, background) if part)
-        negative = generation_negative(intent["intent_conditions"])
+        negative = generation_negative(conditions)
         job = {"job_id": job_id, "kind": "character_sheet", "status": "queued", "name": name, "prompt": prompt,
                "seed": seed, "loras": chain, "style": style, "negative": negative,
                "character_created": record["created"], **intent}
@@ -416,7 +417,7 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         self._record_call("generate_character_sheet", job_id, {"name": name, "seed": seed})
         with self._job_errors(job):
             image, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
-                prompt, seed, turbo=turbo, loras=chain, negative=negative, width=832, height=1216))
+                prompt, seed, turbo=turbo, loras=chain, negative=negative, width=1216, height=832))
             path = self._write_generated(f"{job_id}-character-sheet.png", image)
             job.update(status="completed", path=str(path), elapsed_s=elapsed)
             self.events.save_job(job)

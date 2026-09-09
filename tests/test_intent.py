@@ -3,7 +3,8 @@ import asyncio
 
 import pytest
 
-from backend.intent import IntentRequest, Proposal, PREVIEW_TAGS, preview_content
+from backend import bible
+from backend.intent import IntentRequest, Proposal, PREVIEW_TAGS, generation_negative, preview_content, sheet_conditions, sheet_content
 from tests.test_style import make, png
 
 
@@ -260,6 +261,16 @@ def test_preview_replaces_only_owned_defaults():
     assert preview_content("custom pose", {}) == "custom pose"
     with pytest.raises(ValueError, match="同時"):
         preview_content("custom pose", conditions)
+
+
+def test_sheet_keeps_reference_layout():
+    conditions = {"pose": proposal(feature="pose", text="standing, front view")["changes"][0],
+                  "outfit": proposal(text="blue jacket")["changes"][0]}
+    prompt = sheet_content(conditions)
+    assert prompt == (
+        "character reference sheet, multiple views, turnaround, front view, side view, back view, "
+        "expression sheet, neutral, smile, angry, sad, blue jacket")
+    assert generation_negative(sheet_conditions(conditions)) == bible.QUALITY_NEGATIVE
 
 
 def test_preview_interpretation_receives_stage_defaults_without_persisting_them(tmp_path, monkeypatch):
