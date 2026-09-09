@@ -18,6 +18,9 @@ EMPTY = {
     'observations': [],
     'changes': [],
     'questions': [],
+}
+LEARNING_EMPTY = {
+    **EMPTY,
     'training_samples': None,
 }
 
@@ -96,7 +99,8 @@ class FakeComfy:
             elif stage == 'preview_review':
                 text = json.dumps({'fix': [], 'preserve': ['衣装'], 'questions': [], 'description_en': ''}, ensure_ascii=False)
             else:
-                text = json.dumps(EMPTY)
+                body = LEARNING_EMPTY if stage in ('samples', 'training') else EMPTY
+                text = json.dumps(body)
         else:
             text = json.dumps(EMPTY)
         return {
@@ -231,6 +235,19 @@ class IntentCliTests(unittest.TestCase):
         self.assertEqual(comfy.uploads, [])
 
 
+    def test_panel_stage_schema_omits_training_samples(self) -> None:
+        from backend.intent_cli import _stage_model, _strict_schema
+        schema = _strict_schema(_stage_model({'stage': 'panel'}))
+        self.assertNotIn('training_samples', schema.get('properties', {}))
+        self.assertNotIn('training_samples', schema.get('required', []))
+
+    def test_training_stage_schema_keeps_training_samples(self) -> None:
+        from backend.intent_cli import _stage_model, _strict_schema
+        schema = _strict_schema(_stage_model({'stage': 'training'}))
+        self.assertIn('training_samples', schema.get('properties', {}))
+        self.assertIn('training_samples', schema.get('required', []))
+
+
 class IntentRunnerTests(unittest.TestCase):
     def test_preview_review_sends_recorded_review_input(self) -> None:
         comfy = FakeComfy()
@@ -273,6 +290,49 @@ class IntentRunnerTests(unittest.TestCase):
         self.assertEqual(payload['stage_conditions'], conditions)
         self.assertNotIn('working_layout', payload)
         self.assertNotIn('recorded_layout', payload)
+
+
+    def test_panel_runner_omits_training_captions(self) -> None:
+        comfy = FakeComfy()
+        asyncio.run(interpret({
+            'original_comment': 'ツインテールを維持。',
+            'record_description': '',
+            'existing_settings': {},
+            'references': [],
+            'image_comments': [],
+            'base_conditions': {},
+            'stage': 'panel',
+            'panel': 'front',
+            'record_kind': 'character',
+            'panel_specs': [{'key': 'front'}],
+            'training_captions': [{'caption_en': 'should not be sent'}],
+        }, [], comfy=comfy))
+        payload = _payload_from_prompt(comfy.prompts[-1])
+        self.assertNotIn('training_captions', payload)
+        _, schema_text = comfy.prompts[-1].split(SCHEMA_LEAD, 1)
+        schema = json.loads(schema_text.strip())
+        self.assertNotIn('training_samples', schema.get('properties', {}))
+
+    def test_training_runner_keeps_training_captions(self) -> None:
+        comfy = FakeComfy()
+        captions = [{'caption_en': 'keep'}]
+        asyncio.run(interpret({
+            'original_comment': '',
+            'record_description': '',
+            'existing_settings': {},
+            'references': [],
+            'image_comments': [],
+            'base_conditions': {},
+            'stage': 'training',
+            'panel': '',
+            'record_kind': 'character',
+            'training_captions': captions,
+        }, [], comfy=comfy))
+        payload = _payload_from_prompt(comfy.prompts[-1])
+        self.assertEqual(payload['training_captions'], captions)
+        _, schema_text = comfy.prompts[-1].split(SCHEMA_LEAD, 1)
+        schema = json.loads(schema_text.strip())
+        self.assertIn('training_samples', schema.get('properties', {}))
 
 
 class PreviewReviewRangeTests(unittest.TestCase):

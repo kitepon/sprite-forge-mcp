@@ -12,7 +12,7 @@ from PIL import Image
 from pydantic import ValidationError
 
 from . import workflows
-from .intent import Proposal, StrictModel
+from .intent import GenerationProposal, Proposal, StrictModel
 from .preview_intent import ReviewMeaning
 from .preview_learning import SPATIAL_FOCUS, mask_is_empty, spatial_keys_from_focus_and_text, union_masks
 from .sheet_layout import LayoutChange, merge_layout_change
@@ -108,7 +108,10 @@ def _stage_model(payload: dict):
         return ReviewMeaning
     if stage == "layout":
         return LayoutChange
-    return Proposal
+    if stage in ("samples", "training"):
+        return Proposal
+    # 生成工程では training_samples をスキーマから外し、max_tokens 内で切れないようにする。
+    return GenerationProposal
 
 
 def _instruction_name(payload: dict) -> str:
@@ -281,5 +284,8 @@ async def execute(payload: dict, images: list[bytes], *, comfy, keep_model_loade
     if model is LayoutChange:
         # モデルには差分だけを書かせ、全項目の構成はここで現在の構成へ合成する。
         proposal = merge_layout_change(proposal, payload["sheet_layout"])
+    elif model is GenerationProposal:
+        # 下流は Proposal 形で揃える。学習欄は生成工程では常に未使用。
+        proposal = Proposal(**proposal.model_dump(), training_samples=None)
     return {"proposal": proposal.model_dump(), "model": MODEL,
             "elapsed_seconds": round(time.monotonic() - started, 2), "auth": AUTH}
