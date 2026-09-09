@@ -99,7 +99,11 @@ class FakeComfy:
             elif stage == 'preview_review':
                 text = json.dumps({'fix': [], 'preserve': ['衣装'], 'questions': [], 'description_en': ''}, ensure_ascii=False)
             else:
-                body = LEARNING_EMPTY if stage in ('samples', 'training') else EMPTY
+                # 観察済み合成時は IntentRevision（observations なし）。学習工程だけ training_samples を残す。
+                if '"observations"' not in prompt:
+                    body = {'changes': [], 'questions': []}
+                else:
+                    body = LEARNING_EMPTY if stage in ('samples', 'training') else EMPTY
                 text = json.dumps(body)
         else:
             text = json.dumps(EMPTY)
@@ -179,8 +183,15 @@ class IntentCliTests(unittest.TestCase):
 
     def test_two_images_observe_then_compose_without_video(self) -> None:
         comfy = FakeComfy()
+        payload = {
+            'stage': 'panel',
+            'references': [
+                {'record_key': 'char', 'sample_index': 0, 'path': '/tmp/a.png'},
+                {'record_key': 'char', 'sample_index': 1, 'path': '/tmp/b.png'},
+            ],
+        }
         result = asyncio.run(execute(
-            EMPTY, [_png((24, 32), 'red'), _png((24, 32), 'blue')],
+            payload, [_png((24, 32), 'red'), _png((24, 32), 'blue')],
             comfy=comfy, keep_model_loaded=False, reclaim_memory=True))
         self.assertEqual(comfy.freed, 1)
         self.assertEqual(comfy.keeps, [True, True, False])
@@ -191,6 +202,14 @@ class IntentCliTests(unittest.TestCase):
         self.assertIn('赤いリボン', comfy.prompts[2])
         self.assertIn('観察:', comfy.prompts[2])
         self.assertNotIn('赤いリボン', json.dumps(_payload_from_prompt(comfy.prompts[2]), ensure_ascii=False))
+        _, schema_text = comfy.prompts[2].split(SCHEMA_LEAD, 1)
+        schema = json.loads(schema_text.strip())
+        self.assertNotIn('observations', schema.get('properties', {}))
+        self.assertNotIn('training_samples', schema.get('properties', {}))
+        self.assertEqual(len(result['proposal']['observations']), 2)
+        self.assertEqual(result['proposal']['observations'][0]['appearance_ja'], '赤いリボンの少女')
+        self.assertEqual(result['proposal']['observations'][0]['reference']['sample_index'], 0)
+        self.assertIsNone(result['proposal']['training_samples'])
         self.assertIsInstance(result['proposal'], dict)
 
     def test_invalid_json_is_an_error(self) -> None:
@@ -240,6 +259,13 @@ class IntentCliTests(unittest.TestCase):
         schema = _strict_schema(_stage_model({'stage': 'panel'}))
         self.assertNotIn('training_samples', schema.get('properties', {}))
         self.assertNotIn('training_samples', schema.get('required', []))
+
+    def test_multi_image_panel_compose_schema_omits_observations(self) -> None:
+        from backend.intent_cli import IntentRevision, _strict_schema
+        schema = _strict_schema(IntentRevision)
+        self.assertEqual(set(schema.get('properties', {})), {'changes', 'questions'})
+        self.assertNotIn('observations', schema.get('properties', {}))
+        self.assertNotIn('training_samples', schema.get('properties', {}))
 
     def test_training_stage_schema_keeps_training_samples(self) -> None:
         from backend.intent_cli import _stage_model, _strict_schema

@@ -74,6 +74,13 @@ class GenerationProposal(StrictModel):
     questions: list[str]
 
 
+class IntentRevision(StrictModel):
+    """観察済み参照があるときの最終応答。観察の再出力で JSON を切らない。"""
+
+    changes: list[Change]
+    questions: list[str]
+
+
 class Proposal(GenerationProposal):
     training_samples: list[TrainingSample] | None = None
 

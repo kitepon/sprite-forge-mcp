@@ -12,7 +12,7 @@ from PIL import Image
 from pydantic import ValidationError
 
 from . import workflows
-from .intent import GenerationProposal, Proposal, StrictModel
+from .intent import GenerationProposal, IntentRevision, Observation, Proposal, Reference, StrictModel
 from .preview_intent import ReviewMeaning
 from .preview_learning import SPATIAL_FOCUS, mask_is_empty, spatial_keys_from_focus_and_text, union_masks
 from .sheet_layout import LayoutChange, merge_layout_change
@@ -264,13 +264,13 @@ async def execute(payload: dict, images: list[bytes], *, comfy, keep_model_loade
                   for index, content in enumerate(images)]
     names = [await comfy.upload(_interpret_image_png(content), f"intent-{index}.png")
              for index, content in enumerate(images)]
-    observations = []
+    sightings = []
     if len(names) >= 2:
         observe_schema = _strict_schema(Sighting)
         for index, name in enumerate(names):
             sighting = _validate(Sighting, await _ask(comfy, _observe_prompt(index, observe_schema, view),
                                                       image=name, keep_model_loaded=True))
-            observations.append({"index": index, **sighting.model_dump()})
+            sightings.append({"index": index, **sighting.model_dump()})
         compose_image = None
     elif len(names) == 1:
         compose_image = names[0]
@@ -279,11 +279,34 @@ async def execute(payload: dict, images: list[bytes], *, comfy, keep_model_loade
     compose_payload = dict(payload)
     if view is not None:
         compose_payload["observe_range"] = view
-    proposal = _validate(model, await _ask(comfy, _compose_prompt(compose_payload, schema, observations),
-                                           image=compose_image, keep_model_loaded=keep_model_loaded))
-    if model is LayoutChange:
+    # 観察済みなら最終応答は差分だけ。観察を再出力させると max_tokens で JSON が切れる。
+    compose_model = IntentRevision if (model is GenerationProposal and sightings) else model
+    compose_schema = _strict_schema(compose_model)
+    proposal = _validate(compose_model, await _ask(comfy, _compose_prompt(compose_payload, compose_schema, sightings),
+                                                   image=compose_image, keep_model_loaded=keep_model_loaded))
+    if compose_model is LayoutChange:
         # モデルには差分だけを書かせ、全項目の構成はここで現在の構成へ合成する。
         proposal = merge_layout_change(proposal, payload["sheet_layout"])
+    elif compose_model is IntentRevision:
+        references = payload.get("references") or []
+        if len(references) != len(sightings):
+            raise RuntimeError(
+                f"観察済み画像数({len(sightings)})と参照数({len(references)})が一致しません"
+            )
+        observations = [
+            Observation(
+                reference=Reference.model_validate(references[item["index"]]),
+                appearance_ja=item["appearance_ja"],
+                caption_en=item["caption_en"],
+            )
+            for item in sightings
+        ]
+        proposal = Proposal(
+            observations=observations,
+            changes=proposal.changes,
+            questions=proposal.questions,
+            training_samples=None,
+        )
     elif model is GenerationProposal:
         # 下流は Proposal 形で揃える。学習欄は生成工程では常に未使用。
         proposal = Proposal(**proposal.model_dump(), training_samples=None)
