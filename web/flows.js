@@ -226,7 +226,7 @@ async function drawing(target, ctx, kind, cleanup) {
     taskPanel(kind === 'character' ? { kind: 'from_bible', name } : { kind: 'image', style: name }, '新しい一枚', 'この内容で描く', async () => { await editor.save(); const selected = drawingInput(editor, mode.value, prompt.value); return kind === 'character' ? API.fromBible(name, selected.prompt, number(seed), style.value, selected.intentJobId) : API.image(selected.prompt, name, number(seed), selected.intentJobId); }, cleanup));
   return editor.save;
 }
-async function sheet(target, ctx, styled, cleanup) {
+async function sheet(target, ctx, _styled, cleanup) {
   const name = ctx.character; const rec = await API.character(name); const seed = seedControl(`sheet:${name}`);
   const layout = await layoutEditor(target, name, cleanup);
   const wishes = h('details', { class: 'optional-wishes' }, h('summary', {}, '設定画全体の見た目を調整する（任意）'));
@@ -236,7 +236,7 @@ async function sheet(target, ctx, styled, cleanup) {
   const showExisting = record => { if (record.bible?.sheet_path) existing.replaceChildren(h('h3', {}, '保存してある設定画'), picture(record.bible.sheet_path, `${name}の設定画`, { version: record.bible.at })); };
   showExisting(rec);
   const update = async () => { const fresh = await API.character(name); if (!target.isConnected) return; showExisting(fresh); if (fresh.bible && !editingReady) { editingReady = true; refreshEditor = await redraw(edit, name, fresh, cleanup, showExisting); } else await refreshEditor?.(fresh); };
-  target.append(h('p', { class: 'muted' }, '保存した構成の項目を順に描き、設定画にまとめます。前の設定画は、新しい一枚が完成するまで残ります。'), advanced(characterStrength(rec), field('Seed', seed)), taskPanel({ kind: 'character_bible', name }, '設定画', rec.bible ? '新しい設定画を作る' : '設定画を作る', () => { layout.requireConfirmed(); return editor.save().then(() => API.bible(name, number(seed), styled ? ctx.style : '', editor.confirmedJob())); }, cleanup, () => update().catch(error => notice(error.message, true)), { hideCompletedImages: true }), existing, edit);
+  target.append(h('p', { class: 'muted' }, '合格した一枚シートから人物を切り出し、その姿を元に構成の項目を順に描いて設定画にまとめます。前の設定画は、新しい一枚が完成するまで残ります。'), advanced(field('Seed', seed)), taskPanel({ kind: 'character_bible', name }, '設定画', rec.bible ? '新しい設定画を作る' : '設定画を作る', () => { layout.requireConfirmed(); return editor.save().then(() => API.bible(name, number(seed), editor.confirmedJob())); }, cleanup, () => update().catch(error => notice(error.message, true)), { hideCompletedImages: true }), existing, edit);
   if (rec.bible) { editingReady = true; refreshEditor = await redraw(edit, name, rec, cleanup, showExisting); }
   return async () => { await layout.save(); await editor.save(); await refreshEditor?.save(); };
 }

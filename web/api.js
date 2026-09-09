@@ -34,7 +34,7 @@ export const API = {
   generateSheet: (name, seed = 1, style = "", intent_job_id = "") => api(`/api/characters/${encodeURIComponent(name)}/sheet?${new URLSearchParams({ seed, style, intent_job_id })}`, { method: "POST" }),
   regenerateSheet: (name, seed = 0, style = "", intent_job_id = "") => api(`/api/characters/${encodeURIComponent(name)}/sheet/regenerate?${new URLSearchParams({ seed, style, intent_job_id })}`, { method: "POST" }),
   approveSheet: (name, job_id) => api(`/api/characters/${encodeURIComponent(name)}/sheet/approve?${new URLSearchParams({ job_id })}`, { method: "POST" }),
-  bible: (name, seed = 1, style = "", intent_job_id = "") => api(`/api/bible?${new URLSearchParams({ name, seed, style, intent_job_id })}`, { method: "POST" }),
+  bible: (name, seed = 1, intent_job_id = "") => api(`/api/bible?${new URLSearchParams({ name, seed, intent_job_id })}`, { method: "POST" }),
   panels: (name = '', generated = false) => api(name ? `/api/panels?${new URLSearchParams({ name, generated })}` : '/api/panels'),
   sheetLayout: name => api(`/api/characters/${encodeURIComponent(name)}/layout`),
   saveLayout: (name, expected, panels) => api(`/api/characters/${encodeURIComponent(name)}/layout`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expected, panels }) }),
