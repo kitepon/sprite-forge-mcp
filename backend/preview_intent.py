@@ -9,6 +9,10 @@ class ReviewMeaning(StrictModel):
     description_en: str
 
 
+class BatchPrompt(StrictModel):
+    description_en: str
+
+
 class ReviewCorrection(StrictModel):
     revision: int
     meaning: ReviewMeaning

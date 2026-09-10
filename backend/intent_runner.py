@@ -5,7 +5,7 @@ async def interpret(job: dict, images: list[bytes], *, comfy=None, keep_model_lo
                     reclaim_memory: bool = True) -> dict:
     from .intent_cli import execute
 
-    if job["stage"] == "preview_review":
+    if job["stage"] in ("preview_review", "preview_batch_prompt"):
         payload = job["review_input"]
     else:
         payload = {key: job[key] for key in ("original_comment", "record_description", "existing_settings",

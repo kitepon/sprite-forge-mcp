@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from . import workflows
 from .comfy import execution_failure
 from .intent import GenerationProposal, IntentRevision, Observation, Proposal, Reference, StrictModel
-from .preview_intent import ReviewMeaning
+from .preview_intent import BatchPrompt, ReviewMeaning
 from .preview_learning import SPATIAL_FOCUS, mask_is_empty, spatial_keys_from_focus_and_text, union_masks
 from .sheet_layout import LayoutChange, merge_layout_change
 
@@ -107,6 +107,8 @@ def _stage_model(payload: dict):
     stage = payload.get("stage")
     if stage == "preview_review":
         return ReviewMeaning
+    if stage == "preview_batch_prompt":
+        return BatchPrompt
     if stage == "layout":
         return LayoutChange
     if stage in ("samples", "training"):
@@ -119,6 +121,8 @@ def _instruction_name(payload: dict) -> str:
     stage = payload.get("stage")
     if stage == "preview_review":
         return "preview_review_instructions.txt"
+    if stage == "preview_batch_prompt":
+        return "preview_batch_prompt_instructions.txt"
     if stage == "layout":
         return "layout_instructions.txt"
     return "intent_instructions.txt"

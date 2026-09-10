@@ -22,7 +22,9 @@ GENERATED = '1girl, twintails, white dress, standing'
 
 
 def quiet_interpret():
-    async def interpret(*args, **kwargs):
+    async def interpret(packet=None, *args, **kwargs):
+        if isinstance(packet, dict) and packet.get('stage') == 'preview_batch_prompt':
+            return {'description_en': ''}
         return {'fix': [], 'preserve': [], 'questions': [], 'description_en': ''}
     return interpret
 
@@ -230,7 +232,9 @@ def test_too_few_steps_does_not_silently_omit_a_rating(tmp_path, monkeypatch):
 
 def test_answers_continue_same_request_and_keep_preparation_history(tmp_path, monkeypatch):
     service, comfy = make(tmp_path, monkeypatch)
-    async def interpret(*args, **kwargs):
+    async def interpret(packet=None, *args, **kwargs):
+        if isinstance(packet, dict) and packet.get('stage') == 'preview_batch_prompt':
+            return {'description_en': GENERATED}
         return {'fix': [], 'preserve': ['衣装'], 'questions': ['NGなのはどの部分ですか？'], 'description_en': ''}
     service.intent_interpreter = interpret
     wire_training(monkeypatch)
@@ -341,10 +345,9 @@ def test_preview_burst_keeps_model_loaded_until_last_interpretation(tmp_path, mo
             PreviewReview(rating='ok', revision=1, comment='衣装は合っている'))
         job = await settled(service, await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()), steps=1))
         assert job['status'] == 'completed'
-        assert calls == [
-            {'keep_model_loaded': True, 'reclaim_memory': True},
-            {'keep_model_loaded': False, 'reclaim_memory': False},
-        ]
+        assert calls[0] == {'keep_model_loaded': True, 'reclaim_memory': True}
+        assert calls[-1] == {'keep_model_loaded': False, 'reclaim_memory': False}
+        assert all(c['keep_model_loaded'] for c in calls[:-1])
     asyncio.run(scenario())
 
 
@@ -448,7 +451,9 @@ def test_desired_generation_prompt_uses_interpreted_english_not_comment():
 
 def test_learning_and_preview_use_interpreted_generation_text(tmp_path, monkeypatch):
     service, _ = make(tmp_path, monkeypatch)
-    async def interpret(*args, **kwargs):
+    async def interpret(packet=None, *args, **kwargs):
+        if isinstance(packet, dict) and packet.get('stage') == 'preview_batch_prompt':
+            return {'description_en': GENERATED}
         return {'fix': ['髪型'], 'preserve': ['衣装'], 'questions': [], 'description_en': GENERATED}
     service.intent_interpreter = interpret
     wire_training(monkeypatch)
@@ -456,6 +461,7 @@ def test_learning_and_preview_use_interpreted_generation_text(tmp_path, monkeypa
         source = await prepared(service, tmp_path, '髪型が違う。衣装は合っている')
         job = await settled(service, await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()), steps=1))
         assert job['status'] == 'completed'
+        assert job['generation_prompt'] == GENERATED
         assert job['training_config']['prompt'] == GENERATED
         assert '髪型が違う' not in job['training_config']['prompt']
         assert service.events.load_job(job['preview_job_id'])['prompt'] == GENERATED
@@ -468,9 +474,11 @@ def test_hair_focus_keeps_source_pose_and_adds_only_hair_delta(tmp_path, monkeyp
     service, _ = make(tmp_path, monkeypatch)
     source_prompt = None
 
-    async def interpret(*args, **kwargs):
+    async def interpret(packet=None, *args, **kwargs):
+        if isinstance(packet, dict) and packet.get('stage') == 'preview_batch_prompt':
+            return {'description_en': 'blonde twin tails, shoulder-length hair'}
         return {'fix': ['twin tails'], 'preserve': [], 'questions': [],
-                'description_en': source_prompt + ', blonde twin tails, shoulder-length hair'}
+                'description_en': (source_prompt or '') + ', blonde twin tails, shoulder-length hair'}
 
     service.intent_interpreter = interpret
     wire_training(monkeypatch)
@@ -560,7 +568,8 @@ def test_legacy_meaning_without_generation_text_is_reinterpreted(tmp_path, monke
         path.write_text(json.dumps(reviews, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
         job = await settled(service, await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()), steps=1))
         assert job['status'] == 'completed'
-        assert len(calls) == 1
+        assert len(calls) == 2
+        assert job['generation_prompt'] == GENERATED
         assert job['training_config']['prompt'] == GENERATED
         assert '髪型が違う' not in job['training_config']['prompt']
     asyncio.run(scenario())

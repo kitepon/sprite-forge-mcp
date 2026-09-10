@@ -166,6 +166,7 @@ class PreviewLearning:
         if job['status'] == 'interpreting':
             if await self._interpret_preview_learning(job):
                 return
+            await self._compose_generation_prompt(job)
         if job['status'] in ('interpreting', 'training'):
             await self._train_preview_learning(job)
         if job['status'] == 'previewing':
@@ -181,7 +182,7 @@ class PreviewLearning:
         for i, picture in enumerate(pending):
             await self._interpret_preview_review(
                 job['name'], job['source'], picture, job['samples'],
-                keep_model_loaded=i < len(pending) - 1,
+                keep_model_loaded=True,
                 reclaim_memory=i == 0,
             )
             job['progress'] = {'step': sum(1 for p in targets if 'meaning' in p['review']), 'total': len(targets)}
@@ -193,6 +194,45 @@ class PreviewLearning:
             self.events.save_job(job)
             return True
         return False
+
+    async def _compose_generation_prompt(self, job: dict) -> None:
+        """プレビュー全体の生成文を、判定メモから生成AIが一本にまとめる。"""
+        if 'generation_prompt' in job:
+            return
+        mode = job.get('mode') or learning_mode(
+            [p for p in job['reviews'] if p['review']['rating'] == 'ok'],
+            [p for p in job['reviews'] if p['review']['rating'] == 'ng'])
+        ratings = {'ok': ('ok',), 'ng': ('ng',), 'preference': ('ok', 'ng'), 'none': ()}[mode]
+        notes = []
+        focuses = []
+        for picture in job['reviews']:
+            review = picture['review']
+            if ratings and (review.get('rating') or '') not in ratings:
+                continue
+            meaning = review.get('meaning') or {}
+            notes.append({
+                'comment': review.get('comment') or '',
+                'focus': review.get('focus') or [],
+                'rating': review.get('rating') or '',
+                'description_en': meaning.get('description_en') or '',
+                'fix': meaning.get('fix') or [],
+                'preserve': meaning.get('preserve') or [],
+            })
+            focuses.extend(review.get('focus') or [])
+        if not notes or not any(note['comment'] or note['description_en'] or note['fix'] for note in notes):
+            job['generation_prompt'] = ''
+            self.events.save_job(job)
+            return
+        focus = list(dict.fromkeys(focuses))
+        packet = {'stage': 'preview_batch_prompt', 'review_input': {
+            'stage': 'preview_batch_prompt', 'focus': focus, 'notes': notes,
+        }}
+        proposal = await self.intent_interpreter(packet, [], keep_model_loaded=False, reclaim_memory=False)
+        text = str(proposal.get('description_en') or '').strip()
+        if focus:
+            text = description_for_focus('', text, focus)
+        job['generation_prompt'] = text
+        self.events.save_job(job)
 
     async def _train_preview_learning(self, job: dict) -> None:
         require_interpreted_generation(job['reviews'])
@@ -228,12 +268,15 @@ class PreviewLearning:
             await self._pair_region_mask(ng_id, (directory / f'{ng_id}.png').read_bytes(), regions, directory, ng_name, cache, job['job_id'])
             pair_masks.append([f'{remote_directory}/{ok_name}', f'{remote_directory}/{ng_name}'])
         ratings = {'ok': ('ok',), 'ng': ('ng',), 'preference': ('ok', 'ng')}[mode]
+        extra = job.get('generation_prompt')
+        if extra is None:
+            extra = desired_generation_prompt(source['prompt'], job['reviews'], ratings)
         config = {'model': f"{models}/diffusion_models/{generation['model']}",
                   'qwen3': f"{models}/text_encoders/{generation['text_encoder']}",
                   'vae': f"{models}/vae/{generation['vae']}",
                   'lora': f"{PureWindowsPath(BOX_LORAS).as_posix()}/{source['loras'][0][0]}",
                   'strength': source['loras'][0][1],
-                  'prompt': desired_generation_prompt(source['prompt'], job['reviews'], ratings),
+                  'prompt': extra,
                   'negative': source['negative'],
                   'seed': source['seed'], 'size': [generation['width'], generation['height']],
                   'mode': mode,
@@ -290,7 +333,9 @@ class PreviewLearning:
         """学習文は指定部位だけ。再プレビューは普通の全身プレビューにその差分を足す。"""
         source = job['source']
         ratings = {'ok': ('ok',), 'ng': ('ng',), 'preference': ('ok', 'ng')}.get(job.get('mode'), ('ok', 'ng'))
-        extras = desired_generation_prompt(source['prompt'], job['reviews'], ratings)
+        extras = job.get('generation_prompt')
+        if extras is None:
+            extras = desired_generation_prompt(source['prompt'], job['reviews'], ratings)
         focused = any(review_of(picture).get('focus')
                       for picture in job['reviews']
                       if (review_of(picture).get('rating') or '') in ratings)
