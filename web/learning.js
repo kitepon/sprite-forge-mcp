@@ -71,7 +71,7 @@ export async function learning(target, kind, name, cleanup, changed) {
     }
     const failed = parent?.status === 'failed' || child?.status === 'failed';
     const complete = child?.status === 'completed' || !!rec.lora_name;
-    const repeating = complete && !busy && !running && !reviewing;
+    const repeating = complete && !failed && !busy && !running && !reviewing;
     repeat.hidden = !repeating;
     if (!showReview || !reviewBox) (latestExplanation || target).append(actions);
     (repeating ? repeat : actions).append(start);

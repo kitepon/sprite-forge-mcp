@@ -75,6 +75,19 @@ test('質問のない採用案は承認操作にせず、学習中・完了後�
   cleanup.forEach(fn=>fn());
 });
 
+test('失敗した学習のあとは、やり直すを開かなくても開始ボタンがある', async () => {
+  const rec = {key:'retry',created:'now',samples:[{path:'a.png'}],lora_name:'old.safetensors'};
+  const job = {job_id:'dead',stage:'training',references:[],record_kind:'character',record_key:rec.key,record_created:'now',kind:'intent',status:'failed',learning_steps:1200,error:'中断'};
+  API.character = async () => rec; API.commentIntents = async () => []; API.jobs = async () => [job];
+  const root = new FakeNode('root'), cleanup=[];
+  await learning(root,'character','失敗後',cleanup,()=>{});
+  const start = all(root).find(n => n.textContent === '今の画像でもう一度学習する');
+  assert.ok(start);
+  const redo = all(root).find(n => n.tag === 'details' && n.children.some(c => c.children?.includes('学習をやり直す')));
+  assert.ok(redo.hidden);
+  cleanup.forEach(fn=>fn());
+});
+
 for (const kind of ['character', 'style']) test(`${kind}：画像選択だけで追加し、完了まで次へ進めない`, async t => {
   t.mock.method(URL, 'createObjectURL', () => 'blob:test');
   t.mock.method(URL, 'revokeObjectURL', () => {});
