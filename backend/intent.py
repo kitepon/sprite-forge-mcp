@@ -87,6 +87,14 @@ class IntentRevision(StrictModel):
     questions: list[str]
 
 
+class TrainingRevision(StrictModel):
+    """観察済み学習工程の最終応答。観察は再出力せず、採用方針だけを書く。"""
+
+    changes: list[Change]
+    questions: list[str]
+    training_samples: list[TrainingSample]
+
+
 class Proposal(GenerationProposal):
     training_samples: list[TrainingSample] | None = None
 

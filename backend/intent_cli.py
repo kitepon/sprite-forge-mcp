@@ -13,7 +13,9 @@ from pydantic import ValidationError
 
 from . import workflows
 from .comfy import execution_failure
-from .intent import GenerationProposal, IntentRevision, Observation, Proposal, Reference, StrictModel
+from .intent import (
+    GenerationProposal, IntentRevision, Observation, Proposal, Reference, StrictModel, TrainingRevision,
+)
 from .preview_intent import BatchPrompt, ReviewMeaning
 from .preview_learning import SPATIAL_FOCUS, mask_is_empty, spatial_keys_from_focus_and_text, union_masks
 from .sheet_layout import LayoutChange, merge_layout_change
@@ -22,6 +24,7 @@ MODEL = "Qwen3-VL-32B-Instruct"
 AUTH = "comfy"
 CLIENT_ID = "sprite-forge-intent"
 OBSERVE_MARK = "この画像の見た目を JSON で返してください。画風を表す語句は書かないでください。"
+TRAINING_OBSERVE_MARK = "この画像の学習用説明を JSON で返してください。"
 INTERPRET_MAX_SIDE = 512
 OBSERVE_TOPIC_JA = {"hair": "髪", "face": "顔", "outfit": "衣装", "body": "体", "style": "画風"}
 
@@ -144,22 +147,45 @@ def observe_range(payload: dict) -> dict:
     }
 
 
-def _observe_prompt(index: int, schema: dict, view: dict | None = None) -> str:
-    lead = f"{OBSERVE_MARK}これは{index}枚目の参考画像です。"
-    if view is not None:
-        labels = [OBSERVE_TOPIC_JA[key] for key in view["topics"] if key in OBSERVE_TOPIC_JA]
-        extra = []
-        if labels:
-            if view.get("intent") == "preserve":
-                extra.append(f"残したい範囲は{'、'.join(labels)}です。差があっても直す内容は書かないでください。残したい内容だけ書いてください。")
-            else:
-                extra.append(f"見る範囲は{'、'.join(labels)}だけです。指定していない部位の特徴は書かないでください。description_enも{'、'.join(labels)}の英語タグだけにしてください。")
-        if view["comment"]:
-            extra.append(f"ユーザーの文: {view['comment']}")
-            if not labels:
-                extra.append("文が示す範囲だけを見てください。文にない部位の特徴は書かないでください。")
-        if extra:
-            lead = f"{OBSERVE_MARK}{''.join(extra)}これは{index}枚目の参考画像です。"
+def _training_purpose(payload: dict, index: int) -> dict | None:
+    """学習観察へ渡す、この画像の用途。生成工程の観察範囲とは別。"""
+    if payload.get("stage") not in ("samples", "training"):
+        return None
+    comments = payload.get("image_comments") or []
+    comment = comments[index].strip() if index < len(comments) and isinstance(comments[index], str) else ""
+    return {"comment": comment, "overall": (payload.get("original_comment") or "").strip()}
+
+
+def _observe_prompt(index: int, schema: dict, view: dict | None = None, purpose: dict | None = None) -> str:
+    if purpose is not None:
+        extra = ["利用者の文が示す、この画像の用途に必要な見た目だけを書いてください。"]
+        if purpose["overall"]:
+            extra.append(f"全体の希望: {purpose['overall']}")
+        extra.append(f"この画像への文: {purpose['comment']}" if purpose["comment"]
+                     else "この画像への個別の文はありません。全体の希望がこの枚に割り当てる用途だけを書いてください。")
+        extra.append(
+            "用途が画風なら、線・塗り・質感・光の扱いだけを書く。写っている別の衣装や体形は学習文にしない。"
+            "用途が衣装や等身なら、部品、つながり、覆う範囲と見える範囲を落とさず書く。短い総称で切れ目や露出を消さない。"
+            "用途がポーズや構図の例なら、姿勢と構図だけを書く。"
+            "利用者の希望そのもの、画像番号、呼び出し語は書かない。"
+        )
+        lead = f"{TRAINING_OBSERVE_MARK}{''.join(extra)}これは{index}枚目の参考画像です。"
+    else:
+        lead = f"{OBSERVE_MARK}これは{index}枚目の参考画像です。"
+        if view is not None:
+            labels = [OBSERVE_TOPIC_JA[key] for key in view["topics"] if key in OBSERVE_TOPIC_JA]
+            extra = []
+            if labels:
+                if view.get("intent") == "preserve":
+                    extra.append(f"残したい範囲は{'、'.join(labels)}です。差があっても直す内容は書かないでください。残したい内容だけ書いてください。")
+                else:
+                    extra.append(f"見る範囲は{'、'.join(labels)}だけです。指定していない部位の特徴は書かないでください。description_enも{'、'.join(labels)}の英語タグだけにしてください。")
+            if view["comment"]:
+                extra.append(f"ユーザーの文: {view['comment']}")
+                if not labels:
+                    extra.append("文が示す範囲だけを見てください。文にない部位の特徴は書かないでください。")
+            if extra:
+                lead = f"{OBSERVE_MARK}{''.join(extra)}これは{index}枚目の参考画像です。"
     return (
         lead
         + "出力は次の JSON Schema に厳密に従い、前後に説明を付けないでください。\n"
@@ -270,11 +296,14 @@ async def execute(payload: dict, images: list[bytes], *, comfy, keep_model_loade
     names = [await comfy.upload(_interpret_image_png(content), f"intent-{index}.png")
              for index, content in enumerate(images)]
     sightings = []
-    if len(names) >= 2:
+    training = payload.get("stage") in ("samples", "training")
+    if len(names) >= 2 or (training and names):
         observe_schema = _strict_schema(Sighting)
         for index, name in enumerate(names):
-            sighting = _validate(Sighting, await _ask(comfy, _observe_prompt(index, observe_schema, view),
-                                                      image=name, keep_model_loaded=True))
+            purpose = _training_purpose(payload, index)
+            sighting = _validate(Sighting, await _ask(
+                comfy, _observe_prompt(index, observe_schema, view, purpose),
+                image=name, keep_model_loaded=True))
             sightings.append({"index": index, **sighting.model_dump()})
         compose_image = None
     elif len(names) == 1:
@@ -285,14 +314,16 @@ async def execute(payload: dict, images: list[bytes], *, comfy, keep_model_loade
     if view is not None:
         compose_payload["observe_range"] = view
     # 観察済みなら最終応答は差分だけ。観察を再出力させると max_tokens で JSON が切れる。
-    compose_model = IntentRevision if (model is GenerationProposal and sightings) else model
+    compose_model = (TrainingRevision if (model is Proposal and sightings)
+                     else IntentRevision if (model is GenerationProposal and sightings)
+                     else model)
     compose_schema = _strict_schema(compose_model)
     proposal = _validate(compose_model, await _ask(comfy, _compose_prompt(compose_payload, compose_schema, sightings),
                                                    image=compose_image, keep_model_loaded=keep_model_loaded))
     if compose_model is LayoutChange:
         # モデルには差分だけを書かせ、全項目の構成はここで現在の構成へ合成する。
         proposal = merge_layout_change(proposal, payload["sheet_layout"])
-    elif compose_model is IntentRevision:
+    elif compose_model in (IntentRevision, TrainingRevision):
         references = payload.get("references") or []
         if len(references) != len(sightings):
             raise RuntimeError(
@@ -310,7 +341,7 @@ async def execute(payload: dict, images: list[bytes], *, comfy, keep_model_loade
             observations=observations,
             changes=proposal.changes,
             questions=proposal.questions,
-            training_samples=None,
+            training_samples=proposal.training_samples if compose_model is TrainingRevision else None,
         )
     elif model is GenerationProposal:
         # 下流は Proposal 形で揃える。学習欄は生成工程では常に未使用。

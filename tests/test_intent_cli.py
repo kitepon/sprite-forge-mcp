@@ -9,7 +9,8 @@ from io import BytesIO
 from PIL import Image, UnidentifiedImageError
 
 from backend.intent_cli import (
-    AUTH, INTERPRET_MAX_SIDE, MODEL, OBSERVE_MARK, _keep_region_pixels, execute, observe_range,
+    AUTH, INTERPRET_MAX_SIDE, MODEL, OBSERVE_MARK, TRAINING_OBSERVE_MARK, _keep_region_pixels,
+    execute, observe_range,
 )
 from backend.intent_runner import interpret
 
@@ -79,7 +80,7 @@ class FakeComfy:
                 'outputs': {'6': {'images': [{'filename': 'mask.png', 'subfolder': '', 'type': 'output'}]}},
             }
         prompt = str(workflow['2']['inputs']['custom_prompt'])
-        if OBSERVE_MARK in prompt:
+        if OBSERVE_MARK in prompt or TRAINING_OBSERVE_MARK in prompt:
             text = json.dumps({
                 'appearance_ja': '赤いリボンの少女',
                 'caption_en': 'a girl with a red ribbon',
@@ -99,9 +100,14 @@ class FakeComfy:
             elif stage == 'preview_review':
                 text = json.dumps({'fix': [], 'preserve': ['衣装'], 'questions': [], 'description_en': ''}, ensure_ascii=False)
             else:
-                # 観察済み合成時は IntentRevision（observations なし）。学習工程だけ training_samples を残す。
+                # 観察済み合成時は差分だけ。学習は training_samples、生成は observations なし。
                 if '"observations"' not in prompt:
                     body = {'changes': [], 'questions': []}
+                    if stage in ('samples', 'training'):
+                        body['training_samples'] = [
+                            {'reference': ref, 'priority': 'normal', 'features': [], 'reason_ja': '通常の教材として使います'}
+                            for ref in payload.get('references') or []
+                        ]
                 else:
                     body = LEARNING_EMPTY if stage in ('samples', 'training') else EMPTY
                 text = json.dumps(body)
@@ -272,6 +278,46 @@ class IntentCliTests(unittest.TestCase):
         schema = _strict_schema(_stage_model({'stage': 'training'}))
         self.assertIn('training_samples', schema.get('properties', {}))
         self.assertIn('training_samples', schema.get('required', []))
+
+    def test_training_revision_schema_omits_observations(self) -> None:
+        from backend.intent import TrainingRevision
+        from backend.intent_cli import _strict_schema
+        schema = _strict_schema(TrainingRevision)
+        self.assertEqual(set(schema.get('properties', {})), {'changes', 'questions', 'training_samples'})
+        self.assertNotIn('observations', schema.get('properties', {}))
+
+    def test_training_observe_prompt_carries_each_image_purpose(self) -> None:
+        comfy = FakeComfy()
+        payload = {
+            'stage': 'training',
+            'original_comment': '2枚目は服装と等身、3枚目は画風',
+            'image_comments': ['服装と等身はこれを維持', '画風はこれを維持'],
+            'references': [
+                {'record_key': 'char', 'sample_index': 0, 'path': '/tmp/a.png'},
+                {'record_key': 'char', 'sample_index': 1, 'path': '/tmp/b.png'},
+            ],
+        }
+        result = asyncio.run(execute(
+            payload, [_png((24, 32), 'red'), _png((24, 32), 'blue')],
+            comfy=comfy, keep_model_loaded=False, reclaim_memory=True))
+        outfit, style, compose = comfy.prompts
+        self.assertIn(TRAINING_OBSERVE_MARK, outfit)
+        self.assertIn('服装と等身はこれを維持', outfit)
+        self.assertNotIn('画風はこれを維持', outfit)
+        self.assertIn('覆う範囲', outfit)
+        self.assertIn('切れ目や露出', outfit)
+        self.assertIn(TRAINING_OBSERVE_MARK, style)
+        self.assertIn('画風はこれを維持', style)
+        self.assertNotIn('服装と等身はこれを維持', style)
+        self.assertIn('別の衣装や体形は学習文にしない', style)
+        self.assertIn('2枚目は服装と等身、3枚目は画風', outfit)
+        self.assertIn('2枚目は服装と等身、3枚目は画風', style)
+        _, schema_text = compose.split(SCHEMA_LEAD, 1)
+        schema = json.loads(schema_text.strip())
+        self.assertNotIn('observations', schema.get('properties', {}))
+        self.assertIn('training_samples', schema.get('properties', {}))
+        self.assertEqual(result['proposal']['observations'][0]['caption_en'], 'a girl with a red ribbon')
+        self.assertEqual(len(result['proposal']['training_samples']), 2)
 
 
 class IntentRunnerTests(unittest.TestCase):
