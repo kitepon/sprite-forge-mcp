@@ -283,12 +283,12 @@ def test_sheet_keeps_reference_layout():
     conditions = {"pose": proposal(feature="pose", text="standing, front view")["changes"][0],
                   "outfit": proposal(text="blue jacket")["changes"][0]}
     prompt = sheet_content(conditions)
-    assert "character design sheet" in prompt and "same outfit" in prompt
-    assert "expression sheet" in prompt and "various poses" in prompt
-    assert "front view, three-quarter view, side view, back view" in prompt
+    assert "the world's most attractive character design sheet" in prompt
+    assert "strict accurate human anatomy" in prompt
+    assert "white background" in prompt
     assert prompt.endswith("blue jacket")
     negative = generation_negative(sheet_conditions(conditions))
-    assert bible.QUALITY_NEGATIVE in negative and "duplicate views" in negative
+    assert bible.QUALITY_NEGATIVE in negative
     assert bible.SINGLE_VIEW_NEGATIVE not in negative
     with_expression = {
         **conditions,

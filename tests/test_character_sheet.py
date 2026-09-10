@@ -17,10 +17,9 @@ def assert_reference_sheet(job, graph, seed):
     assert job["negative"] == graph["21"]["inputs"]["text"]
     assert bible.QUALITY_NEGATIVE in job["negative"]
     assert graph["22"]["inputs"]["width"] == 1536 and graph["22"]["inputs"]["height"] == 1024
-    assert "character design sheet" in job["prompt"] and "same outfit" in job["prompt"]
-    assert "expression sheet" in job["prompt"] and "various poses" in job["prompt"]
-    assert "front view, three-quarter view, side view, back view" in job["prompt"]
-    assert "duplicate views" in job["negative"]
+    assert "the world's most attractive character design sheet" in job["prompt"]
+    assert "strict accurate human anatomy" in job["prompt"]
+    assert "white background" in job["prompt"]
     assert "full body, standing, front view, looking at viewer" not in job["prompt"]
     assert bible.SINGLE_VIEW_NEGATIVE not in job["negative"]
 
@@ -111,7 +110,7 @@ def test_ui_keeps_sheet_judgment_before_bible():
     assert "['キャラクター', '参考画像', '学習', 'プレビュー', '一枚シート', '設定画']" in flows
     assert "['キャラクター', '画風', 'プレビュー', '一枚シート', '設定画']" in flows
     assert "合格した一枚を、設定画の起点にしてください。" in flows
-    assert "正面・斜め・横・背面、表情、さまざまなポーズを一枚にまとめます" in flows
+    assert "世界一魅力的なキャラクターシートを、人体の構造を厳密に守って白地に描きます" in flows
     assert "API.regenerateSheet(name, 0, style)" in flows
     assert "if (job) API.character(name).then(record => refresh(record, job))" in flows
     assert "pending_sheet ? 4" in main

@@ -14,11 +14,7 @@ Feature = Literal["face", "hair", "outfit", "style", "expression", "pose", "acce
 PREVIEW_TAGS = "full body, standing, front view, looking at viewer"
 SHEET_CONDITIONS = {
     "composition": {
-        "description_en": "character design sheet, character reference sheet, same character, same outfit, clean white background",
-        "avoid_en": "duplicate views, identical copies, different characters, extra people, text, logo, watermark",
-    },
-    "pose": {
-        "description_en": "front view, three-quarter view, side view, back view, expression sheet, various poses",
+        "description_en": "the world's most attractive character design sheet, strict accurate human anatomy, white background",
         "avoid_en": "",
     },
 }

@@ -149,7 +149,7 @@ def test_adopted_lora_is_used_by_setting_sheet_and_old_version_can_be_restored(t
         assert await service.adopt_preview_lora('probe', new['job_id']) == adopted
         comfy.submitted.clear()
         one = await service.generate_character_sheet('probe')
-        assert 'twin tails' in one['prompt'] and 'character reference sheet' in one['prompt']
+        assert 'twin tails' in one['prompt'] and 'character design sheet' in one['prompt']
         approve_sheet(service, 'probe')
         comfy.submitted.clear()
         sheet = await service.generate_character_bible('probe')

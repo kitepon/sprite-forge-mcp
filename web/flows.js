@@ -199,7 +199,7 @@ async function judgeSheet(target, ctx, styled, cleanup, setReady, next) {
     if (job) API.character(name).then(record => refresh(record, job)).catch(error => notice(error.message, true));
   }), 'quiet');
   target.append(
-    h('p', {}, '同じ子・同じ衣装で、正面・斜め・横・背面、表情、さまざまなポーズを一枚にまとめます。同じ絵は出しません。この一枚を見て合否を決めます。不合格なら描き直します。合格した絵が、次の設定画の起点になります。'),
+    h('p', {}, '世界一魅力的なキャラクターシートを、人体の構造を厳密に守って白地に描きます。この一枚を見て合否を決めます。不合格なら描き直します。合格した絵が、次の設定画の起点になります。'),
     advanced(characterStrength(rec), field('Seed', seed, '同じ数値で構図を比較できます。')),
     taskPanel(spec, '一枚シート', '一枚を生成する', () => API.generateSheet(name, number(seed), style), cleanup, job => {
       API.character(name).then(record => refresh(record, job)).catch(error => notice(error.message, true));
