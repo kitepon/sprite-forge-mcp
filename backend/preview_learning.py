@@ -231,6 +231,8 @@ class PreviewLearning:
         text = str(proposal.get('description_en') or '').strip()
         if focus:
             text = description_for_focus('', text, focus)
+        if not text:
+            raise RuntimeError('生成文を作れませんでした。')
         job['generation_prompt'] = text
         self.events.save_job(job)
 

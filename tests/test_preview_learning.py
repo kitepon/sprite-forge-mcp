@@ -466,7 +466,7 @@ def test_learning_and_preview_use_interpreted_generation_text(tmp_path, monkeypa
         assert '髪型が違う' not in job['training_config']['prompt']
         assert service.events.load_job(job['preview_job_id'])['prompt'] == GENERATED
         review = (await service.preview_reviews('probe', source['job_id']))['pictures'][1]['review']
-        assert review['meaning']['description_en'] == GENERATED
+        assert review['meaning']['description_en'] == ''
     asyncio.run(scenario())
 
 
@@ -500,8 +500,8 @@ def test_hair_focus_keeps_source_pose_and_adds_only_hair_delta(tmp_path, monkeyp
         assert 'standing' in preview['prompt']
         assert '1girl' in preview['prompt'] and 'solo' in preview['prompt']
         review = (await service.preview_reviews('probe', source['job_id']))['pictures'][1]['review']
-        assert 'standing' not in review['meaning']['description_en']
-        assert 'twin tails' in review['meaning']['description_en']
+        assert job['generation_prompt'] == 'blonde twin tails, shoulder-length hair'
+        assert review['meaning']['description_en'] == ''
 
     asyncio.run(scenario())
 
@@ -528,7 +528,7 @@ def test_ok_interpretation_drops_vl_fix_without_moving_vl_words(tmp_path, monkey
         assert '衣装' in ok['preserve']
         assert '髪型' not in ok['preserve']
         assert ng['fix'] == ['髪型', '顔']
-        assert ng['description_en'] == GENERATED
+        assert ng['description_en'] == ''
     asyncio.run(scenario())
 
 

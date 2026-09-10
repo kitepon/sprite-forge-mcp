@@ -85,8 +85,7 @@ test('NGの場所は寄せ先、OKの場所は記録だと表示する', async (
   card.dispose();
 });
 
-test('読み取った生成文を出し、訂正は英語生成文を送り、先頭の欄はコメントのまま', async () => {
-  const generated = '1girl, twintails, white dress, standing';
+test('画像ごとの生成文は出さず、訂正は直したい箇所と残したい箇所だけ送る', async () => {
   const calls = [];
   API.savePreviewReview = async () => { throw new Error('判定保存が呼ばれた'); };
   API.correctPreviewInterpretation = async (name, job, image, correction) => {
@@ -97,21 +96,17 @@ test('読み取った生成文を出し、訂正は英語生成文を送り、�
   const card = previewReviewCard('probe', 'job-a', {
     id: 'image-a', path: '/image-a.png',
     review: { rating: 'ng', comment: '髪型が違う。衣装は合っている', focus: [], revision: 1, history: [],
-      meaning: { fix: ['髪型'], preserve: ['衣装'], questions: [], description_en: generated }, meaning_source: 'ai' },
+      meaning: { fix: ['髪型'], preserve: ['衣装'], questions: [], description_en: '1girl, twintails' }, meaning_source: 'ai' },
   }, 0, () => {});
   const nodes = all(card.node);
   const textareas = nodes.filter(n => n.tag === 'textarea');
-  const pre = nodes.find(n => n.tag === 'pre');
   assert.equal(textareas[0].value, '髪型が違う。衣装は合っている');
-  assert.ok(pre.children.includes(generated));
-  assert.ok(nodes.some(n => n.children.includes('生成文（英語）')));
-  const generation = textareas.at(-1);
-  generation.value = '1girl, long hair, white dress, standing';
+  assert.ok(!nodes.some(n => n.children.includes('生成文（英語）')));
+  assert.ok(!nodes.some(n => n.children.includes('生成文の詳細')));
   const correct = nodes.find(n => n.children.includes('この内容に訂正する'));
   await correct.events.click({ currentTarget: correct });
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].image, 'image-a');
-  assert.deepEqual(calls[0].meaning, { fix: ['髪型'], preserve: ['衣装'], questions: [], description_en: '1girl, long hair, white dress, standing' });
+  assert.deepEqual(calls[0].meaning, { fix: ['髪型'], preserve: ['衣装'], questions: [], description_en: '' });
   card.dispose();
 });
 

@@ -92,8 +92,6 @@ def require_interpreted_generation(reviews: list[dict]) -> None:
         meaning = review.get('meaning') or {}
         if meaning.get('questions'):
             continue
-        if not str(meaning.get('description_en') or '').strip():
-            raise RuntimeError('判定の理解から生成文を作れませんでした。')
 
 
 class PreviewReview(BaseModel):
@@ -207,9 +205,7 @@ class PreviewReviews:
         images = [Path(picture['path']).read_bytes(), *[Path(s['path']).read_bytes() for s in samples]]
         meaning = ReviewMeaning.model_validate(await self.intent_interpreter(packet, images, **kwargs))
         review['meaning'] = apply_rating_to_meaning(review['rating'], meaning.model_dump(), review.get('focus'))
-        if review.get('focus') and source.get('prompt'):
-            review['meaning']['description_en'] = description_for_focus(
-                source['prompt'], review['meaning'].get('description_en') or '', review['focus'])
+        review['meaning']['description_en'] = ''
         review['meaning_source'] = 'ai'
         review['interpreter'] = packet.get('interpreter')
         self._store_review_meaning(name, source['job_id'], picture['id'], review)

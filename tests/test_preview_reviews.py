@@ -53,14 +53,11 @@ def test_ng_rating_keeps_vl_meaning():
     }
 
 
-def test_require_interpreted_generation_skips_ok_comment_and_fails_ng_empty():
+def test_require_interpreted_generation_skips_ok_and_ng_without_per_image_prompt():
     require_interpreted_generation([
         {'rating': 'ok', 'comment': '衣装は合っている', 'meaning': {'description_en': ''}},
+        {'rating': 'ng', 'comment': '髪型が違う', 'meaning': {'description_en': ''}},
     ])
-    with pytest.raises(RuntimeError, match='生成文を作れませんでした'):
-        require_interpreted_generation([
-            {'rating': 'ng', 'comment': '髪型が違う', 'meaning': {'description_en': ''}},
-        ])
 
 
 

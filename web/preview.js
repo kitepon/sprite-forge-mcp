@@ -50,22 +50,18 @@ export function previewReviewCard(name, jobId, image, index, changed) {
     const current = review.meaning, revision = review.revision, ok = rating === 'ok';
     const preserve = h('textarea', { rows: 2 }, current.preserve.join('\n'));
     const fix = ok ? null : h('textarea', { rows: 2 }, current.fix.join('\n'));
-    const generation = ok ? null : h('textarea', { rows: 2 }, current.description_en || '');
     const lines = control => control.value.split('\n').map(v => v.trim()).filter(Boolean);
     meaning.append(...[h('strong', {}, review.meaning_source === 'user' ? '訂正した内容' : 'AIが読み取った内容'),
       ok ? null : h('p', {}, `直したい箇所：${current.fix.join('、') || '指定なし'}`),
       h('p', {}, `残したい箇所：${current.preserve.join('、') || '指定なし'}`),
-      ok || !current.description_en ? null : h('details', {}, h('summary', {}, '生成文の詳細'),
-        h('pre', { class: 'training-caption' }, current.description_en)),
       ...current.questions.map(q => h('p', { class: 'review-question' }, q)),
       current.questions.length ? h('p', { class: 'small' }, '上の理由に回答を追記するか、下で解釈を訂正してください。') : null,
       h('details', {}, h('summary', {}, '読み取った内容を訂正する'),
         ok ? null : field('直したい箇所', fix), field('残したい箇所', preserve),
-        ok ? null : field('生成文（英語）', generation),
         button('この内容に訂正する', e => action(e.currentTarget, async () => {
           await flush();
           review = await API.correctPreviewInterpretation(name, jobId, image.id, {
-            revision, meaning: { fix: ok ? [] : lines(fix), preserve: lines(preserve), questions: [], description_en: ok ? '' : generation.value.trim() },
+            revision, meaning: { fix: ok ? [] : lines(fix), preserve: lines(preserve), questions: [], description_en: '' },
           });
           status.textContent = '訂正を保存しました'; displayMeaning(); changed();
         }), 'quiet'))].filter(Boolean));
@@ -115,6 +111,7 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
   const cards = new Map();
   const select = h('select', { 'aria-label': '確認する学習結果' });
   const counts = h('p', { class: 'review-counts', role: 'status' });
+  const promptView = h('details', { class: 'preview-prompt' }, h('summary', {}, 'この10枚の生成文'), h('pre', { class: 'training-caption' }));
   const reason = h('p', { class: 'small muted', role: 'status' });
   const grid = h('div', { class: 'preview-review-grid' });
   const progress = h('div'), comparison = h('div'), error = h('p', { class: 'error-text', role: 'alert' });
@@ -164,8 +161,9 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
         select.replaceChildren(...previews.map(j => h('option', { value: j.job_id }, `${j.learning_job_id ? '再学習後' : 'プレビュー'} · ${dateText(j.created_at)} · ${j.pictures?.length || 0}枚`)));
       }
       select.value = selected;
-      if (!selected) { summarize(); return; }
+      if (!selected) { promptView.querySelector('pre').textContent = ''; summarize(); return; }
       const current = jobs.find(j => j.job_id === selected);
+      promptView.querySelector('pre').textContent = current?.prompt || '';
       const learning = jobs.find(j => j.job_id === current.learning_job_id) || jobs.find(j => j.kind === 'preview_learning' && j.source_job_id === selected);
       if (learning?.status === 'previewing' && learning.preview_job_id !== selected) {
         await flush(); pick(learning.preview_job_id); loading = false; return refresh();
@@ -194,8 +192,8 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
     } catch (e) { if (!disposed) error.textContent = `判定を読み込めませんでした：${e.message}`; }
     finally { loading = false; }
   }
-  target.append(h('section', { class: 'stack preview-review' }, field('確認する学習結果', select), comparison, counts,
-    h('p', { class: 'muted' }, '各画像にOK・NGを付けてください。画像を押すと拡大できます。判定は自動保存します。'), grid,
+  target.append(h('section', { class: 'stack preview-review' }, field('確認する学習結果', select), comparison, counts, promptView,
+    h('p', { class: 'muted' }, '10枚は同じ生成文です。差は LoRA と seed です。各画像にOK・NGを付けてください。'), grid,
     h('div', { class: 'stack' }, progress, reason, h('div', { class: 'actions' }, start, adopt)), error));
   setReady(false, 'プレビューを読み込んでいます。');
   adopted = (await API.character(name)).adopted_preview_job_id;
