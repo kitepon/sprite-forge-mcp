@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from .bible import QUALITY_NEGATIVE, SINGLE_VIEW_NEGATIVE
+from .bible import COMMON, QUALITY_NEGATIVE, SINGLE_VIEW_NEGATIVE
 
 RecordKind = Literal["character", "style"]
 Stage = Literal["samples", "training", "preview", "sheet", "panel", "drawing", "layout"]
@@ -150,6 +150,26 @@ def prompt_parts(conditions: dict) -> tuple[str, str]:
         ", ".join(value[field].strip() for value in conditions.values() if value[field].strip())
         for field in ("description_en", "avoid_en")
     )
+
+
+def unique_tags(*blobs: str) -> str:
+    seen: list[str] = []
+    for blob in blobs:
+        for piece in blob.split(","):
+            text = piece.strip()
+            if text and text not in seen:
+                seen.append(text)
+    return ", ".join(seen)
+
+
+def identity_from_preview_prompt(prompt: str, trigger: str = "") -> str:
+    """採用したプレビュー生成文から、構図・背景・trigger を除いた本人指定を残す。"""
+    drop = {piece.strip() for blob in (
+        trigger, PREVIEW_TAGS, COMMON,
+        PREVIEW_CONDITIONS["composition"]["description_en"],
+        PREVIEW_CONDITIONS["pose"]["description_en"],
+    ) for piece in blob.split(",") if piece.strip()}
+    return unique_tags(*(piece.strip() for piece in prompt.split(",") if piece.strip() not in drop))
 
 
 def preview_content(tags: str, conditions: dict) -> str:

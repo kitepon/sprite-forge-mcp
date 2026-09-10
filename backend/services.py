@@ -31,7 +31,7 @@ from .config import CACHE, CHARACTERS, STYLES, UPLOADS
 from .events import EventStore
 from .intent_service import IntentServices
 from .intent_runner import interpret
-from .intent import IntentRequest, Proposal, PREVIEW_TAGS, drawing_content, generation_negative, preview_content, sheet_conditions, sheet_content, validate_proposal
+from .intent import IntentRequest, Proposal, PREVIEW_TAGS, drawing_content, generation_negative, identity_from_preview_prompt, preview_content, sheet_conditions, sheet_content, unique_tags, validate_proposal
 from .panel_intent import resolve_panel, saved_corrections
 from .sheet_layout import LayoutServices, layout_for, matching_keys, panel_from
 from .preview_reviews import PreviewReviews
@@ -391,6 +391,16 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
             self.events.save_job(job); self.events.append(job_id, "image_completed", {"pictures": [p["path"] for p in pictures]})
             return job
 
+    def _preview_identity(self, record: dict[str, Any]) -> str:
+        """採用したプレビューの生成文から、構図を除いた本人指定を返す。"""
+        job_id = record.get("adopted_preview_job_id")
+        if not job_id:
+            return ""
+        job = self.events.load_job(job_id)
+        if not job or job.get("kind") != "preview" or not job.get("prompt"):
+            return ""
+        return identity_from_preview_prompt(job["prompt"], record.get("trigger", ""))
+
     @staticmethod
     def _approved_sheet(record: dict[str, Any]) -> Path:
         """設定画の起点になる合格シート。合格前は教材や別のパネルで代用せず、ここで止める。"""
@@ -416,7 +426,7 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         content = sheet_content(intent["intent_conditions"])
         subject = "" if "subject" in conditions else bible.subject_tag(record["char_desc"])
         background = "" if "background" in conditions else bible.COMMON
-        prompt = ", ".join(part for part in (record["trigger"], style_word, subject, content, background) if part)
+        prompt = unique_tags(record["trigger"], style_word, subject, content, self._preview_identity(record), background)
         negative = generation_negative(conditions)
         job = {"job_id": job_id, "kind": "character_sheet", "status": "queued", "name": name, "prompt": prompt,
                "seed": seed, "loras": chain, "style": style, "negative": negative,
@@ -516,10 +526,14 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         layout = layout_for(record)
         specs = [panel_from(value) for value in layout]
         overrides = deepcopy(record.get("panel_overrides", {}))
+        identity = self._preview_identity(record)
         requests = [{"panel": panel.key, "seed": overrides.get(panel.key, {}).get("seed", seed + layout[index]["seed_offset"]),
                      **resolve_panel(panel, trigger, char_desc, intent["intent_conditions"], intent["intent_changes"],
                                      overrides.get(panel.key, {}), intent_job_id)}
                     for index, panel in enumerate(specs)]
+        if identity:
+            for request in requests:
+                request["prompt"] = unique_tags(request["prompt"], identity)
         job_id = str(uuid.uuid4())
         key = record["key"]
         bible_root = self._character_dir(name) / "bible" / job_id
@@ -706,6 +720,7 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         request = resolve_panel(spec, info["trigger"], info["char_desc"], intent["intent_conditions"],
                                 intent["intent_changes"], saved, intent_job_id) if typed else resolve_panel(
                                     spec, info["trigger"], info["char_desc"], {}, [], {"tags": tags, "avoid": avoid.strip()})
+        request["prompt"] = unique_tags(request["prompt"], self._preview_identity(record))
         job_id = str(uuid.uuid4())
         prompt, negative, instruction = request["prompt"], request["negative"], request["instruction"]
         job = {"job_id": job_id, "kind": "redraw_panel", "status": "queued", "name": name, "panel": panel,
@@ -769,6 +784,7 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         intent = self._generation_intent(record, "character", "panel", "", panel)
         chain, _word, style = self._generation_loras(record, style, intent)
         request = resolve_panel(spec, info["trigger"], info["char_desc"], intent["intent_conditions"], [], saved)
+        request["prompt"] = unique_tags(request["prompt"], self._preview_identity(record))
         current_seed = saved.get("seed", record["bible"].get("seed", 1) + next(p["seed_offset"] for p in layout if p["key"] == panel))
         seeds: list[int] = []
         while len(seeds) < count:

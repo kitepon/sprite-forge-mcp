@@ -4,7 +4,7 @@ import asyncio
 import pytest
 
 from backend import bible
-from backend.intent import IntentRequest, Proposal, PREVIEW_TAGS, generation_negative, preview_content, sheet_conditions, sheet_content
+from backend.intent import IntentRequest, Proposal, PREVIEW_TAGS, generation_negative, identity_from_preview_prompt, preview_content, sheet_conditions, sheet_content
 from tests.test_style import make, png
 
 
@@ -12,6 +12,22 @@ def proposal(ref=None, scope="persistent", feature="outfit", text="separate jack
     return {"observations": [], "questions": [], "changes": [{
         "feature": feature, "scope": scope, "panel_key": None, "reference": ref,
         "description_en": text, "avoid_en": "", "avoid_ja": "", "reason_ja": "指定された特徴を採用"}]}
+
+
+def test_identity_from_preview_prompt_keeps_hair_and_drops_front_view():
+    prompt = (
+        "ndac1de01, full body, standing, front view, looking at viewer, "
+        "white cropped top, slim young adult woman, simple background, white background, "
+        "blonde twin tails with pink gradient coloring, "
+        "ndac1de01, full body, standing, front view, looking at viewer"
+    )
+    identity = identity_from_preview_prompt(prompt, "ndac1de01")
+    assert "twin tails" in identity
+    assert "white cropped top" in identity
+    assert "front view" not in identity
+    assert "looking at viewer" not in identity
+    assert "simple background" not in identity
+    assert "ndac1de01" not in identity
 
 
 async def setup(service, tmp_path):

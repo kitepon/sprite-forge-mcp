@@ -141,13 +141,17 @@ def test_adopted_lora_is_used_by_setting_sheet_and_old_version_can_be_restored(t
     async def scenario():
         await service.create_character('probe', 'she/her', lora_name='old.safetensors')
         old = await service.preview_character('probe', count=1)
-        new = {**old, 'job_id': 'new-preview', 'loras': [['new.safetensors', .65]]}
+        new = {**old, 'job_id': 'new-preview', 'loras': [['new.safetensors', .65]],
+               'prompt': old['prompt'] + ', blonde twin tails with pink gradient coloring'}
         service.events.save_job(new)
         adopted = await service.adopt_preview_lora('probe', new['job_id'])
         assert adopted['lora_name'] == 'new.safetensors' and adopted['character_strength'] == .65
         assert await service.adopt_preview_lora('probe', new['job_id']) == adopted
         comfy.submitted.clear()
+        one = await service.generate_character_sheet('probe')
+        assert 'twin tails' in one['prompt'] and 'character reference sheet' in one['prompt']
         approve_sheet(service, 'probe')
+        comfy.submitted.clear()
         sheet = await service.generate_character_bible('probe')
         panels = panel_orders(comfy)
         assert comfy.submitted[0]['4']['class_type'] == 'SAM3_Detect'
@@ -157,6 +161,8 @@ def test_adopted_lora_is_used_by_setting_sheet_and_old_version_can_be_restored(t
         assert [graph['20']['inputs']['text'] for graph in panels] == [
             request['prompt'] for request in sheet['panel_requests']
         ]
+        assert all('twin tails' in request['prompt'] for request in sheet['panel_requests'])
+        assert 'looking at viewer' not in sheet['panel_requests'][2]['prompt']
         restored = await service.adopt_preview_lora('probe', old['job_id'])
         assert restored['lora_name'] == 'old.safetensors'
         assert restored['lora_history'][-1]['lora_name'] == 'new.safetensors'
