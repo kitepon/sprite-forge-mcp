@@ -1,24 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-
-globalThis.localStorage = {getItem: () => null, setItem() {}};
-class FakeNode {
-  constructor(tag) { this.tag = tag; this.children = []; this.attrs = {}; this.value = ''; }
-  setAttribute(key, value) { this.attrs[key] = value; if (key === 'value') this.value = value; }
-  removeAttribute(key) { delete this.attrs[key]; }
-  get lastChild() { return this.children.at(-1); }
-  remove() {}
-  addEventListener(name, fn) { (this.events ||= {})[name] = fn; }
-  append(...items) { this.children.push(...items); }
-  replaceChildren(...items) { this.children = items; }
-}
-globalThis.Node = FakeNode;
-globalThis.document = {createElement: tag => new FakeNode(tag), createElementNS: (_namespace, tag) => new FakeNode(tag), createTextNode: text => text, querySelector: () => new FakeNode('notice')};
-const {API} = await import('../web/api.js?v=studio-2');
+import { Node as FakeNode, installDom, all } from './web-dom.mjs';
+installDom();
+const {API} = await import('../web/api.js?v=studio-4');
 const {commentEditor, savedLearningExplanation} = await import('../web/intent.js?v=studio-2');
 const {characterStrength} = await import('../web/strength.js?v=studio-2');
 const {previewIntentJob, drawingInput} = await import('../web/flows.js?v=studio-2');
-const all = root => [root, ...root.children.filter(x => x instanceof FakeNode).flatMap(all)];
 const next = () => new Promise(resolve => setImmediate(resolve));
 
 test('旧形式の解析文は参照画像・採用理由・教材説明ごと読み取れ、開始操作を持たない', () => {
