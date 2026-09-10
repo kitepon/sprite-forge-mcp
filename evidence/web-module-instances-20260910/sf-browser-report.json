@@ -1,0 +1,246 @@
+{
+  "base": "http://192.168.1.2:8766",
+  "screens": [
+    {
+      "hash": "",
+      "label": "studio",
+      "tag": "desktop",
+      "overflow": {
+        "scrollWidth": 1280,
+        "innerWidth": 1280,
+        "wide": []
+      },
+      "shot": "/tmp/sf-shots/desktop-studio.png"
+    },
+    {
+      "hash": "library",
+      "label": "library",
+      "tag": "desktop",
+      "overflow": {
+        "scrollWidth": 1280,
+        "innerWidth": 1280,
+        "wide": []
+      },
+      "shot": "/tmp/sf-shots/desktop-library.png"
+    },
+    {
+      "hash": "activity",
+      "label": "activity",
+      "tag": "desktop",
+      "overflow": {
+        "scrollWidth": 1280,
+        "innerWidth": 1280,
+        "wide": [
+          "span.",
+          "span.",
+          "span."
+        ]
+      },
+      "shot": "/tmp/sf-shots/desktop-activity.png"
+    },
+    {
+      "hash": "tools",
+      "label": "tools",
+      "tag": "desktop",
+      "overflow": {
+        "scrollWidth": 1280,
+        "innerWidth": 1280,
+        "wide": []
+      },
+      "shot": "/tmp/sf-shots/desktop-tools.png"
+    },
+    {
+      "hash": "flow/sheet",
+      "label": "flow-sheet",
+      "tag": "desktop",
+      "overflow": {
+        "scrollWidth": 1280,
+        "innerWidth": 1280,
+        "wide": []
+      },
+      "shot": "/tmp/sf-shots/desktop-flow-sheet.png"
+    },
+    {
+      "hash": "flow/draw",
+      "label": "flow-draw",
+      "tag": "desktop",
+      "overflow": {
+        "scrollWidth": 1280,
+        "innerWidth": 1280,
+        "wide": []
+      },
+      "shot": "/tmp/sf-shots/desktop-flow-draw.png"
+    },
+    {
+      "hash": "flow/restyle",
+      "label": "flow-restyle",
+      "tag": "desktop",
+      "overflow": {
+        "scrollWidth": 1280,
+        "innerWidth": 1280,
+        "wide": []
+      },
+      "shot": "/tmp/sf-shots/desktop-flow-restyle.png"
+    },
+    {
+      "hash": "flow/style",
+      "label": "flow-style",
+      "tag": "desktop",
+      "overflow": {
+        "scrollWidth": 1280,
+        "innerWidth": 1280,
+        "wide": []
+      },
+      "shot": "/tmp/sf-shots/desktop-flow-style.png"
+    },
+    {
+      "hash": "flow/styleonly",
+      "label": "flow-styleonly",
+      "tag": "desktop",
+      "overflow": {
+        "scrollWidth": 1280,
+        "innerWidth": 1280,
+        "wide": []
+      },
+      "shot": "/tmp/sf-shots/desktop-flow-styleonly.png"
+    },
+    {
+      "hash": "",
+      "label": "studio",
+      "tag": "phone",
+      "overflow": {
+        "scrollWidth": 390,
+        "innerWidth": 390,
+        "wide": []
+      },
+      "shot": "/tmp/sf-shots/phone-studio.png"
+    },
+    {
+      "hash": "library",
+      "label": "library",
+      "tag": "phone",
+      "overflow": {
+        "scrollWidth": 390,
+        "innerWidth": 390,
+        "wide": []
+      },
+      "shot": "/tmp/sf-shots/phone-library.png"
+    },
+    {
+      "hash": "activity",
+      "label": "activity",
+      "tag": "phone",
+      "overflow": {
+        "scrollWidth": 390,
+        "innerWidth": 390,
+        "wide": [
+          "span.",
+          "span.",
+          "span."
+        ]
+      },
+      "shot": "/tmp/sf-shots/phone-activity.png"
+    },
+    {
+      "hash": "tools",
+      "label": "tools",
+      "tag": "phone",
+      "overflow": {
+        "scrollWidth": 390,
+        "innerWidth": 390,
+        "wide": []
+      },
+      "shot": "/tmp/sf-shots/phone-tools.png"
+    },
+    {
+      "hash": "flow/sheet",
+      "label": "flow-sheet",
+      "tag": "phone",
+      "overflow": {
+        "scrollWidth": 390,
+        "innerWidth": 390,
+        "wide": []
+      },
+      "shot": "/tmp/sf-shots/phone-flow-sheet.png"
+    },
+    {
+      "hash": "flow/draw",
+      "label": "flow-draw",
+      "tag": "phone",
+      "overflow": {
+        "scrollWidth": 390,
+        "innerWidth": 390,
+        "wide": []
+      },
+      "shot": "/tmp/sf-shots/phone-flow-draw.png"
+    },
+    {
+      "hash": "flow/restyle",
+      "label": "flow-restyle",
+      "tag": "phone",
+      "overflow": {
+        "scrollWidth": 390,
+        "innerWidth": 390,
+        "wide": []
+      },
+      "shot": "/tmp/sf-shots/phone-flow-restyle.png"
+    },
+    {
+      "hash": "flow/style",
+      "label": "flow-style",
+      "tag": "phone",
+      "overflow": {
+        "scrollWidth": 390,
+        "innerWidth": 390,
+        "wide": []
+      },
+      "shot": "/tmp/sf-shots/phone-flow-style.png"
+    },
+    {
+      "hash": "flow/styleonly",
+      "label": "flow-styleonly",
+      "tag": "phone",
+      "overflow": {
+        "scrollWidth": 390,
+        "innerWidth": 390,
+        "wide": []
+      },
+      "shot": "/tmp/sf-shots/phone-flow-styleonly.png"
+    }
+  ],
+  "findings": {
+    "flows": [
+      "flow/sheet",
+      "flow/draw",
+      "flow/restyle",
+      "flow/style",
+      "flow/styleonly"
+    ],
+    "moduleLoads": {
+      "style.css": 1,
+      "main.js": 1,
+      "api.js": 1,
+      "ui.js": 1,
+      "flows.js": 1,
+      "jobs.js": 1,
+      "drafts.js": 1,
+      "layout.js": 1,
+      "state.js": 1,
+      "intent.js": 1,
+      "learning.js": 1,
+      "strength.js": 1,
+      "preview.js": 1,
+      "training.js": 1
+    },
+    "queryStringRefs": [],
+    "consoleErrors": [],
+    "crossIsland": {
+      "plain": 3,
+      "tagged": 0,
+      "sameInstance": false
+    },
+    "apiJobsCalls": 10,
+    "phoneConsoleErrors": [],
+    "overflowingScreens": []
+  }
+}
