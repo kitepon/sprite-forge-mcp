@@ -158,17 +158,11 @@ def _training_purpose(payload: dict, index: int) -> dict | None:
 
 def _observe_prompt(index: int, schema: dict, view: dict | None = None, purpose: dict | None = None) -> str:
     if purpose is not None:
-        extra = ["利用者の文が示す、この画像の用途に必要な見た目だけを書いてください。"]
+        extra = ["次の文の趣旨に従って書いてください。"]
         if purpose["overall"]:
             extra.append(f"全体の希望: {purpose['overall']}")
-        extra.append(f"この画像への文: {purpose['comment']}" if purpose["comment"]
-                     else "この画像への個別の文はありません。全体の希望がこの枚に割り当てる用途だけを書いてください。")
-        extra.append(
-            "用途が画風なら、線・塗り・質感・光の扱いだけを書く。写っている別の衣装や体形は学習文にしない。"
-            "用途が衣装や等身なら、部品、つながり、覆う範囲と見える範囲を落とさず書く。短い総称で切れ目や露出を消さない。"
-            "用途がポーズや構図の例なら、姿勢と構図だけを書く。"
-            "利用者の希望そのもの、画像番号、呼び出し語は書かない。"
-        )
+        if purpose["comment"]:
+            extra.append(f"この画像への文: {purpose['comment']}")
         lead = f"{TRAINING_OBSERVE_MARK}{''.join(extra)}これは{index}枚目の参考画像です。"
     else:
         lead = f"{OBSERVE_MARK}これは{index}枚目の参考画像です。"
