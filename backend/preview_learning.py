@@ -11,7 +11,8 @@ from PIL import Image, ImageChops
 
 from . import box, workflows
 from .config import BOX_LORAS, BOX_TRAIN
-from .preview_reviews import review_has_input, review_needs_interpretation, review_of, require_interpreted_generation
+from .intent import unique_tags
+from .preview_reviews import description_for_focus, review_has_input, review_needs_interpretation, review_of, require_interpreted_generation
 
 IN_FLIGHT = ('interpreting', 'training', 'previewing')
 SPATIAL_FOCUS = {'hair': 'hair', 'face': 'face', 'outfit': 'clothes', 'body': 'body'}
@@ -304,8 +305,9 @@ class PreviewLearning:
 
 
 def desired_generation_prompt(source_prompt: str, reviews: list[dict], ratings: tuple[str, ...] = ('ok', 'ng')) -> str:
-    """判定の理解から作った生成文。無ければ元の生成文。コメント原文は使わない。"""
-    texts = []
+    """判定の理解から作った生成文。部位指定があるときは元の注文にその部位の差分だけ足す。"""
+    extras = []
+    focused = False
     seen = set()
     for entry in reviews:
         review = review_of(entry)
@@ -313,17 +315,23 @@ def desired_generation_prompt(source_prompt: str, reviews: list[dict], ratings: 
         if rating and rating not in ratings:
             continue
         text = str((review.get('meaning') or {}).get('description_en') or '').strip()
+        if review.get('focus'):
+            focused = True
+            text = description_for_focus(source_prompt, text, review['focus'])
         if not text or text in seen:
             continue
         seen.add(text)
-        texts.append(text)
-    if not texts:
+        extras.append(text)
+    extras = [text for text in extras if text]
+    if not extras:
         return source_prompt
-    if len(texts) == 1:
-        return texts[0]
-    kept = [text for text in texts if not any(text != other and text in other for other in texts)]
+    if focused:
+        return unique_tags(source_prompt, *extras)
+    if len(extras) == 1:
+        return extras[0]
+    kept = [text for text in extras if not any(text != other and text in other for other in extras)]
     if not kept:
-        return texts[0]
+        return extras[0]
     if len(kept) == 1:
         return kept[0]
     return ', '.join(kept)

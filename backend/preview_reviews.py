@@ -30,6 +30,19 @@ def review_needs_interpretation(review: dict) -> bool:
     return False
 
 
+def description_for_focus(source_prompt: str, description: str, focus) -> str:
+    """部位指定があるとき、元の生成文に無い句だけを残す。"""
+    if not focus:
+        return description
+    have = {piece.strip() for piece in source_prompt.split(',') if piece.strip()}
+    kept = []
+    for piece in description.split(','):
+        text = piece.strip()
+        if text and text not in have and text not in kept:
+            kept.append(text)
+    return ', '.join(kept)
+
+
 def apply_rating_to_meaning(rating, meaning: dict, focus) -> dict:
     """外部VLの解釈を、判定の契約に合わせて直す。OKでは直したい内容を残さない。"""
     result = {
@@ -173,6 +186,9 @@ class PreviewReviews:
         images = [Path(picture['path']).read_bytes(), *[Path(s['path']).read_bytes() for s in samples]]
         meaning = ReviewMeaning.model_validate(await self.intent_interpreter(packet, images, **kwargs))
         review['meaning'] = apply_rating_to_meaning(review['rating'], meaning.model_dump(), review.get('focus'))
+        if review.get('focus') and source.get('prompt'):
+            review['meaning']['description_en'] = description_for_focus(
+                source['prompt'], review['meaning'].get('description_en') or '', review['focus'])
         review['meaning_source'] = 'ai'
         review['interpreter'] = packet.get('interpreter')
         self._store_review_meaning(name, source['job_id'], picture['id'], review)

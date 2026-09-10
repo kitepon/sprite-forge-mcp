@@ -408,6 +408,18 @@ def test_desired_generation_prompt_uses_interpreted_english_not_comment():
         {'rating': 'ok', 'meaning': {'description_en': 'keep this'}},
         {'rating': 'ng', 'meaning': {'description_en': GENERATED}},
     ], ('ng',)) == GENERATED
+    standing = 'ndac1de01, full body, standing, front view, looking at viewer, white dress'
+    dumped = standing + ', blonde twin tails, shoulder-length hair'
+    focused = desired_generation_prompt(standing, [{
+        'rating': 'ng', 'focus': ['hair'],
+        'meaning': {'description_en': dumped},
+    }])
+    assert focused.startswith(standing)
+    assert 'twin tails' in focused and focused.count('standing') == 1
+    assert desired_generation_prompt(standing, [{
+        'rating': 'ng', 'focus': ['hair'],
+        'meaning': {'description_en': standing},
+    }]) == standing
 
 
 def test_learning_and_preview_use_interpreted_generation_text(tmp_path, monkeypatch):
@@ -425,6 +437,37 @@ def test_learning_and_preview_use_interpreted_generation_text(tmp_path, monkeypa
         assert service.events.load_job(job['preview_job_id'])['prompt'] == GENERATED
         review = (await service.preview_reviews('probe', source['job_id']))['pictures'][1]['review']
         assert review['meaning']['description_en'] == GENERATED
+    asyncio.run(scenario())
+
+
+def test_hair_focus_keeps_source_pose_and_adds_only_hair_delta(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+    source_prompt = None
+
+    async def interpret(*args, **kwargs):
+        return {'fix': ['twin tails'], 'preserve': [], 'questions': [],
+                'description_en': source_prompt + ', blonde twin tails, shoulder-length hair'}
+
+    service.intent_interpreter = interpret
+    wire_training(monkeypatch)
+
+    async def scenario():
+        nonlocal source_prompt
+        source = await prepared(service, tmp_path)
+        source_prompt = source['prompt']
+        image_id = source['pictures'][1]['id']
+        await service.save_preview_review(
+            'probe', source['job_id'], image_id,
+            PreviewReview(rating='ng', revision=1, comment='髪型がツインテールではない', focus=['hair']))
+        job = await settled(service, await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()), steps=1))
+        prompt = job['training_config']['prompt']
+        assert prompt.startswith(source_prompt)
+        assert 'twin tails' in prompt
+        assert prompt.count('standing') == source_prompt.count('standing')
+        review = (await service.preview_reviews('probe', source['job_id']))['pictures'][1]['review']
+        assert 'standing' not in review['meaning']['description_en']
+        assert 'twin tails' in review['meaning']['description_en']
+
     asyncio.run(scenario())
 
 
