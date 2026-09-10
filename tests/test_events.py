@@ -95,3 +95,32 @@ def test_sse_replays_events_after_since_id(tmp_path, monkeypatch):
     chunk = asyncio.run(first_chunk())
     assert f"id: {second['event_id']}" in chunk
     assert 'event: completed' in chunk
+
+
+def test_execution_failure_keeps_exception_not_tensors():
+    from backend.comfy import execution_failure
+
+    status = {
+        "messages": [[
+            "execution_error",
+            {
+                "node_id": "23",
+                "node_type": "KSampler",
+                "exception_type": "RuntimeError",
+                "exception_message": "The size of tensor a (76) must match the size of tensor b (52) at non-singleton dimension 2",
+                "current_inputs": {
+                    "t5xxl_weights": "torch.int32",
+                    "pooled_output": [1, 2, 3],
+                    "latent_image": {"samples": "tensor dump"},
+                },
+            },
+        ]],
+    }
+    text = execution_failure(status)
+    assert text == (
+        "ComfyUI KSampler RuntimeError: "
+        "The size of tensor a (76) must match the size of tensor b (52) at non-singleton dimension 2"
+    )
+    assert "t5xxl_weights" not in text
+    assert "pooled_output" not in text
+    assert "current_inputs" not in text

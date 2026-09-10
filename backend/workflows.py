@@ -26,7 +26,8 @@ def anima_txt2img(prompt: str, seed: int, *, turbo: bool = False, lora_name: str
         graph.update({
             "5":{"class_type":"LoadImage","inputs":{"image":pose_image}},
             "6":{"class_type":"AnimaPoseControl","inputs":{"image":["5",0],"style":"R0_thin","hands":True,"face":True,"feet":True,"redetect":True,"resolution":min(width,height),"pose_json":""}},
-            "7":{"class_type":"VAEEncode","inputs":{"pixels":["6",0],"vae":["3",0]}},
+            "9":{"class_type":"ImageScale","inputs":{"image":["6",0],"upscale_method":"lanczos","width":width,"height":height,"crop":"disabled"}},
+            "7":{"class_type":"VAEEncode","inputs":{"pixels":["9",0],"vae":["3",0]}},
             "8":{"class_type":"AnimaControlApply","inputs":{"model":model,"control_latent":["7",0],"control_embedder_path":"anima_pose_preview2.safetensors","strength":1.0}},
         }); model=["8",0]
     graph.update({

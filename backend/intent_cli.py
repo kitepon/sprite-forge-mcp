@@ -12,6 +12,7 @@ from PIL import Image
 from pydantic import ValidationError
 
 from . import workflows
+from .comfy import execution_failure
 from .intent import GenerationProposal, IntentRevision, Observation, Proposal, Reference, StrictModel
 from .preview_intent import ReviewMeaning
 from .preview_learning import SPATIAL_FOCUS, mask_is_empty, spatial_keys_from_focus_and_text, union_masks
@@ -92,7 +93,7 @@ async def _history_until_done(comfy, prompt_id: str) -> dict:
         if status.get("completed"):
             return history
         if status.get("status_str") == "error":
-            raise RuntimeError(f"ComfyUI failed: {status.get('messages')}")
+            raise RuntimeError(execution_failure(status))
         if not history:
             queue = await comfy.queue()
             queued = any(item[1] == prompt_id for lane in ("queue_running", "queue_pending") for item in queue.get(lane, []))

@@ -7,6 +7,24 @@ import httpx
 from .config import COMFY_URL
 
 
+def execution_failure(status: dict[str, Any]) -> str:
+    """ComfyUI history status から、node と例外本文だけを取る。current_inputs のテンソルは捨てる。"""
+    messages = status.get("messages") or []
+    for item in messages:
+        if not (isinstance(item, (list, tuple)) and len(item) >= 2):
+            continue
+        kind, payload = item[0], item[1]
+        if kind != "execution_error" or not isinstance(payload, dict):
+            continue
+        node = payload.get("node_type") or payload.get("node_id") or "node"
+        typ = payload.get("exception_type") or "Error"
+        message = str(payload.get("exception_message") or "").strip()
+        if message:
+            return f"ComfyUI {node} {typ}: {message}"
+        return f"ComfyUI {node} {typ}"
+    return f"ComfyUI failed: {messages}"
+
+
 class Comfy:
     def __init__(self, base_url: str = COMFY_URL, client: httpx.AsyncClient | None = None):
         self.base_url = base_url.rstrip("/")

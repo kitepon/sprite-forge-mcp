@@ -26,7 +26,7 @@ from . import bible
 from . import workflows
 from . import box
 from .config import BOX_LORAS, BOX_SSH
-from .comfy import Comfy
+from .comfy import Comfy, execution_failure
 from .config import CACHE, CHARACTERS, STYLES, UPLOADS
 from .events import EventStore
 from .intent_service import IntentServices
@@ -1152,7 +1152,7 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
             if status.get("completed"):
                 return history
             if status.get("status_str") == "error":
-                raise RuntimeError(f"ComfyUI failed: {status.get('messages')}")
+                raise RuntimeError(execution_failure(status))
             if not history:
                 queue = await self.comfy.queue()
                 queued = any(item[1] == prompt_id for lane in ("queue_running", "queue_pending") for item in queue.get(lane, []))

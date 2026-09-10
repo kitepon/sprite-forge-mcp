@@ -14,6 +14,20 @@ def test_optional_anima_and_joy_inputs():
     assert workflows.joy_edit(["a","b"],"p",4)["20"]["inputs"]["images.image1"]==["11",0] and "images" not in workflows.joy_edit(["a","b"],"p",4)["20"]["inputs"]
     with pytest.raises(ValueError): workflows.joy_edit([str(x) for x in range(7)],"p",4)
 
+
+def test_anima_pose_latent_matches_panel_size():
+    """pose をパネル寸法へ揃えてから VAE する。切り出し参照のまま入れると KSampler で 76≠52 になる。"""
+    graph = workflows.anima_txt2img("p", 1, pose_image="figure.png", width=832, height=1216)
+    assert graph["9"]["class_type"] == "ImageScale"
+    assert graph["9"]["inputs"]["width"] == 832
+    assert graph["9"]["inputs"]["height"] == 1216
+    assert graph["9"]["inputs"]["image"] == ["6", 0]
+    assert graph["7"]["inputs"]["pixels"] == ["9", 0]
+    assert graph["8"]["inputs"]["control_latent"] == ["7", 0]
+    assert graph["22"]["inputs"]["width"] == 832
+    assert graph["22"]["inputs"]["height"] == 1216
+    assert graph["23"]["inputs"]["latent_image"] == ["22", 0]
+
 def test_observed_toonout_and_sam3_names():
     assert workflows.toonout("a")["2"]["inputs"]["model"]=="BiRefNet_toonout"
     assert workflows.sam3_mask("a","robe",'[{"x":1,"y":2}]')["4"]["inputs"]["positive_coords"]=='[{"x":1,"y":2}]'
