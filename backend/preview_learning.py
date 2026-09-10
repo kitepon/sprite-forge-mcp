@@ -11,7 +11,7 @@ from PIL import Image, ImageChops
 
 from . import bible, box, workflows
 from .config import BOX_LORAS, BOX_TRAIN
-from .intent import unique_tags
+from .intent import PREVIEW_TAGS, preview_content, unique_tags
 from .preview_reviews import description_for_focus, review_has_input, review_needs_interpretation, review_of, require_interpreted_generation
 
 IN_FLIGHT = ('interpreting', 'training', 'previewing')
@@ -287,7 +287,7 @@ class PreviewLearning:
         return path
 
     def _prompt_after_learning(self, job: dict) -> str:
-        """部位指定があるときは前の生成文を引き継がない。指定部位のタグとトリガーだけ。"""
+        """学習文は指定部位だけ。再プレビューは普通の全身プレビューにその差分を足す。"""
         source = job['source']
         ratings = {'ok': ('ok',), 'ng': ('ng',), 'preference': ('ok', 'ng')}.get(job.get('mode'), ('ok', 'ng'))
         extras = desired_generation_prompt(source['prompt'], job['reviews'], ratings)
@@ -297,7 +297,12 @@ class PreviewLearning:
         if not focused:
             return extras or source['prompt']
         record = self._load_character(job['name'])
-        return unique_tags(record['trigger'], extras, '1girl, solo', bible.COMMON)
+        intent = self._generation_intent(record, 'character', 'preview', '')
+        _, style_word, _ = self._generation_loras(record, source.get('style') or '', intent)
+        content = preview_content(PREVIEW_TAGS, intent['intent_conditions'])
+        subject = '' if 'subject' in intent['intent_conditions'] else bible.subject_tag(record['char_desc'])
+        background = '' if 'background' in intent['intent_conditions'] else bible.COMMON
+        return unique_tags(record['trigger'], style_word, subject, content, extras, '1girl, solo', background)
 
     async def _preview_after_learning(self, job: dict) -> None:
         source = job['source']
