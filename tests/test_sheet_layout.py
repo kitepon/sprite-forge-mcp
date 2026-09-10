@@ -78,8 +78,8 @@ def test_generates_custom_panels_with_stable_seeds_and_old_sheet_keeps_its_layou
         assert comfy.submitted[0]["4"]["inputs"]["individual_masks"] is True
         assert [r["seed"] for r in first["panel_requests"]] == [12, 10]
         assert all("human" in r["negative"] for r in first["panel_requests"])
-        assert [g["20"]["inputs"]["text"] for g in panels] == [
-            r["prompt"] for r in first["panel_requests"]
+        assert [g["20"]["inputs"]["prompt"] for g in panels] == [
+            r["instruction"] for r in first["panel_requests"]
         ]
         original_html = Path(first["html_path"]).read_text()
         assert "CREATURE" in original_html and "ALTERNATE COSTUMES" not in original_html

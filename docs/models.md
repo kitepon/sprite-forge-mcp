@@ -52,5 +52,5 @@ Anima DiT、`qwen_3_06b_base.safetensors`、`qwen_image_vae.safetensors` と dat
   （66,232,904 bytes）を得た。
 - 推論では Anima Base → `anima_pose_preview2.safetensors` → 学習済み LoRA の順に
   `LoraLoaderModelOnly` を接続し、`AnimaControlApply` に同 pose adapter を指定する。
-  任意ポーズには `AnimaPoseControl` を使う。量産は Anima Turbo v1.1、設定画と描き直しは
-  Anima + 学習済み LoRA + 合格シート参照、編集・派生画像は JoyAI-Image-Edit-Plus とする。
+  任意ポーズには `AnimaPoseControl` を使う。量産は Anima Turbo v1.1、編集・設定画は
+  JoyAI-Image-Edit-Plus とする。

@@ -79,7 +79,7 @@ def approve_sheet(service, name):
 def panel_orders(comfy):
     """設定画のパネル注文だけを順に返す。合格シートを切り出す SAM の注文は数えない。"""
     return [graph for graph in comfy.submitted
-            if graph.get("6", {}).get("class_type") == "AnimaPoseControl"]
+            if graph.get("20", {}).get("class_type") == "TextEncodeJoyImageEdit"]
 
 
 def test_style_is_pictures_then_a_lora_then_a_look_for_new_pictures(tmp_path, monkeypatch):
@@ -127,13 +127,8 @@ def test_character_in_a_style_stacks_both_loras(tmp_path, monkeypatch):
     approve_sheet(service, "Bell")
     job = run(service.generate_character_bible("Bell"))
     panel = panel_orders(comfy)[-1]
-    assert job["style"] == "glow"
-    assert job["loras"][0][0] == "BellGrok.safetensors" and job["loras"][1][0].startswith("glow_")
-    assert panel["4"]["inputs"]["lora_name"] == "BellGrok.safetensors"
-    assert panel["40"]["inputs"]["lora_name"].startswith("glow_")
-    assert panel["20"]["inputs"]["text"] == job["panel_requests"][-1]["prompt"]
-    assert "glow_style" not in panel["20"]["inputs"]["text"]
-    assert panel["6"]["class_type"] == "AnimaPoseControl"
+    assert "style" not in job and "4" not in panel and "40" not in panel
+    assert panel["20"]["inputs"]["prompt"] == job["panel_requests"][-1]["instruction"]
     picture = run(service.generate_from_bible("Bell", "on stage"))
     assert comfy.submitted[-1]["20"]["inputs"]["text"] == "bell_idol, glow_style, on stage"
     run(service.set_character_style("Bell", ""))
