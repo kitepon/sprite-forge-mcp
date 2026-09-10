@@ -1,27 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-
-globalThis.localStorage = { getItem: () => null, setItem() {} };
-class FakeNode {
-  constructor(tag) { this.tag = tag; this.children = []; this.attrs = {}; this.value = ''; this.classList = { add() {}, remove() {}, toggle() {} }; }
-  setAttribute(k, v) { this.attrs[k] = v; if (k === 'value') this.value = v; }
-  removeAttribute(k) { delete this.attrs[k]; }
-  addEventListener(k, v) { (this.events ||= {})[k] = v; }
-  append(...items) { this.children.push(...items); if (this.tag === 'textarea') this.value = this.children.join(''); }
-  replaceChildren(...items) { this.children = items; }
-  insertBefore(item, before) { this.children.splice(this.children.indexOf(before), 0, item); }
-  get lastChild() { return this.children.at(-1); }
-  remove() {}
-  reportValidity() { return true; }
-}
-globalThis.Node = FakeNode;
-globalThis.document = { createElement: tag => new FakeNode(tag), createElementNS: (_, tag) => new FakeNode(tag), createTextNode: text => text, querySelector: () => new FakeNode('notice') };
-const { API } = await import('../web/api.js?v=studio-2');
+import { Node as FakeNode, installDom, all } from './web-dom.mjs';
+installDom();
+// flows.js自身は api.js/jobs.js を v7 で読み込む（web/flows.js の import 文が正本）。
+// intent.js/learning.js は v4 を読み込むため、samples() 内から referenceNotes 経由で
+// 呼ばれる API.commentIntents は v4 側、samples() が直接呼ぶ API.character 等は v7 側を
+// モックする必要がある。drafts.js は全消費者が v3 で統一されている。
+const { API } = await import('../web/api.js?v=studio-4');
+const { API: flowsAPI } = await import('../web/api.js?v=studio-7');
 const { samples } = await import('../web/flows.js?v=studio-2');
-const { pendingFiles, saveDraft } = await import('../web/drafts.js?v=studio-2');
+const { pendingFiles, saveDraft } = await import('../web/drafts.js?v=studio-3');
 const { referenceNotes, saveCaption } = await import('../web/intent.js?v=studio-2');
 const { learning } = await import('../web/learning.js?v=studio-2');
-const all = node => [node, ...node.children.filter(c => c instanceof FakeNode).flatMap(all)];
+const { refreshJobs } = await import('../web/jobs.js?v=studio-4');
 
 test('古い確認待ちは希望を引き継ぎ、再開始の応答待ちに過去の状態を表示しない', async () => {
   const rec = {key:'legacy',created:'now',samples:[],lora_name:''};
@@ -46,7 +37,7 @@ test('古い確認待ちは希望を引き継ぎ、再開始の応答待ちに�
   release(job); await pending;
   job.status='confirmed'; job.training_job_id='completed';
   API.jobs=async()=>[job,{job_id:'completed',kind:'lora_train',status:'completed',record_kind:'character',record_key:'legacy',record_created:'now'}];
-  const { refreshJobs }=await import('../web/jobs.js?v=studio-2'); await refreshJobs();
+  await refreshJobs();
   assert.ok(all(root).some(n=>n.children.includes('AIが読み取った内容')));
   const repeat=start.events.click(); await new Promise(resolve=>setImmediate(resolve));
   assert.ok(all(root).some(n=>n.children.includes('学習の開始を確認しています')));
@@ -73,7 +64,7 @@ test('質問のない採用案は承認操作にせず、学習中・完了後�
   let calls=0, release;
   API.startLearning=()=>{ calls++; job.status='running'; return new Promise(resolve=>{release=resolve;}); };
   const pending=start.events.click(); await new Promise(resolve=>setImmediate(resolve));
-  const {refreshJobs}=await import('../web/jobs.js?v=studio-2'); await refreshJobs();
+  await refreshJobs();
   assert.equal(calls,1); assert.equal(start.disabled,true);
   assert.ok(all(root).some(n=>n.children.includes('読み取りが終わると、教材を準備して学習へ進みます。回答が必要な質問がある場合だけお知らせします。')));
   job.status='confirmed'; job.accepted=proposal; job.training_job_id='train';
@@ -92,11 +83,12 @@ for (const kind of ['character', 'style']) test(`${kind}：画像選択だけで
   t.mock.method(URL, 'createObjectURL', () => 'blob:test');
   t.mock.method(URL, 'revokeObjectURL', () => {});
   let record = { samples: [] }, uploaded = 0, ready = false;
+  flowsAPI[kind] = async () => structuredClone(record);
   API[kind] = async () => structuredClone(record);
   API.commentIntents = async () => [];
-  API.upload = async () => [{ path: `upload-${++uploaded}` }];
+  flowsAPI.upload = async () => [{ path: `upload-${++uploaded}` }];
   const commits = [];
-  API[kind === 'character' ? 'addSamples' : 'addStyleSamples'] = (_name, path) => new Promise(resolve => commits.push(() => {
+  flowsAPI[kind === 'character' ? 'addSamples' : 'addStyleSamples'] = (_name, path) => new Promise(resolve => commits.push(() => {
     record.samples.push({ index: record.samples.length, path, caption: '' }); resolve(structuredClone(record));
   }));
   const root = new FakeNode('root'), cleanup = [];
@@ -116,9 +108,9 @@ test('追加途中の失敗は成功分を保ち、再送は未追加分だけ�
   t.mock.method(URL, 'createObjectURL', () => 'blob:test'); t.mock.method(URL, 'revokeObjectURL', () => {});
   t.mock.method(globalThis, 'setTimeout', () => 0);
   let record = { samples: [] }, uploads = 0, fail = true;
-  API.character = async () => structuredClone(record); API.commentIntents = async () => [];
-  API.upload = async () => [{ path: `p-${++uploads}` }];
-  API.addSamples = async (_, path) => {
+  flowsAPI.character = async () => structuredClone(record); API.character = async () => structuredClone(record); API.commentIntents = async () => [];
+  flowsAPI.upload = async () => [{ path: `p-${++uploads}` }];
+  flowsAPI.addSamples = async (_, path) => {
     if (path === 'p-2' && fail) throw new Error('保存できません');
     record.samples.push({ index: record.samples.length, path, caption: '' }); return structuredClone(record);
   };
