@@ -420,6 +420,17 @@ def test_desired_generation_prompt_uses_interpreted_english_not_comment():
         'rating': 'ng', 'focus': ['hair'],
         'meaning': {'description_en': standing},
     }]) == ''
+    mixed = desired_generation_prompt(standing, [{
+        'rating': 'ng', 'focus': ['hair'],
+        'meaning': {'description_en': (
+            'A slim young adult woman with long hair styled in twin braids, '
+            'wearing a white cropped top, standing full body, looking at viewer, '
+            'Blonde short hair without twin tails, blonde twin tails with pink tips'
+        )},
+    }])
+    assert mixed == 'blonde twin tails with pink tips'
+    assert 'woman' not in mixed and 'wearing' not in mixed and 'standing' not in mixed
+    assert 'without twin' not in mixed
 
 
 def test_learning_and_preview_use_interpreted_generation_text(tmp_path, monkeypatch):
@@ -466,6 +477,8 @@ def test_hair_focus_keeps_source_pose_and_adds_only_hair_delta(tmp_path, monkeyp
         preview = service.events.load_job(job['preview_job_id'])
         assert 'twin tails' in preview['prompt']
         assert 'standing' not in preview['prompt']
+        assert 'cropped top' not in preview['prompt']
+        assert '1girl' in preview['prompt'] and 'solo' in preview['prompt']
         review = (await service.preview_reviews('probe', source['job_id']))['pictures'][1]['review']
         assert 'standing' not in review['meaning']['description_en']
         assert 'twin tails' in review['meaning']['description_en']

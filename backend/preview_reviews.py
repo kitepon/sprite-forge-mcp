@@ -9,6 +9,13 @@ from pydantic import BaseModel
 from .preview_intent import ReviewCorrection, ReviewMeaning
 
 FOCUS_LABELS = {'hair': '髪', 'face': '顔', 'outfit': '衣装', 'body': '体形', 'style': '画風'}
+HAIR_OFF_MARKERS = (
+    'wearing', 'worn', 'cropped', 'skirt', 'dress', 'boot', 'shoe', 'collar',
+    'standing', 'sitting', 'full body', 'looking at viewer', 'background',
+    'woman', 'girl', '1girl', 'man', 'person', 'proportion', 'head-tall',
+    'arms', 'outfit', 'clothes', 'jacket', 'top with', 'against a',
+    'without twin', 'no twin',
+)
 
 
 def review_of(entry: dict) -> dict:
@@ -31,15 +38,20 @@ def review_needs_interpretation(review: dict) -> bool:
 
 
 def description_for_focus(source_prompt: str, description: str, focus) -> str:
-    """部位指定があるとき、元の生成文に無い句だけを残す。"""
+    """部位指定があるとき、その部位の句だけ残す。元の生成文の写しと範囲外は落とす。"""
     if not focus:
         return description
-    have = {piece.strip() for piece in source_prompt.split(',') if piece.strip()}
+    have = {piece.strip() for piece in source_prompt.replace(';', ',').split(',') if piece.strip()}
+    off = HAIR_OFF_MARKERS if list(focus) == ['hair'] else ()
     kept = []
-    for piece in description.split(','):
+    for piece in description.replace(';', ',').split(','):
         text = piece.strip()
-        if text and text not in have and text not in kept:
-            kept.append(text)
+        if not text or text in have or text in kept:
+            continue
+        lowered = text.lower()
+        if any(marker in lowered for marker in off):
+            continue
+        kept.append(text)
     return ', '.join(kept)
 
 
