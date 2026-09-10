@@ -8,7 +8,8 @@ Graph = dict[str, dict[str, Any]]
 def anima_txt2img(prompt: str, seed: int, *, turbo: bool = False, lora_name: str | None = None,
                   lora_strength: float = .8, pose_image: str | None = None,
                   width: int = 1024, height: int = 1024, negative: str = "",
-                  loras: list[tuple[str, float]] | None = None) -> Graph:
+                  loras: list[tuple[str, float]] | None = None,
+                  filename_prefix: str = "sprite-forge/anima") -> Graph:
     """Anima txt2img. LoRAs stack in order (``lora_name`` first, then ``loras``): e.g. a character
     LoRA and a style LoRA. Nodes 4, 40, 41, ... are the LoraLoader chain."""
     graph: Graph = {
@@ -36,7 +37,7 @@ def anima_txt2img(prompt: str, seed: int, *, turbo: bool = False, lora_name: str
         "22":{"class_type":"EmptyLatentImage","inputs":{"width":width,"height":height,"batch_size":1}},
         "23":{"class_type":"KSampler","inputs":{"model":model,"seed":seed,"steps":4 if turbo else 28,"cfg":1.0 if turbo else 4.0,"sampler_name":"euler","scheduler":"simple","positive":["20",0],"negative":["21",0],"latent_image":["22",0],"denoise":1.0}},
         "24":{"class_type":"VAEDecode","inputs":{"samples":["23",0],"vae":["3",0]}},
-        "25":{"class_type":"SaveImage","inputs":{"images":["24",0],"filename_prefix":"sprite-forge/anima"}},
+        "25":{"class_type":"SaveImage","inputs":{"images":["24",0],"filename_prefix":filename_prefix}},
     }); return graph
 
 

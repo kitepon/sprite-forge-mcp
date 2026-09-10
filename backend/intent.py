@@ -154,6 +154,9 @@ def prompt_parts(conditions: dict) -> tuple[str, str]:
     )
 
 
+ONE_CHARACTER = "solo, only one character"
+
+
 def unique_tags(*blobs: str) -> str:
     seen: list[str] = []
     for blob in blobs:

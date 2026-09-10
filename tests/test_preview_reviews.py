@@ -155,13 +155,12 @@ def test_adopted_lora_is_used_by_setting_sheet_and_old_version_can_be_restored(t
         sheet = await service.generate_character_bible('probe')
         panels = panel_orders(comfy)
         assert len(panels) == sheet['total_panels']
-        assert all('4' not in graph for graph in panels)
-        assert [graph['20']['inputs']['prompt'] for graph in panels] == [
-            request['instruction'] for request in sheet['panel_requests']
+        assert all(graph['4']['inputs']['lora_name'] == 'new.safetensors' for graph in panels)
+        assert [graph['20']['inputs']['text'] for graph in panels] == [
+            request['prompt'] for request in sheet['panel_requests']
         ]
-        assert all('twin tails' not in request['instruction'] for request in sheet['panel_requests'])
-        assert 'Only one character' in sheet['panel_requests'][0]['instruction']
-        assert all('Use this character sheet as the only reference' in request['instruction'] for request in sheet['panel_requests'])
+        assert all('twin tails' in request['prompt'] for request in sheet['panel_requests'])
+        assert 'only one character' in sheet['panel_requests'][0]['prompt']
         restored = await service.adopt_preview_lora('probe', old['job_id'])
         assert restored['lora_name'] == 'old.safetensors'
         assert restored['lora_history'][-1]['lora_name'] == 'new.safetensors'

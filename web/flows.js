@@ -236,7 +236,7 @@ async function sheet(target, ctx, styled, cleanup) {
   const showExisting = record => { if (record.bible?.sheet_path) existing.replaceChildren(h('h3', {}, '保存してある設定画'), picture(record.bible.sheet_path, `${name}の設定画`, { version: record.bible.at })); };
   showExisting(rec);
   const update = async () => { const fresh = await API.character(name); if (!target.isConnected) return; showExisting(fresh); if (fresh.bible && !editingReady) { editingReady = true; refreshEditor = await redraw(edit, name, fresh, cleanup, showExisting); } else await refreshEditor?.(fresh); };
-  target.append(h('p', { class: 'muted' }, '合格した一枚シートだけを参照に、各パネルを一体で描きます。LoRA とプレビューの生成文は使いません。前の設定画は、新しい一枚が完成するまで残ります。'), advanced(field('Seed', seed)), taskPanel({ kind: 'character_bible', name }, '設定画', rec.bible ? '新しい設定画を作る' : '設定画を作る', () => { layout.requireConfirmed(); return editor.save().then(() => API.bible(name, number(seed), editor.confirmedJob())); }, cleanup, () => update().catch(error => notice(error.message, true)), { hideCompletedImages: true }), existing, edit);
+  target.append(h('p', { class: 'muted' }, '学習済み LoRA と、採用したプレビューの生成文と、各パネルの指令で描きます。指令には「1人だけ」を入れます。前の設定画は、新しい一枚が完成するまで残ります。'), advanced(field('Seed', seed)), taskPanel({ kind: 'character_bible', name }, '設定画', rec.bible ? '新しい設定画を作る' : '設定画を作る', () => { layout.requireConfirmed(); return editor.save().then(() => API.bible(name, number(seed), editor.confirmedJob(), style)); }, cleanup, () => update().catch(error => notice(error.message, true)), { hideCompletedImages: true }), existing, edit);
   if (rec.bible) { editingReady = true; refreshEditor = await redraw(edit, name, rec, cleanup, showExisting, style); }
   return async () => { await layout.save(); await editor.save(); await refreshEditor?.save(); };
 }

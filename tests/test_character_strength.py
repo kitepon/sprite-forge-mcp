@@ -48,18 +48,19 @@ def test_strength_reaches_anima_generations_including_sheets(tmp_path, monkeypat
         approve_sheet(service, 'probe')
         sheet_job = await service.generate_character_bible('probe')
         panels = panel_orders(comfy)
-        assert 'loras' not in sheet_job
+        assert sheet_job['loras'] == [('person.safetensors', 0.4), ('look.safetensors', 0.6)]
         assert len(panels) == sheet_job['total_panels']
-        assert all('4' not in graph for graph in panels)
-        assert [graph['20']['inputs']['prompt'] for graph in panels] == [
-            request['instruction'] for request in sheet_job['panel_requests']
+        assert all(graph['4']['inputs']['strength_model'] == 0.4 for graph in panels)
+        assert all(graph['40']['inputs']['strength_model'] == 0.6 for graph in panels)
+        assert [graph['20']['inputs']['text'] for graph in panels] == [
+            request['prompt'] for request in sheet_job['panel_requests']
         ]
         sheet = deepcopy(service._load_character('probe')['bible'])
         await service.set_character_strength('probe', 0.8)
         assert service._load_character('probe')['bible'] == sheet
         redraw = await service.redraw_panel('probe', sheet['layout'][0]['key'], tags='standing')
-        assert '4' not in comfy.submitted[-1]
-        assert comfy.submitted[-1]['20']['inputs']['prompt'] == redraw['instruction']
+        assert comfy.submitted[-1]['4']['inputs']['strength_model'] == 0.8
+        assert comfy.submitted[-1]['20']['inputs']['text'] == redraw['prompt']
 
     asyncio.run(scenario())
 

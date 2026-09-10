@@ -176,8 +176,8 @@ def test_sheet_preserves_scope_records_actual_inputs_and_reuses_panel_correction
         result = await service.generate_character_bible("probe", seed=10, intent_job_id=intent["job_id"])
         assert len(result["panel_requests"]) == len(panel_orders(comfy)) == 23
         for request, graph in zip(result["panel_requests"], panel_orders(comfy)):
-            assert graph["20"]["inputs"]["prompt"] == request["instruction"]
-            assert graph["21"]["inputs"]["prompt"] == request["negative"]
+            assert graph["20"]["inputs"]["text"] == request["prompt"]
+            assert graph["21"]["inputs"]["text"] == request["negative"]
             assert graph["23"]["inputs"]["seed"] == request["seed"]
         assert "yellow coat" in result["panel_requests"][0]["prompt"]
         assert "red boots" in result["panel_requests"][-1]["prompt"]
@@ -220,7 +220,8 @@ def test_explicit_redraw_mode_preserves_legacy_or_replaces_structured(tmp_path, 
             assert result["intent_conditions"] == {} and result["intent_changes"] == []
             assert current == {"tags": "green coat", "avoid": "", "seed": 1}
             reset = await service.redraw_panel("probe", "turn_front", input_mode="english")
-            assert reset["prompt"] == bible.panel_prompt(bible.PANELS[0], record["trigger"], record["char_desc"])
+            assert reset["prompt"].startswith(bible.panel_prompt(bible.PANELS[0], record["trigger"], record["char_desc"]))
+            assert "only one character" in reset["prompt"]
     asyncio.run(scenario())
 
 
@@ -290,7 +291,7 @@ def test_panel_saving_is_after_composition_and_preserves_concurrent_updates(tmp_
     original = comfy.submit
 
     async def submit(graph, client_id):
-        if (graph.get("20", {}).get("class_type") == "TextEncodeJoyImageEdit"
+        if (graph.get("25", {}).get("inputs", {}).get("filename_prefix") == "sprite-forge/bible"
                 and not panel_orders(comfy) and failure != "html"):
             record = await service.character_info("probe")
             record["panel_overrides"] = {"turn_front" if failure == "same_panel" else "turn_back":
@@ -403,8 +404,8 @@ def test_public_entry_resolves_the_confirmed_panel_order(tmp_path, monkeypatch, 
     assert result["intent_job_id"] == intent["job_id"]
     if stage == "sheet":
         assert "green boots" in result["panel_requests"][-1]["prompt"]
-        instruction = result["panel_requests"][-1]["instruction"]
+        prompt = result["panel_requests"][-1]["prompt"]
     else:
         assert "green boots" in result["prompt"]
-        instruction = result["instruction"]
-    assert panel_orders(comfy)[-1]["20"]["inputs"]["prompt"] == instruction
+        prompt = result["prompt"]
+    assert panel_orders(comfy)[-1]["20"]["inputs"]["text"] == prompt
