@@ -13,8 +13,14 @@ Stage = Literal["samples", "training", "preview", "sheet", "panel", "drawing", "
 Feature = Literal["face", "hair", "outfit", "style", "expression", "pose", "accessory", "background", "subject", "composition", "lighting"]
 PREVIEW_TAGS = "full body, standing, front view, looking at viewer"
 SHEET_CONDITIONS = {
-    "composition": {"description_en": "character reference sheet, multiple views", "avoid_en": ""},
-    "pose": {"description_en": "turnaround, front view, side view, back view", "avoid_en": ""},
+    "composition": {
+        "description_en": "character design sheet, character reference sheet, multiple views of the same character in the same outfit, full body turnaround and expression sheet, clean white background",
+        "avoid_en": "different characters, extra people, text, logo, watermark",
+    },
+    "pose": {
+        "description_en": "front view, three-quarter view, side view, back view, several facial expressions",
+        "avoid_en": "",
+    },
 }
 DRAWING_CONDITIONS = {"composition": {"description_en": "", "avoid_en": SINGLE_VIEW_NEGATIVE}}
 PREVIEW_CONDITIONS = {

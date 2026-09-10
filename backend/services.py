@@ -435,7 +435,7 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         self._record_call("generate_character_sheet", job_id, {"name": name, "seed": seed})
         with self._job_errors(job):
             image, elapsed = await self._run_edit(job_id, workflows.anima_txt2img(
-                prompt, seed, turbo=turbo, loras=chain, negative=negative, width=1216, height=832))
+                prompt, seed, turbo=turbo, loras=chain, negative=negative, width=1536, height=1024))
             path = self._write_generated(f"{job_id}-character-sheet.png", image)
             job.update(status="completed", path=str(path), elapsed_s=elapsed)
             self.events.save_job(job)

@@ -14,11 +14,12 @@ from tests.test_style import make, png
 def assert_reference_sheet(job, graph, seed):
     assert job["kind"] == "character_sheet" and job["status"] == "completed"
     assert job["seed"] == seed and job["prompt"] == graph["20"]["inputs"]["text"]
-    assert job["negative"] == graph["21"]["inputs"]["text"] == bible.QUALITY_NEGATIVE
-    assert graph["22"]["inputs"]["width"] == 1216 and graph["22"]["inputs"]["height"] == 832
+    assert job["negative"] == graph["21"]["inputs"]["text"]
+    assert bible.QUALITY_NEGATIVE in job["negative"]
+    assert graph["22"]["inputs"]["width"] == 1536 and graph["22"]["inputs"]["height"] == 1024
     assert "character reference sheet" in job["prompt"]
-    assert "turnaround, front view, side view, back view" in job["prompt"]
-    assert "expression sheet" not in job["prompt"]
+    assert "expression sheet" in job["prompt"]
+    assert "front view, three-quarter view, side view, back view" in job["prompt"]
     assert "full body, standing, front view, looking at viewer" not in job["prompt"]
     assert bible.SINGLE_VIEW_NEGATIVE not in job["negative"]
 
@@ -109,7 +110,7 @@ def test_ui_keeps_sheet_judgment_before_bible():
     assert "['キャラクター', '参考画像', '学習', 'プレビュー', '一枚シート', '設定画']" in flows
     assert "['キャラクター', '画風', 'プレビュー', '一枚シート', '設定画']" in flows
     assert "合格した一枚を、設定画の起点にしてください。" in flows
-    assert "向きを並べた参照シート" in flows
+    assert "向きと表情を、一枚の参照シートにまとめます" in flows
     assert "API.regenerateSheet(name, 0, style)" in flows
     assert "if (job) API.character(name).then(record => refresh(record, job))" in flows
     assert "pending_sheet ? 4" in main
