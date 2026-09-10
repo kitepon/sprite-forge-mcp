@@ -156,24 +156,39 @@ def crop_nonwhite(content: bytes, pad: int = 10) -> bytes:
     return _png(rgb.crop((max(left - pad, 0), max(top - pad, 0), min(right + pad, rgb.width), min(bottom + pad, rgb.height))))
 
 
-def figure_mask(masks: list[bytes]) -> Image.Image:
-    """SAM が個体ごとに返したマスクから、参照にする一体を選ぶ。設定画は全身の情報が要るので、
-    最も背の高い一体を採る。"""
+def figure_masks(masks: list[bytes]) -> list[Image.Image]:
+    """SAM が個体ごとに返したマスクから、全身だけを左から右へ並べる。顔アップや小物は高さで落とす。
+    一番背が高い一体だけを採ると、横向きが正面より高くて横だけ残る。"""
     found = []
     for content in masks:
         mask = _load(content).convert("L").point(lambda v: 255 if v > 127 else 0)
         box = mask.getbbox()
         if box:
-            found.append((box[3] - box[1], mask))
+            found.append((box[0], box[3] - box[1], mask))
     if not found:
         raise ValueError("合格シートから人物を見つけられませんでした。")
-    return max(found, key=lambda pair: pair[0])[1]
+    tallest = max(height for _, height, _ in found)
+    bodies = [(x, mask) for x, height, mask in found if height >= tallest * 0.5]
+    bodies.sort(key=lambda item: item[0])
+    return [mask for _, mask in bodies]
+
+
+def figure_mask(masks: list[bytes]) -> Image.Image:
+    """正面として使う一体。全身の左端。"""
+    return figure_masks(masks)[0]
+
+
+def pose_views(figures: list[Image.Image]) -> dict[str, Image.Image]:
+    """一枚シートの全身を、左から正面・横・斜め・背面として使う。"""
+    front = figures[0]
+    back = figures[-1]
+    side = figures[1] if len(figures) >= 3 else front
+    three = figures[2] if len(figures) >= 4 else side
+    return {"front": front, "side": side, "three_quarter": three, "back": back}
 
 
 def figure_on_white(sheet: Path, mask: Image.Image) -> Image.Image:
-    """マスクで選んだ人物一体を白地へ移し、その輪郭で切る。編集モデルは参照の構図を出力へ写すので、
-    設定画のパネルを一体で描かせるには、参照も一体でなければならない。余白は足さない——隣の人物の
-    裾が入ると、編集モデルが二体を描く。"""
+    """マスクで選んだ人物一体を白地へ移し、その輪郭で切る。骨格入力は一体でないと複数人が写る。"""
     box = mask.getbbox()
     if box is None:
         raise ValueError(f"合格シートの人物マスクが空です: {sheet}")
@@ -183,15 +198,23 @@ def figure_on_white(sheet: Path, mask: Image.Image) -> Image.Image:
 
 
 def head_crop(figure: Image.Image, share: float = .34) -> Image.Image:
-    """顔だけを求めるパネルへ見せる参照。全身を渡すと全身で返るため、人物の上部だけを切る。"""
+    """顔のパネル用に、正面の人物の上部だけを切る。"""
     head = figure.crop((0, 0, figure.width, max(1, round(figure.height * share))))
     box = _ink_mask(head).getbbox()
     return head.crop(box) if box else head
 
 
 def reference_key(panel: Panel) -> str:
-    """そのパネルで見せる参照の種類。顔のパネルだけ頭部、それ以外は人物一体を渡す。"""
-    return "head" if panel.kind == "face" else "figure"
+    """そのパネルがベースにする、一枚シート上の向き。"""
+    if panel.kind == "face":
+        return "head"
+    if panel.key in {"turn_back", "body_back"}:
+        return "back"
+    if panel.key == "turn_side":
+        return "side"
+    if panel.key == "turn_34":
+        return "three_quarter"
+    return "front"
 
 
 def palette(rgb: Image.Image, k: int = 7) -> list[tuple[int, int, int]]:

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from backend import bible, box
 from backend.bible import PANELS, panel_prompt, subject_tag
@@ -109,20 +109,22 @@ def test_three_stages_each_stop_for_correction(tmp_path, monkeypatch):
     assert sam["4"]["class_type"] == "SAM3_Detect" and sam["4"]["inputs"]["individual_masks"] is True
     first = panels[0]
     assert job["panel_requests"][0]["prompt"] == "bell, 1girl, full body, standing, front view, looking at viewer, arms at sides, simple background, white background"
-    assert first["20"]["inputs"]["prompt"] == job["panel_requests"][0]["instruction"]
-    assert first["21"]["inputs"]["prompt"] == job["panel_requests"][0]["negative"] and first["22"]["inputs"]["width"] == 832
-    assert "4" not in first and "40" not in first
+    assert first["20"]["inputs"]["text"] == job["panel_requests"][0]["prompt"]
+    assert first["21"]["inputs"]["text"] == job["panel_requests"][0]["negative"] and first["22"]["inputs"]["width"] == 832
+    assert first["4"]["class_type"] == "LoraLoader" and first["6"]["class_type"] == "AnimaPoseControl"
+    assert first["5"]["inputs"]["image"].endswith("-front.png")
     assert Image.open(job["sheet_path"]).width == 2040 and "APPROVED REFERENCE SHEET" in open(job["html_path"], encoding="utf-8").read()
     assert run(service.character_info("Bell"))["bible"]["sheet_path"] == job["sheet_path"]
     redraw = run(service.redraw_panel("Bell", "cos_dress", "ball gown, floor-length dress", seed=9, avoid="frills, boots"))
     assert redraw["prompt"] == "bell, 1girl, ball gown, floor-length dress, simple background, white background"
-    assert comfy.submitted[-1]["21"]["inputs"]["prompt"] == bible.NEGATIVE + ", frills, boots" and redraw["previous"].endswith(".png")
-    assert comfy.submitted[-1]["20"]["inputs"]["prompt"] == redraw["instruction"]
+    assert comfy.submitted[-1]["21"]["inputs"]["text"] == bible.NEGATIVE + ", frills, boots" and redraw["previous"].endswith(".png")
+    assert comfy.submitted[-1]["20"]["inputs"]["text"] == redraw["prompt"]
     assert run(service.character_info("Bell"))["panel_overrides"] == {"cos_dress": {"tags": "ball gown, floor-length dress", "avoid": "frills, boots", "seed": 9}}
     comfy.submitted.clear()
-    run(service.generate_character_bible("Bell", seed=1))  # the correction sticks for the next sheet
+    dress_job = run(service.generate_character_bible("Bell", seed=1))  # the correction sticks for the next sheet
     dress = panel_orders(comfy)[[p.key for p in PANELS].index("cos_dress")]
-    assert dress["20"]["inputs"]["prompt"] == redraw["instruction"] and dress["21"]["inputs"]["prompt"].endswith("frills, boots") and dress["23"]["inputs"]["seed"] == 9
+    dress_req = next(r for r in dress_job["panel_requests"] if r["panel"] == "cos_dress")
+    assert dress["20"]["inputs"]["text"] == dress_req["prompt"] and dress["21"]["inputs"]["text"].endswith("frills, boots") and dress["23"]["inputs"]["seed"] == 9
     picture = run(service.generate_from_bible("Bell", "waving, stage", seed=5))
     assert comfy.submitted[-1]["20"]["inputs"]["text"] == "bell, waving, stage" and picture["lora_name"] == training["lora_name"]
     assert [c["name"] for c in run(service.list_characters())] == ["Bell"]
@@ -135,7 +137,7 @@ def test_adopting_an_existing_lora_skips_training(tmp_path, monkeypatch):
     job = asyncio.run(service.generate_character_bible("Bell"))
     assert job["status"] == "completed"
     assert job["panel_requests"][0]["prompt"].startswith("bell_idol, 1girl, ")
-    assert panel_orders(comfy)[0]["20"]["inputs"]["prompt"] == job["panel_requests"][0]["instruction"]
+    assert panel_orders(comfy)[0]["20"]["inputs"]["text"] == job["panel_requests"][0]["prompt"]
 
 
 def test_panel_prompts_carry_content_only_and_the_subject_comes_from_the_description():
@@ -147,6 +149,31 @@ def test_panel_prompts_carry_content_only_and_the_subject_comes_from_the_descrip
         for word in ("cel", "painterly", "glossy", "masterpiece", "best quality", "high detail"):
             assert word not in text
     assert [p["key"] for p in asyncio.run(Services(comfy=ComfyFixture()).list_bible_panels())][:2] == ["turn_front", "turn_34"]
+    assert bible.reference_key(next(p for p in PANELS if p.key == "turn_front")) == "front"
+    assert bible.reference_key(next(p for p in PANELS if p.key == "turn_side")) == "side"
+    assert bible.reference_key(next(p for p in PANELS if p.key == "turn_back")) == "back"
+    assert bible.reference_key(next(p for p in PANELS if p.kind == "face")) == "head"
+
+
+def test_sheet_keeps_left_full_body_even_when_a_side_view_is_taller():
+    def mask_bytes(box, size=(120, 80)):
+        image = Image.new("L", size, 0)
+        ImageDraw.Draw(image).rectangle(box, fill=255)
+        output = BytesIO()
+        image.save(output, "PNG")
+        return output.getvalue()
+
+    face = mask_bytes((8, 4, 28, 22))
+    front = mask_bytes((4, 22, 38, 72))
+    side = mask_bytes((70, 8, 88, 76))
+    masks = bible.figure_masks([face, side, front])
+    assert len(masks) == 2
+    assert masks[0].getbbox()[0] < masks[1].getbbox()[0]
+    views = bible.pose_views([Image.new("RGB", (10, 20), c) for c in ("#f00", "#0f0", "#00f", "#ff0")])
+    assert views["front"].getpixel((0, 0)) == (255, 0, 0)
+    assert views["side"].getpixel((0, 0)) == (0, 255, 0)
+    assert views["three_quarter"].getpixel((0, 0)) == (0, 0, 255)
+    assert views["back"].getpixel((0, 0)) == (255, 255, 0)
 
 
 def test_japanese_names_get_an_ascii_key_and_still_work(tmp_path, monkeypatch):
@@ -231,7 +258,7 @@ def test_retry_panel_offers_candidates_and_adopting_one_replaces_only_that_panel
     seeds = [c["seed"] for c in retry["candidates"]]
     assert len(set(seeds)) == 4 and retry["current_seed"] not in seeds
     assert [w["23"]["inputs"]["seed"] for w in panel_orders(comfy)] == seeds
-    assert all(w["20"]["inputs"]["prompt"] == retry["instruction"] for w in panel_orders(comfy))
+    assert all(w["20"]["inputs"]["text"] == retry["prompt"] for w in panel_orders(comfy))
     assert retry["prompt"] == "bell, 1girl, full body, standing, front view, looking at viewer, arms at sides, simple background, white background"
     candidate_bytes = [Path(c["path"]).read_bytes() for c in retry["candidates"]]
     assert len({b for b in candidate_bytes}) == 4 and all(Path(c["path"]).parent.name == "candidates" for c in retry["candidates"])

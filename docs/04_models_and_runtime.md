@@ -8,7 +8,8 @@ Blackwell で CUDA 利用可能量が小さくなる未解決の問題がある�
 | --- | --- | --- |
 | 素体・LoRA 学習 | Anima Base v1.0、量産は Turbo v1.1 | `workflows.anima_base` / `anima_train_network.py` |
 | 任意ポーズ | Anima-Control-Pose preview-2 | Anima + LoRA の受入経路 |
-| 編集・設定画 | JoyAI-Image-Edit-Plus | `workflows.joy_edit` |
+| 設定画・描き直し | Anima + 学習済み LoRA + 一枚シートの向き | `workflows.anima_txt2img` |
+| 編集・派生画像 | JoyAI-Image-Edit-Plus | `workflows.joy_edit` |
 | 透過 | ToonOut (`BiRefNet_toonout`) | `workflows.toonout` |
 | 対象・衣装マスク | SAM 3.1 | `workflows.damage` |
 | ダメージ版 | SAM 3.1 + JoyAI + マスク外復元 | `workflows.damage` |

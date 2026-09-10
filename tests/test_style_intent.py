@@ -41,11 +41,13 @@ def test_style_selection_reaches_generation_without_content_words(tmp_path, monk
         if stage == "sheet":
             panels = panel_orders(comfy)
             assert len(panels) == generated["total_panels"]
-            assert all("4" not in graph and "40" not in graph for graph in panels)
-            assert all("requested brush texture" not in graph["20"]["inputs"]["prompt"] for graph in panels)
-            assert all("probe_style" not in graph["20"]["inputs"]["prompt"] for graph in panels)
-            assert [graph["20"]["inputs"]["prompt"] for graph in panels] == [
-                request["instruction"] for request in generated["panel_requests"]
+            assert generated["loras"] == [("person.safetensors", 0.8), ("look.safetensors", 0.7)]
+            assert all(graph["4"]["inputs"]["lora_name"] == "person.safetensors" for graph in panels)
+            assert all(graph["40"]["inputs"]["lora_name"] == "look.safetensors" for graph in panels)
+            assert all("requested brush texture" not in graph["20"]["inputs"]["text"] for graph in panels)
+            assert all("probe_style" not in graph["20"]["inputs"]["text"] for graph in panels)
+            assert [graph["20"]["inputs"]["text"] for graph in panels] == [
+                request["prompt"] for request in generated["panel_requests"]
             ]
         else:
             assert generated["loras"] == [("person.safetensors", 0.8), ("look.safetensors", 0.7)]
@@ -154,9 +156,13 @@ def test_redraw_ignores_character_style_changes(tmp_path, monkeypatch, saved_sty
         redraw = await service.redraw_panel("probe", "turn_front")
         assert redraw["prompt"].startswith(original["trigger"])
         assert "new_style" not in redraw["prompt"]
-        assert "4" not in comfy.submitted[-1] and "40" not in comfy.submitted[-1]
+        assert comfy.submitted[-1]["4"]["inputs"]["lora_name"] == "person.safetensors"
+        if saved_style:
+            assert "40" not in comfy.submitted[-1]
+        else:
+            assert comfy.submitted[-1]["40"]["inputs"]["lora_name"] == "new-look.safetensors"
         assert "probe_style" not in redraw["prompt"]
-        assert comfy.submitted[-1]["20"]["inputs"]["prompt"] == redraw["instruction"]
+        assert comfy.submitted[-1]["20"]["inputs"]["text"] == redraw["prompt"]
         job = await service.save_comment(IntentRequest(name="probe", stage="panel", panel="turn_front", comment="別の画風で"))
         value = proposal(scope="this_run", feature="style", text="")
         value["changes"][0]["style_name"] = "" if saved_style else "probe"
@@ -173,9 +179,13 @@ def test_redraw_ignores_character_style_changes(tmp_path, monkeypatch, saved_sty
         assert "style" not in accepted["effective_conditions"]
         commented = await service.redraw_panel("probe", "turn_front", intent_job_id=job["job_id"])
         assert len(comfy.submitted) == count + 1
-        assert "4" not in comfy.submitted[-1] and "40" not in comfy.submitted[-1]
+        assert comfy.submitted[-1]["4"]["inputs"]["lora_name"] == "person.safetensors"
+        if saved_style:
+            assert "40" not in comfy.submitted[-1]
+        else:
+            assert comfy.submitted[-1]["40"]["inputs"]["lora_name"] == "new-look.safetensors"
         assert "probe_style" not in commented["prompt"]
-        assert comfy.submitted[-1]["20"]["inputs"]["prompt"] == commented["instruction"]
+        assert comfy.submitted[-1]["20"]["inputs"]["text"] == commented["prompt"]
 
     asyncio.run(scenario())
 

@@ -226,8 +226,8 @@ async function drawing(target, ctx, kind, cleanup) {
     taskPanel(kind === 'character' ? { kind: 'from_bible', name } : { kind: 'image', style: name }, '新しい一枚', 'この内容で描く', async () => { await editor.save(); const selected = drawingInput(editor, mode.value, prompt.value); return kind === 'character' ? API.fromBible(name, selected.prompt, number(seed), style.value, selected.intentJobId) : API.image(selected.prompt, name, number(seed), selected.intentJobId); }, cleanup));
   return editor.save;
 }
-async function sheet(target, ctx, cleanup) {
-  const name = ctx.character; const rec = await API.character(name); const seed = seedControl(`sheet:${name}`);
+async function sheet(target, ctx, styled, cleanup) {
+  const name = ctx.character, style = styled ? (ctx.style || '') : ''; const rec = await API.character(name); const seed = seedControl(`sheet:${name}`);
   const layout = await layoutEditor(target, name, cleanup);
   const wishes = h('details', { class: 'optional-wishes' }, h('summary', {}, '設定画全体の見た目を調整する（任意）'));
   const editor = await commentEditor(wishes, { name, kind: 'character', stage: 'sheet', cleanup });
@@ -236,11 +236,11 @@ async function sheet(target, ctx, cleanup) {
   const showExisting = record => { if (record.bible?.sheet_path) existing.replaceChildren(h('h3', {}, '保存してある設定画'), picture(record.bible.sheet_path, `${name}の設定画`, { version: record.bible.at })); };
   showExisting(rec);
   const update = async () => { const fresh = await API.character(name); if (!target.isConnected) return; showExisting(fresh); if (fresh.bible && !editingReady) { editingReady = true; refreshEditor = await redraw(edit, name, fresh, cleanup, showExisting); } else await refreshEditor?.(fresh); };
-  target.append(h('p', { class: 'muted' }, '合格した一枚シートから人物を切り出し、その姿を元に構成の項目を順に描いて設定画にまとめます。前の設定画は、新しい一枚が完成するまで残ります。'), advanced(field('Seed', seed)), taskPanel({ kind: 'character_bible', name }, '設定画', rec.bible ? '新しい設定画を作る' : '設定画を作る', () => { layout.requireConfirmed(); return editor.save().then(() => API.bible(name, number(seed), editor.confirmedJob())); }, cleanup, () => update().catch(error => notice(error.message, true)), { hideCompletedImages: true }), existing, edit);
-  if (rec.bible) { editingReady = true; refreshEditor = await redraw(edit, name, rec, cleanup, showExisting); }
+  target.append(h('p', { class: 'muted' }, '合格した一枚シートをベースに、学習済み LoRA と各パネルの制御ワードで描きます。前の設定画は、新しい一枚が完成するまで残ります。'), advanced(field('Seed', seed)), taskPanel({ kind: 'character_bible', name }, '設定画', rec.bible ? '新しい設定画を作る' : '設定画を作る', () => { layout.requireConfirmed(); return editor.save().then(() => API.bible(name, number(seed), editor.confirmedJob(), style)); }, cleanup, () => update().catch(error => notice(error.message, true)), { hideCompletedImages: true }), existing, edit);
+  if (rec.bible) { editingReady = true; refreshEditor = await redraw(edit, name, rec, cleanup, showExisting, style); }
   return async () => { await layout.save(); await editor.save(); await refreshEditor?.save(); };
 }
-async function redraw(target, name, rec, cleanup, updated) {
+async function redraw(target, name, rec, cleanup, updated, style = '') {
   let panels = await API.panels(name, true); const key = `redraw:${name}`; let selected = panels.find(p => p.key === draft(`${key}:panel`)) || panels[0];
   const picker = h('div', { class: 'panel-picker' }); const selectedTitle = h('h3');
   const commentBox = h('div'); let panelEditor, changing = false;
@@ -273,8 +273,8 @@ async function redraw(target, name, rec, cleanup, updated) {
         ...job.candidates.map((candidate, index) => { const adopted = job.adopted?.seed === candidate.seed; return h('figure', { class: adopted ? 'adopted' : '' }, picture(candidate.path, `${label} 候補 ${index + 1}`), h('figcaption', {}, `候補 ${index + 1}`, adopted ? h('span', { class: 'badge green' }, '採用中') : button('この一枚を採用', adopt(candidate), 'small-button'))); })));
   };
   target.append(h('div', { class: 'stack' }, h('h3', {}, '気になる項目を出し直す'), h('p', { class: 'muted' }, '項目を選んで押すと、同じ内容のまま seed だけ変えた 4 枚を描きます。気に入った一枚を選ぶまで設定画は変わりません。'), picker, selectedTitle,
-    taskPanel({ kind: 'panel_retry', name }, '項目の出し直し', 'この項目を 4 枚描き直す', async () => { await panelEditor.save(); return API.retryPanel(name, selected.key, 4); }, cleanup, showCandidates, { hideCompletedImages: true }), candidates));
-target.append(h('details', { class: 'redraw-editor' }, h('summary', {}, icon('tool'), '注文を付けて描き直す'), h('div', { class: 'stack' }, h('p', { class: 'muted' }, '上で選んだ項目に、言葉で注文を付けて描き直します。「このパネルに残す」は生成が成功してから保存し、「今回だけ」は次回へ残しません。'), commentBox, field('注文の使い方', mode, '採用した注文を使う時は、詳細設定の英語欄は使いません。'), advanced(field('英語の自由入力', tags, '自由入力はパネルの内容全体を置き換えます。採用した条件とは併用できません。'), field('避けたいもの（英語）', avoid), field('Seed', seed)), taskPanel({ kind: 'redraw_panel', name }, 'パネルの描き直し', '選んだパネルを描き直す', async () => { await panelEditor.save(); const interpreted = mode.value === 'intent'; return API.redraw(name, selected.key, interpreted ? '' : tags.value, number(seed), interpreted ? '' : avoid.value, interpreted ? panelEditor.confirmedJob() : '', mode.value); }, cleanup, job => {
+    taskPanel({ kind: 'panel_retry', name }, '項目の出し直し', 'この項目を 4 枚描き直す', async () => { await panelEditor.save(); return API.retryPanel(name, selected.key, 4, style); }, cleanup, showCandidates, { hideCompletedImages: true }), candidates));
+target.append(h('details', { class: 'redraw-editor' }, h('summary', {}, icon('tool'), '注文を付けて描き直す'), h('div', { class: 'stack' }, h('p', { class: 'muted' }, '上で選んだ項目に、言葉で注文を付けて描き直します。「このパネルに残す」は生成が成功してから保存し、「今回だけ」は次回へ残しません。'), commentBox, field('注文の使い方', mode, '採用した注文を使う時は、詳細設定の英語欄は使いません。'), advanced(field('英語の自由入力', tags, '自由入力はパネルの内容全体を置き換えます。採用した条件とは併用できません。'), field('避けたいもの（英語）', avoid), field('Seed', seed)), taskPanel({ kind: 'redraw_panel', name }, 'パネルの描き直し', '選んだパネルを描き直す', async () => { await panelEditor.save(); const interpreted = mode.value === 'intent'; return API.redraw(name, selected.key, interpreted ? '' : tags.value, number(seed), interpreted ? '' : avoid.value, interpreted ? panelEditor.confirmedJob() : '', mode.value, style); }, cleanup, job => {
     // The old picture remains visible in the result for side-by-side comparison.
     if (job.previous) { const previous = h('div', { class: 'comparison' }, h('h3', {}, '描き直す前'), picture(job.previous, '描き直す前')); const old = target.querySelector('.comparison'); old?.remove(); target.append(previous); }
     API.character(name).then(async fresh => { if (!target.isConnected) return; await refresh(fresh); updated(fresh); }).catch(error => notice(error.message, true));
@@ -356,7 +356,7 @@ export function flow(root, id) {
       else if (['sheet', 'style'].includes(id) && index === 2) nextSave = await learning(content, keyKind, ctx[keyKind], ownedCleanup, setReady);
       else if (id === 'sheet' && index === 3 || id === 'restyle' && index === 2) nextSave = await previewStep(content, ctx, id === 'restyle', ownedCleanup, setReady, () => move(index + 1));
       else if (id === 'sheet' && index === 4 || id === 'restyle' && index === 3) await judgeSheet(content, ctx, id === 'restyle', ownedCleanup, setReady, () => move(index + 1));
-      else if (id === 'sheet' && index === 5 || id === 'restyle' && index === 4) nextSave = await sheet(content, ctx, ownedCleanup);
+      else if (id === 'sheet' && index === 5 || id === 'restyle' && index === 4) nextSave = await sheet(content, ctx, id === 'restyle', ownedCleanup);
       else nextSave = await drawing(content, ctx, keyKind, ownedCleanup);
       if (!disposed && current === version) saveStep = nextSave;
     } catch (error) { if (current === version && !disposed) errorState(content, error); }
