@@ -254,7 +254,8 @@ def test_answers_continue_same_request_and_keep_preparation_history(tmp_path, mo
         assert result['training_config']['pair_regions'] == [['hair']]
         assert result['training_config']['prompt'] == GENERATED
         assert '衣装は合っている' not in result['training_config']['prompt']
-        assert service.events.load_job(result['preview_job_id'])['prompt'] == GENERATED
+        preview_prompt = service.events.load_job(result['preview_job_id'])['prompt']
+        assert 'twintails' in preview_prompt and preview_prompt.startswith('probe, full body')
         assert sam_prompts(comfy) == ['hair', 'hair']
         ok_id, ng_id = result['pairs'][0]
         assert (Path(result['dataset']) / f'{ok_id}.mask.png').is_file()
@@ -464,7 +465,8 @@ def test_learning_and_preview_use_interpreted_generation_text(tmp_path, monkeypa
         assert job['generation_prompt'] == GENERATED
         assert job['training_config']['prompt'] == GENERATED
         assert '髪型が違う' not in job['training_config']['prompt']
-        assert service.events.load_job(job['preview_job_id'])['prompt'] == GENERATED
+        preview_prompt = service.events.load_job(job['preview_job_id'])['prompt']
+        assert 'twintails' in preview_prompt and preview_prompt.startswith('probe, full body')
         review = (await service.preview_reviews('probe', source['job_id']))['pictures'][1]['review']
         assert review['meaning']['description_en'] == ''
     asyncio.run(scenario())
@@ -499,6 +501,7 @@ def test_hair_focus_keeps_source_pose_and_adds_only_hair_delta(tmp_path, monkeyp
         assert 'twin tails' in preview['prompt']
         assert 'standing' in preview['prompt']
         assert '1girl' in preview['prompt'] and 'solo' in preview['prompt']
+        assert 'skirt' not in preview['prompt'] and 'cropped top' not in preview['prompt']
         review = (await service.preview_reviews('probe', source['job_id']))['pictures'][1]['review']
         assert job['generation_prompt'] == 'blonde twin tails, shoulder-length hair'
         assert review['meaning']['description_en'] == ''

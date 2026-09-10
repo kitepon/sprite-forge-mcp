@@ -187,7 +187,7 @@ def test_sheet_preserves_scope_records_actual_inputs_and_reuses_panel_correction
         assert set(record["panel_overrides"]) == {"item_shoes"}
         assert record["panel_overrides"]["item_shoes"]["seed"] == 32
         next_job = await service.generate_character_bible("probe", seed=99)
-        assert "white coat" in next_job["panel_requests"][0]["prompt"]
+        assert "white coat" not in next_job["panel_requests"][0]["prompt"]
         assert "yellow coat" not in next_job["panel_requests"][0]["prompt"]
         assert "red boots" in next_job["panel_requests"][-1]["prompt"]
         assert next_job["panel_requests"][-1]["seed"] == 32

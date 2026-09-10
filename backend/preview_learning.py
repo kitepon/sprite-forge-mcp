@@ -333,23 +333,10 @@ class PreviewLearning:
 
     def _prompt_after_learning(self, job: dict) -> str:
         """学習文は指定部位だけ。再プレビューは普通の全身プレビューにその差分を足す。"""
-        source = job['source']
-        ratings = {'ok': ('ok',), 'ng': ('ng',), 'preference': ('ok', 'ng')}.get(job.get('mode'), ('ok', 'ng'))
-        extras = job.get('generation_prompt')
-        if extras is None:
-            extras = desired_generation_prompt(source['prompt'], job['reviews'], ratings)
-        focused = any(review_of(picture).get('focus')
-                      for picture in job['reviews']
-                      if (review_of(picture).get('rating') or '') in ratings)
-        if not focused:
-            return extras or source['prompt']
+        extras = job.get('generation_prompt') or ''
         record = self._load_character(job['name'])
-        intent = self._generation_intent(record, 'character', 'preview', '')
-        _, style_word, _ = self._generation_loras(record, source.get('style') or '', intent)
-        content = preview_content(PREVIEW_TAGS, intent['intent_conditions'])
-        subject = '' if 'subject' in intent['intent_conditions'] else bible.subject_tag(record['char_desc'])
-        background = '' if 'background' in intent['intent_conditions'] else bible.COMMON
-        return unique_tags(record['trigger'], style_word, subject, content, extras, '1girl, solo', background)
+        _, style_word, _ = self._generation_loras(record, job['source'].get('style') or '', {})
+        return unique_tags(record['trigger'], style_word, PREVIEW_TAGS, extras, '1girl, solo', bible.COMMON)
 
     async def _preview_after_learning(self, job: dict) -> None:
         source = job['source']
@@ -358,6 +345,7 @@ class PreviewLearning:
             preview = {k: deepcopy(v) for k, v in source.items() if k not in ('created_at', 'updated_at')}
             preview.update(job_id=str(uuid.uuid4()), status='queued', pictures=[], total_images=10, learning_job_id=job['job_id'])
             preview['loras'][0] = [job['lora_name'], source['loras'][0][1]]
+            preview['generation_prompt'] = job.get('generation_prompt') or ''
             preview['prompt'] = self._prompt_after_learning(job)
             job['preview_job_id'] = preview['job_id']
             job['status'] = 'previewing'

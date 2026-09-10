@@ -54,7 +54,7 @@ def test_generation_keeps_defaults_or_uses_confirmed_composition(tmp_path, monke
             assert "1girl" not in job["prompt"]
         else:
             assert job["negative"] == bible.NEGATIVE
-            assert job["prompt"] == ("probe, 1girl, full body, standing, front view, looking at viewer, simple background, white background"
+            assert job["prompt"] == ("probe, full body, standing, front view, looking at viewer, 1girl, solo, simple background, white background"
                                      if route == "preview" else ("probe_style" if kind == "style" else "probe") + ", one adult standing")
         assert graph["4"]["inputs"]["lora_name"] == ("look.safetensors" if kind == "style" else "person.safetensors")
 

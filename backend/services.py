@@ -352,14 +352,15 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         intent = self._generation_intent(record, "character", "preview", intent_job_id)
         chain, style_word, style = self._generation_loras(record, style, intent)
         job_id = str(uuid.uuid4())
-        content = preview_content(tags, intent["intent_conditions"])
-        subject = "" if "subject" in intent["intent_conditions"] else bible.subject_tag(record["char_desc"])
-        background = "" if "background" in intent["intent_conditions"] else bible.COMMON
-        prompt = ", ".join(part for part in (record["trigger"], style_word, subject, content, background) if part)
-        negative = generation_negative(intent["intent_conditions"])
+        conditions = self._prompt_conditions(intent)
+        content = preview_content(tags, conditions)
+        prompt = unique_tags(record["trigger"], style_word, content,
+                             "" if "subject" in conditions else "1girl, solo",
+                             "" if "background" in conditions else bible.COMMON)
+        negative = generation_negative(conditions)
         job = {"job_id": job_id, "kind": "preview", "status": "queued", "name": name, "prompt": prompt, "seed": seed, "loras": chain,
                "style": style, "total_images": max(1, count), "pictures": [], "negative": negative,
-               "character_created": record['created'], **intent}
+               "generation_prompt": "", "character_created": record['created'], **intent}
         graph = workflows.anima_txt2img(prompt, seed, turbo=turbo, loras=chain, negative=negative, width=832, height=1216)
         job['generation'] = {'model': graph['1']['inputs']['unet_name'], 'text_encoder': graph['2']['inputs']['clip_name'],
                              'vae': graph['3']['inputs']['vae_name'], 'width': 832, 'height': 1216, 'turbo': turbo,
@@ -391,15 +392,31 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
             self.events.save_job(job); self.events.append(job_id, "image_completed", {"pictures": [p["path"] for p in pictures]})
             return job
 
+    def _prompt_conditions(self, intent: dict[str, Any]) -> dict:
+        """サンプルから覚えた persistent な姿は LoRA が持つ。今回確認した注文だけ文章に残す。"""
+        conditions = intent.get("intent_conditions") or {}
+        if intent.get("intent_job_id"):
+            return dict(conditions)
+        return {key: value for key, value in conditions.items()
+                if not (key in ("outfit", "subject", "face") and value.get("scope") == "persistent")}
+
     def _preview_identity(self, record: dict[str, Any]) -> str:
-        """採用したプレビューの生成文から、構図を除いた本人指定を返す。"""
+        """採用プレビューの差分だけ。衣装や体形は LoRA に任せる。"""
         job_id = record.get("adopted_preview_job_id")
         if not job_id:
             return ""
         job = self.events.load_job(job_id)
-        if not job or job.get("kind") != "preview" or not job.get("prompt"):
+        if not job or job.get("kind") != "preview":
             return ""
-        return identity_from_preview_prompt(job["prompt"], record.get("trigger", ""))
+        extra = job.get("generation_prompt")
+        if extra:
+            return extra
+        learn_id = job.get("learning_job_id")
+        if learn_id:
+            learned = self.events.load_job(learn_id)
+            if learned and learned.get("generation_prompt"):
+                return learned["generation_prompt"]
+        return ""
 
     @staticmethod
     def _approved_sheet(record: dict[str, Any]) -> Path:
@@ -422,12 +439,11 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         intent = self._generation_intent(record, "character", "preview", intent_job_id)
         chain, style_word, style = self._generation_loras(record, style, intent)
         job_id = str(uuid.uuid4())
-        conditions = sheet_conditions(intent["intent_conditions"])
-        content = sheet_content(intent["intent_conditions"])
-        subject = "" if "subject" in conditions else bible.subject_tag(record["char_desc"])
-        background = "" if "background" in conditions else bible.COMMON
-        prompt = unique_tags(record["trigger"], style_word, subject, content, self._preview_identity(record), background)
-        negative = generation_negative(conditions)
+        conditions = self._prompt_conditions(intent)
+        content = sheet_content(conditions)
+        prompt = unique_tags(record["trigger"], style_word, content, self._preview_identity(record),
+                             "" if "background" in conditions else bible.COMMON)
+        negative = generation_negative(sheet_conditions(conditions))
         job = {"job_id": job_id, "kind": "character_sheet", "status": "queued", "name": name, "prompt": prompt,
                "seed": seed, "loras": chain, "style": style, "negative": negative,
                "character_created": record["created"], **intent}
@@ -503,7 +519,7 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         specs = [panel_from(value) for value in layout]
         overrides = deepcopy(record.get("panel_overrides", {}))
         requests = [{"panel": panel.key, "seed": overrides.get(panel.key, {}).get("seed", seed + layout[index]["seed_offset"]),
-                     **resolve_panel(panel, trigger, char_desc, intent["intent_conditions"], intent["intent_changes"],
+                     **resolve_panel(panel, trigger, char_desc, self._prompt_conditions(intent), intent["intent_changes"],
                                      overrides.get(panel.key, {}), intent_job_id)}
                     for index, panel in enumerate(specs)]
         for panel, request in zip(specs, requests):
@@ -591,9 +607,9 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
             raise ValueError(f"{name!r} has no LoRA yet: train_character_lora first")
         intent = self._generation_intent(record, "character", "drawing", intent_job_id)
         chain, style_word, style = self._generation_loras(record, style, intent)
-        content = drawing_content(prompt, intent["intent_conditions"], intent_job_id)
+        content = drawing_content(prompt, self._prompt_conditions(intent), intent_job_id)
         full_prompt = ", ".join(part for part in (record["trigger"], style_word, content) if part)
-        negative = generation_negative(intent["intent_conditions"])
+        negative = generation_negative(self._prompt_conditions(intent))
         job_id = str(uuid.uuid4())
         job = {"job_id": job_id, "kind": "from_bible", "status": "queued", "name": name, "prompt": full_prompt,
                "lora_name": record["lora_name"], "loras": chain, "seed": seed, "requested_prompt": prompt,
@@ -670,7 +686,7 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         typed = input_mode != "english" and bool(input_mode == "intent" or intent_job_id or intent["intent_conditions"] or saved.get("conditions"))
         if typed and (tags.strip() or avoid.strip()):
             raise ValueError("英語の自由入力と解釈した注文は同時に使えません。制作への注文に含めて解釈してください。")
-        request = resolve_panel(spec, info["trigger"], info["char_desc"], intent["intent_conditions"],
+        request = resolve_panel(spec, info["trigger"], info["char_desc"], self._prompt_conditions(intent),
                                 intent["intent_changes"], saved, intent_job_id) if typed else resolve_panel(
                                     spec, info["trigger"], info["char_desc"], {}, [], {"tags": tags, "avoid": avoid.strip()})
         request["prompt"] = self._bible_prompt(record, spec, request, style_word)
@@ -735,7 +751,7 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         saved = overrides.get(panel, {})
         intent = self._generation_intent(record, "character", "panel", "", panel)
         chain, style_word, style = self._generation_loras(record, style, intent)
-        request = resolve_panel(spec, info["trigger"], info["char_desc"], intent["intent_conditions"], [], saved)
+        request = resolve_panel(spec, info["trigger"], info["char_desc"], self._prompt_conditions(intent), [], saved)
         request["prompt"] = self._bible_prompt(record, spec, request, style_word)
         current_seed = saved.get("seed", record["bible"].get("seed", 1) + next(p["seed_offset"] for p in layout if p["key"] == panel))
         seeds: list[int] = []

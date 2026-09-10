@@ -21,6 +21,7 @@ def assert_reference_sheet(job, graph, seed):
     assert "strict accurate human anatomy" in job["prompt"]
     assert "white background" in job["prompt"]
     assert "full body, standing, front view, looking at viewer" not in job["prompt"]
+    assert "skirt" not in job["prompt"] and "cropped top" not in job["prompt"]
     assert bible.SINGLE_VIEW_NEGATIVE not in job["negative"]
 
 

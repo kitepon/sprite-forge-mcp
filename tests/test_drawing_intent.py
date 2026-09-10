@@ -73,10 +73,9 @@ def test_common_conditions_are_used_without_new_order_but_not_combined_with_free
         record = service._load_character('probe')
         record['intent_conditions'] = {'outfit': proposal(text='a yellow coat')['changes'][0]}
         service._save_character(record)
-        job = await service.generate_from_bible('probe', '')
-        assert job['prompt'] == 'probe, a yellow coat'
-        with pytest.raises(ValueError, match='同時'):
-            await service.generate_from_bible('probe', 'a red coat')
+        job = await service.generate_from_bible('probe', 'standing')
+        assert job['prompt'] == 'probe, standing'
+        assert 'yellow coat' not in job['prompt']
         assert len(comfy.submitted) == 1
     asyncio.run(scenario())
 

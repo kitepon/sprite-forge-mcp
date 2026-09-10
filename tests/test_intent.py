@@ -72,9 +72,11 @@ def test_feature_references_survive_sample_adoption_and_next_generation(tmp_path
         future = await service.save_comment(IntentRequest(name="probe", stage="drawing", comment="白背景"))
         assert future["base_conditions"]["face"]["reference"] == job["references"][1]
         assert future["base_conditions"]["outfit"]["reference"] == job["references"][3]
-        generated = await service.generate_from_bible("probe", "")
+        generated = await service.generate_from_bible("probe", "standing")
         assert generated["intent_conditions"] == future["base_conditions"]
-        assert all(text in generated["prompt"] for text in ("oval face", "slender adult figure", "cropped top and skirt"))
+        assert "standing" in generated["prompt"]
+        assert "cropped top and skirt" not in generated["prompt"]
+        assert "slender adult figure" not in generated["prompt"]
 
     asyncio.run(scenario())
 

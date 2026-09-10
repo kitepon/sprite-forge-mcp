@@ -121,7 +121,8 @@ def test_character_in_a_style_stacks_both_loras(tmp_path, monkeypatch):
     graph = comfy.submitted[-1]
     assert graph["4"]["inputs"]["lora_name"] == "BellGrok.safetensors" and graph["40"]["inputs"]["lora_name"].startswith("glow_")
     assert graph["40"]["inputs"]["model"] == ["4", 0] and graph["23"]["inputs"]["model"] == ["40", 0] and graph["20"]["inputs"]["clip"] == ["40", 1]
-    assert preview["prompt"].startswith("bell_idol, glow_style, 1girl, waving")
+    assert preview["prompt"].startswith("bell_idol, glow_style, waving")
+    assert "1girl" in preview["prompt"] and "solo" in preview["prompt"]
     record = run(service.set_character_style("Bell", "glow", 0.6))
     assert record["style"] == "glow" and record["style_strength"] == 0.6
     approve_sheet(service, "Bell")

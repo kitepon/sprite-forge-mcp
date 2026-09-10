@@ -139,6 +139,7 @@ def test_adopted_lora_is_used_by_setting_sheet_and_old_version_can_be_restored(t
         await service.create_character('probe', 'she/her', lora_name='old.safetensors')
         old = await service.preview_character('probe', count=1)
         new = {**old, 'job_id': 'new-preview', 'loras': [['new.safetensors', .65]],
+               'generation_prompt': 'blonde twin tails with pink gradient coloring',
                'prompt': old['prompt'] + ', blonde twin tails with pink gradient coloring'}
         service.events.save_job(new)
         adopted = await service.adopt_preview_lora('probe', new['job_id'])
@@ -147,6 +148,7 @@ def test_adopted_lora_is_used_by_setting_sheet_and_old_version_can_be_restored(t
         comfy.submitted.clear()
         one = await service.generate_character_sheet('probe')
         assert 'twin tails' in one['prompt'] and 'character design sheet' in one['prompt']
+        assert 'skirt' not in one['prompt'] and 'cropped top' not in one['prompt']
         approve_sheet(service, 'probe')
         comfy.submitted.clear()
         sheet = await service.generate_character_bible('probe')
