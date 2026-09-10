@@ -23,24 +23,17 @@ def role_conditions(panel):
             if not (panel.key == "item_outfit" and key == "outfit")}
 
 
-SAME = "Draw the same character as in the reference image, keeping the face, hair and outfit identical."
-KEEP_FACE = "Keep the face, hairstyle and hair ornaments exactly as in the reference image."
-STRIP_OUTFIT = "Remove the original top, sleeves, collar, skirt, gloves and footwear; none of them remain."
+SHEET = "Use this character sheet as the only reference. Draw one panel."
+ONE = "Only one character in the image. Do not draw multiple people. Do not copy the whole sheet."
 CHIBI = ("Redraw the character in chibi super deformed style: the head is as large as the whole body, "
-         "the limbs are short and stubby, and there are only two head-heights in total. "
-         "Keep the face, hairstyle and outfit design recognisable.")
-# 参照から置き換える特徴。ここに挙げた特徴だけを命令文の主節へ出し、残りは末尾に並べる。
+         "the limbs are short and stubby, and there are only two head-heights in total.")
 REPLACED = {"full": ("outfit",), "item": ("outfit", "accessory")}
 
 
 def edit_instruction(panel, conditions, tags=""):
-    """合格シートから切り出した人物へ、このパネルの内容を描かせる文。
-
-    編集モデルは文頭の命令を強く採り、後ろのタグを装飾として扱う。衣装替え・チビ・小物は、替える内容を
-    主節へ置き、残すものを従属節へ回した時だけ頼んだ絵になった（evidence/bible-sheet-source-20260910）。"""
+    """一枚シートだけを参照に、このパネルを一体で描かせる文。"""
     replaced = REPLACED.get(panel.kind, ())
     if tags:
-        # 英語の自由入力は特徴に分かれていない。小物のパネルではその文が品物の指定なので主節へ置く。
         change, rest = (tags, []) if panel.kind == "item" else ("", [tags])
     else:
         described = [(feature, value["description_en"]) for feature, value in conditions.items()
@@ -53,13 +46,13 @@ def edit_instruction(panel, conditions, tags=""):
         rest.append(bible.COMMON)
     content = ", ".join(part for part in rest if part)
     if panel.kind == "item":
-        return (f"Remove the character completely. Draw only the {change}, laid out on their own "
-                f"as a still life. {content}")
+        return (f"Use this character sheet as the only reference. Draw only the {change}, "
+                f"laid out as a still life. No character. {content}")
     if panel.kind == "chibi":
-        return f"{CHIBI} {content}"
+        return f"{SHEET} {CHIBI} {content} {ONE}"
     if change:
-        return f"Replace the character's clothes with: {change}. {STRIP_OUTFIT} {KEEP_FACE} {content}"
-    return f"{SAME} {content}"
+        return f"{SHEET} Draw them wearing {change}. {content} {ONE}"
+    return f"{SHEET} {content} {ONE}"
 
 
 def resolve_panel(panel, trigger, char_desc, common, changes, saved, intent_job_id=""):

@@ -21,7 +21,7 @@ def test_all_legacy_panels_keep_their_original_prompt_and_exclusion():
     for original, value in zip(bible.PANELS, legacy_layout(), strict=True):
         result = resolve_panel(panel_from(value), "person", "she/her", {}, [], {})
         assert result["prompt"] == bible.panel_prompt(original, "person", "she/her")
-        assert result["negative"] == "lowres, bad anatomy, bad hands, text, watermark, multiple views, reference sheet, collage"
+        assert result["negative"] == bible.NEGATIVE
 
 
 def test_targeted_composition_replaces_its_old_exclusion_and_keeps_other_exclusions():

@@ -1,9 +1,9 @@
 """Character bible (model sheet), drawn from the approved reference sheet.
 
 The owner brings pictures of a character, a LoRA is trained on them, and one sheet is drawn and
-approved. Every panel of the bible is then drawn by the edit model from a single figure cut out of
-that approved sheet, so the panels show the character the owner accepted. Content (view, expression,
-outfit, chibi, item) comes from the panel and the owner's order; the product never describes a style.
+approved. Every panel of the bible is then drawn by the edit model from that approved sheet alone.
+One panel shows one character. Content (view, expression, outfit, chibi, item) comes from the panel
+and the owner's order; LoRA and the preview generation text are not passed.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from typing import NamedTuple
 from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 QUALITY_NEGATIVE = "lowres, bad anatomy, bad hands, text, watermark"
-SINGLE_VIEW_NEGATIVE = "multiple views, reference sheet, collage"
+SINGLE_VIEW_NEGATIVE = "multiple views, reference sheet, collage, multiple people, extra characters"
 
 
 class Panel(NamedTuple):
