@@ -1,21 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-
-globalThis.localStorage = { getItem: () => null, setItem() {} };
-class FakeNode {
-  constructor(tag) { this.tag = tag; this.children = []; this.attrs = {}; this.value = ''; }
-  setAttribute(key, value) { this.attrs[key] = value; if (key === 'value') this.value = value; }
-  removeAttribute(key) { delete this.attrs[key]; }
-  get lastChild() { return this.children.at(-1); }
-  addEventListener(name, fn) { (this.events ||= {})[name] = fn; }
-  append(...items) { this.children.push(...items); }
-  replaceChildren(...items) { this.children = items; }
-}
-globalThis.Node = FakeNode;
-globalThis.document = { createElement: tag => new FakeNode(tag), createElementNS: (_, tag) => new FakeNode(tag), createTextNode: text => text, querySelector: () => new FakeNode('notice') };
-const { API } = await import('../web/api.js?v=studio-2');
+import { Node as FakeNode, installDom, all } from './web-dom.mjs';
+installDom();
+const { API } = await import('../web/api.js?v=studio-4');
 const { layoutEditor, layoutValues } = await import('../web/layout.js?v=studio-2');
-const all = root => [root, ...root.children.filter(x => x instanceof FakeNode).flatMap(all)];
 const find = (root, label) => all(root).find(n => n.attrs['aria-label'] === label) || all(root).find(n => n.children.includes(label));
 const click = async (root, label) => { const node = find(root, label); assert.ok(node, label); await node.events.click({ currentTarget: node }); };
 const change = (root, label, value) => { const node = find(root, label); node.value = value; node.events.input({ target: node }); };
