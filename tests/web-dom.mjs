@@ -20,6 +20,7 @@ export class Node {
     this.append(...items);
   }
   insertBefore(item, before) { this.children.splice(this.children.indexOf(before), 0, item); }
+  querySelectorAll(tag) { return all(this).filter(node => node !== this && node.tag === tag); }
   get lastChild() { return this.children.at(-1); }
   remove() {}
   reportValidity() { return true; }
@@ -33,6 +34,8 @@ export function installDom() {
     createElementNS: (_namespace, tag) => new Node(tag),
     createTextNode: text => text,
     querySelector: () => new Node('notice'),
+    addEventListener() {},
+    removeEventListener() {},
   };
 }
 

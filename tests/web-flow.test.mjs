@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { Node as FakeNode, installDom, all } from './web-dom.mjs';
 installDom();
 const { API } = await import('../web/api.js');
-const { samples } = await import('../web/flows.js');
+const { samples, flow } = await import('../web/flows.js');
+const { state } = await import('../web/state.js');
 const { pendingFiles, saveDraft } = await import('../web/drafts.js');
 const { referenceNotes, saveCaption } = await import('../web/intent.js');
 const { learning } = await import('../web/learning.js');
@@ -128,6 +129,21 @@ test('希望の自動保存と移動時の保存が重なっても、古い入�
   notes.input.value = '新しい希望'; const second = notes.save();
   assert.deepEqual(calls, ['古い希望']); release(); await Promise.all([first, second]);
   assert.deepEqual(calls, ['古い希望', '新しい希望']);
+});
+
+test('キャラクターを選ぶ前の第1工程が、台帳の未取得で壊れない', async () => {
+  state.flow = {};
+  API.characters = async () => [];
+  API.jobs = async () => [];
+  const root = new FakeNode('root');
+  const dispose = flow(root, 'sheet');
+  for (let tick = 0; tick < 6; tick++) await new Promise(resolve => setTimeout(resolve, 0));
+  const nodes = all(root);
+  assert.ok(!nodes.some(n => n.children.includes('読み込めませんでした')));
+  assert.ok(nodes.some(n => n.children.includes('キャラクター')));
+  assert.ok(nodes.some(n => n.textContent === '選ぶか、新しく登録してください。'));
+  assert.equal(nodes.find(n => n.className === 'next-step').children[1].disabled, true);
+  dispose();
 });
 
 test('画像コメントの自動保存も順序を保つ', async () => {

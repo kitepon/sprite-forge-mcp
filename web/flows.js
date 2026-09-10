@@ -311,7 +311,7 @@ export function flow(root, id) {
     const current = ++contextVersion;
     const name = ctx[keyKind]; const rec = supplied || (name ? await (isStyle ? API.style(name) : API.character(name)).catch(() => null) : null);
     if (disposed || current !== contextVersion) return;
-    const bibleReady = !!(rec.approved_sheet || rec.bible);
+    const bibleReady = !!(rec?.approved_sheet || rec?.bible);
     furthest = !rec ? 0 : id === 'sheet' ? (rec.lora_name ? (bibleReady ? 5 : 4) : rec.samples.length ? 2 : 1)
       : id === 'style' ? (rec.lora_name ? spec.steps.length - 1 : rec.samples.length ? 2 : 1)
       : id === 'restyle' ? (bibleReady ? 4 : 3)
