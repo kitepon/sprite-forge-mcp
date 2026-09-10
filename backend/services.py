@@ -1176,9 +1176,10 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
     @staticmethod
     def _images(history: dict[str, Any]) -> list[dict[str, Any]]:
         images = [image for output in history.get("outputs", {}).values() for image in output.get("images", [])]
-        if not images:
+        saved = [image for image in images if image.get("type", "output") == "output"]
+        if not saved:
             raise RuntimeError("ComfyUI history has no image output")
-        return images
+        return saved
 
     @staticmethod
     def _first_image(history: dict[str, Any]) -> dict[str, Any]:

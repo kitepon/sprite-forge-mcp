@@ -10,6 +10,14 @@ def test_first_image_reads_comfy_output():
     image = Services._first_image({"outputs":{"9":{"images":[{"filename":"x.png","subfolder":"sprite-forge","type":"output"}]}}})
     assert image["filename"] == "x.png"
 
+
+def test_first_image_skips_anima_pose_preview():
+    image = Services._first_image({"outputs": {
+        "6": {"images": [{"filename": "anima_pose_61be8d4a.png", "subfolder": "", "type": "temp"}]},
+        "25": {"images": [{"filename": "anima_00809_.png", "subfolder": "sprite-forge", "type": "output"}]},
+    }})
+    assert image["filename"] == "anima_00809_.png" and image["type"] == "output"
+
 def test_invalid_sprite_count_fails_before_network():
     service = Services()
     try:
