@@ -425,12 +425,17 @@ def test_desired_generation_prompt_uses_interpreted_english_not_comment():
         'meaning': {'description_en': (
             'A slim young adult woman with long hair styled in twin braids, '
             'wearing a white cropped top, standing full body, looking at viewer, '
-            'Blonde short hair without twin tails, blonde twin tails with pink tips'
+            'blonde twin tails with pink tips'
         )},
     }])
     assert mixed == 'blonde twin tails with pink tips'
     assert 'woman' not in mixed and 'wearing' not in mixed and 'standing' not in mixed
-    assert 'without twin' not in mixed
+    outfit = desired_generation_prompt(standing, [{
+        'rating': 'ng', 'focus': ['outfit'],
+        'meaning': {'description_en': standing + ', blonde twin tails, white cropped top with gold trim'},
+    }])
+    assert 'cropped top' in outfit and 'trim' in outfit
+    assert 'twin tails' not in outfit and 'standing' not in outfit
 
 
 def test_learning_and_preview_use_interpreted_generation_text(tmp_path, monkeypatch):

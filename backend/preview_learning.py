@@ -11,7 +11,7 @@ from PIL import Image, ImageChops
 
 from . import bible, box, workflows
 from .config import BOX_LORAS, BOX_TRAIN
-from .intent import prompt_parts, unique_tags
+from .intent import unique_tags
 from .preview_reviews import description_for_focus, review_has_input, review_needs_interpretation, review_of, require_interpreted_generation
 
 IN_FLIGHT = ('interpreting', 'training', 'previewing')
@@ -287,23 +287,17 @@ class PreviewLearning:
         return path
 
     def _prompt_after_learning(self, job: dict) -> str:
-        """部位指定があるときは前の生成文を引き継がない。髪だけなら髪とトリガーだけ。"""
+        """部位指定があるときは前の生成文を引き継がない。指定部位のタグとトリガーだけ。"""
         source = job['source']
         ratings = {'ok': ('ok',), 'ng': ('ng',), 'preference': ('ok', 'ng')}.get(job.get('mode'), ('ok', 'ng'))
         extras = desired_generation_prompt(source['prompt'], job['reviews'], ratings)
-        focuses = [review_of(picture).get('focus') or []
-                   for picture in job['reviews']
-                   if (review_of(picture).get('rating') or '') in ratings]
-        if not any(focuses):
+        focused = any(review_of(picture).get('focus')
+                      for picture in job['reviews']
+                      if (review_of(picture).get('rating') or '') in ratings)
+        if not focused:
             return extras or source['prompt']
         record = self._load_character(job['name'])
-        keys = {key for focus in focuses for key in focus}
-        if keys <= {'hair'}:
-            return unique_tags(record['trigger'], extras, '1girl, solo', bible.COMMON)
-        intent = self._generation_intent(record, 'character', 'preview', '')
-        _, style_word, _ = self._generation_loras(record, source.get('style') or '', intent)
-        positive, _ = prompt_parts(intent['intent_conditions'])
-        return unique_tags(record['trigger'], style_word, positive, extras, '1girl, solo', bible.COMMON)
+        return unique_tags(record['trigger'], extras, '1girl, solo', bible.COMMON)
 
     async def _preview_after_learning(self, job: dict) -> None:
         source = job['source']

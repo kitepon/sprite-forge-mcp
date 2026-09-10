@@ -9,12 +9,16 @@ from pydantic import BaseModel
 from .preview_intent import ReviewCorrection, ReviewMeaning
 
 FOCUS_LABELS = {'hair': '髪', 'face': '顔', 'outfit': '衣装', 'body': '体形', 'style': '画風'}
-HAIR_OFF_MARKERS = (
-    'wearing', 'worn', 'cropped', 'skirt', 'dress', 'boot', 'shoe', 'collar',
+FOCUS_MARKERS = {
+    'hair': ('hair', 'bang', 'twin', 'ponytail', 'braid', 'ribbon', 'blonde', 'gradient', 'tips', 'dye', 'locks'),
+    'face': ('face', 'eye', 'brow', 'mouth', 'nose', 'expression', 'smile', 'cheek'),
+    'outfit': ('wearing', 'worn', 'cropped', 'skirt', 'dress', 'boot', 'shoe', 'collar', 'jacket', 'clothes', 'outfit', 'top', 'trim', 'ornament'),
+    'body': ('body', 'slim', 'proportion', 'head-tall', 'figure', 'waist', 'chest'),
+    'style': ('style', 'brush', 'lineart', 'cel'),
+}
+ALWAYS_OFF = (
     'standing', 'sitting', 'full body', 'looking at viewer', 'background',
-    'woman', 'girl', '1girl', 'man', 'person', 'proportion', 'head-tall',
-    'arms', 'outfit', 'clothes', 'jacket', 'top with', 'against a',
-    'without twin', 'no twin',
+    'woman', 'girl', '1girl', 'man', 'person', 'against a', 'arms at',
 )
 
 
@@ -38,18 +42,23 @@ def review_needs_interpretation(review: dict) -> bool:
 
 
 def description_for_focus(source_prompt: str, description: str, focus) -> str:
-    """部位指定があるとき、その部位の句だけ残す。元の生成文の写しと範囲外は落とす。"""
+    """指定した部位の句だけ残す。他の部位・姿勢・人物説明・元の生成文の写しは落とす。"""
     if not focus:
         return description
+    keys = [key for key in focus if key in FOCUS_MARKERS]
+    keep = tuple(marker for key in keys for marker in FOCUS_MARKERS[key])
+    drop = ALWAYS_OFF + tuple(marker for key, markers in FOCUS_MARKERS.items()
+                              if key not in keys for marker in markers)
     have = {piece.strip() for piece in source_prompt.replace(';', ',').split(',') if piece.strip()}
-    off = HAIR_OFF_MARKERS if list(focus) == ['hair'] else ()
     kept = []
     for piece in description.replace(';', ',').split(','):
         text = piece.strip()
         if not text or text in have or text in kept:
             continue
         lowered = text.lower()
-        if any(marker in lowered for marker in off):
+        if any(marker in lowered for marker in drop):
+            continue
+        if keep and not any(marker in lowered for marker in keep):
             continue
         kept.append(text)
     return ', '.join(kept)
