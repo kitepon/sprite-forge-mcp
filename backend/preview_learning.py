@@ -9,9 +9,9 @@ import uuid
 
 from PIL import Image, ImageChops
 
-from . import box, workflows
+from . import bible, box, workflows
 from .config import BOX_LORAS, BOX_TRAIN
-from .intent import unique_tags
+from .intent import prompt_parts, unique_tags
 from .preview_reviews import description_for_focus, review_has_input, review_needs_interpretation, review_of, require_interpreted_generation
 
 IN_FLIGHT = ('interpreting', 'training', 'previewing')
@@ -286,6 +286,22 @@ class PreviewLearning:
         path.write_bytes(union_masks(parts))
         return path
 
+    def _prompt_after_learning(self, job: dict) -> str:
+        """部位指定があるときは前の生成文を引き継がない。トリガーと台帳の条件と差分だけ。"""
+        source = job['source']
+        ratings = {'ok': ('ok',), 'ng': ('ng',), 'preference': ('ok', 'ng')}.get(job.get('mode'), ('ok', 'ng'))
+        extras = desired_generation_prompt(source['prompt'], job['reviews'], ratings)
+        focused = any(review_of(picture).get('focus')
+                      for picture in job['reviews']
+                      if (review_of(picture).get('rating') or '') in ratings)
+        if not focused:
+            return extras or source['prompt']
+        record = self._load_character(job['name'])
+        intent = self._generation_intent(record, 'character', 'preview', '')
+        _, style_word, _ = self._generation_loras(record, source.get('style') or '', intent)
+        positive, _ = prompt_parts(intent['intent_conditions'])
+        return unique_tags(record['trigger'], style_word, positive, extras, bible.COMMON)
+
     async def _preview_after_learning(self, job: dict) -> None:
         source = job['source']
         preview = self.events.load_job(job['preview_job_id']) if job.get('preview_job_id') else None
@@ -293,8 +309,7 @@ class PreviewLearning:
             preview = {k: deepcopy(v) for k, v in source.items() if k not in ('created_at', 'updated_at')}
             preview.update(job_id=str(uuid.uuid4()), status='queued', pictures=[], total_images=10, learning_job_id=job['job_id'])
             preview['loras'][0] = [job['lora_name'], source['loras'][0][1]]
-            ratings = {'ok': ('ok',), 'ng': ('ng',), 'preference': ('ok', 'ng')}.get(job.get('mode'), ('ok', 'ng'))
-            preview['prompt'] = desired_generation_prompt(source['prompt'], job['reviews'], ratings)
+            preview['prompt'] = self._prompt_after_learning(job)
             job['preview_job_id'] = preview['job_id']
             job['status'] = 'previewing'
             self.events.save_job(job)
@@ -324,9 +339,9 @@ def desired_generation_prompt(source_prompt: str, reviews: list[dict], ratings: 
         extras.append(text)
     extras = [text for text in extras if text]
     if not extras:
-        return source_prompt
+        return '' if focused else source_prompt
     if focused:
-        return unique_tags(source_prompt, *extras)
+        return unique_tags(*extras)
     if len(extras) == 1:
         return extras[0]
     kept = [text for text in extras if not any(text != other and text in other for other in extras)]

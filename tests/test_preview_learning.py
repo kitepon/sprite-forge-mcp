@@ -273,7 +273,7 @@ def test_ng_hair_focus_masks_only_hair_and_keeps_source_prompt(tmp_path, monkeyp
         job = await settled(service, await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()), steps=1))
         assert job['status'] == 'completed'
         assert job['training_config']['pair_regions'] == [['hair']]
-        assert job['training_config']['prompt'] == source['prompt']
+        assert job['training_config']['prompt'] == ''
         assert sam_prompts(comfy) == ['hair', 'hair']
         ok_id, ng_id = job['pairs'][0]
         assert (Path(job['dataset']) / f'{ok_id}.mask.png').is_file()
@@ -414,12 +414,12 @@ def test_desired_generation_prompt_uses_interpreted_english_not_comment():
         'rating': 'ng', 'focus': ['hair'],
         'meaning': {'description_en': dumped},
     }])
-    assert focused.startswith(standing)
-    assert 'twin tails' in focused and focused.count('standing') == 1
+    assert focused == 'blonde twin tails, shoulder-length hair'
+    assert 'standing' not in focused
     assert desired_generation_prompt(standing, [{
         'rating': 'ng', 'focus': ['hair'],
         'meaning': {'description_en': standing},
-    }]) == standing
+    }]) == ''
 
 
 def test_learning_and_preview_use_interpreted_generation_text(tmp_path, monkeypatch):
@@ -461,9 +461,11 @@ def test_hair_focus_keeps_source_pose_and_adds_only_hair_delta(tmp_path, monkeyp
             PreviewReview(rating='ng', revision=1, comment='髪型がツインテールではない', focus=['hair']))
         job = await settled(service, await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()), steps=1))
         prompt = job['training_config']['prompt']
-        assert prompt.startswith(source_prompt)
         assert 'twin tails' in prompt
-        assert prompt.count('standing') == source_prompt.count('standing')
+        assert 'standing' not in prompt
+        preview = service.events.load_job(job['preview_job_id'])
+        assert 'twin tails' in preview['prompt']
+        assert 'standing' not in preview['prompt']
         review = (await service.preview_reviews('probe', source['job_id']))['pictures'][1]['review']
         assert 'standing' not in review['meaning']['description_en']
         assert 'twin tails' in review['meaning']['description_en']
