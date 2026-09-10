@@ -4,7 +4,7 @@ import asyncio
 import pytest
 
 from backend import bible
-from backend.intent import IntentRequest, Proposal, PREVIEW_TAGS, generation_negative, identity_from_preview_prompt, preview_content, sheet_conditions, sheet_content
+from backend.intent import IntentRequest, Proposal, PREVIEW_TAGS, generation_negative, identity_from_preview_prompt, organize_tags, preview_content, sheet_conditions, sheet_content
 from tests.test_style import make, png
 
 
@@ -28,6 +28,21 @@ def test_identity_from_preview_prompt_keeps_hair_and_drops_front_view():
     assert "looking at viewer" not in identity
     assert "simple background" not in identity
     assert "ndac1de01" not in identity
+
+
+def test_organize_tags_makes_one_prompt_from_many_image_captions():
+    text = organize_tags(
+        "each adorned with ribbons or decorative elements",
+        "Blonde short hair without twin tails",
+        "each tied with a black ribbon",
+        "Blonde short hair with bangs extending slightly below ear level",
+        "Blonde twin tails with pink ribbons and star-shaped decorations on each braid",
+        "Blonde short hair with pink tips starting from around the ears",
+    )
+    assert "each adorned" not in text
+    assert "each tied" not in text
+    assert text.count("Blonde short hair") <= 1
+    assert "twin tails" in text
 
 
 async def setup(service, tmp_path):

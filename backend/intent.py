@@ -167,6 +167,50 @@ def unique_tags(*blobs: str) -> str:
     return ", ".join(seen)
 
 
+def _dangling_tag(text: str) -> bool:
+    low = text.lower()
+    return low.startswith(("each ", "with a ", "with the ", "and ", "the tips", "the length"))
+
+
+def _collapse_similar_tags(pieces: list[str]) -> list[str]:
+    by_open: dict[tuple[str, ...], str] = {}
+    order: list[tuple[str, ...]] = []
+    for piece in pieces:
+        key = tuple(piece.lower().split()[:2])
+        if key not in by_open:
+            order.append(key)
+            by_open[key] = piece
+        elif len(piece) > len(by_open[key]):
+            by_open[key] = piece
+    kept: list[str] = []
+    for key in order:
+        piece = by_open[key]
+        words = {word for word in piece.lower().replace(".", "").split() if len(word) > 2}
+        merged = False
+        for index, existing in enumerate(kept):
+            other = {word for word in existing.lower().replace(".", "").split() if len(word) > 2}
+            if not words or not other:
+                continue
+            if len(words & other) / min(len(words), len(other)) >= 0.5:
+                kept[index] = piece if len(piece) >= len(existing) else existing
+                merged = True
+                break
+        if not merged:
+            kept.append(piece)
+    return kept
+
+
+def organize_tags(*blobs: str) -> str:
+    """プレビュー全体で一つの生成文に整理する。画像ごとの文を並べない。"""
+    pieces = []
+    for blob in blobs:
+        for piece in blob.replace(";", ",").split(","):
+            text = piece.strip().rstrip(".")
+            if text and not _dangling_tag(text) and text not in pieces:
+                pieces.append(text)
+    return unique_tags(*_collapse_similar_tags(pieces))
+
+
 def identity_from_preview_prompt(prompt: str, trigger: str = "") -> str:
     """採用したプレビュー生成文から、構図・背景・trigger を除いた本人指定を残す。"""
     drop = {piece.strip() for blob in (
@@ -174,7 +218,7 @@ def identity_from_preview_prompt(prompt: str, trigger: str = "") -> str:
         PREVIEW_CONDITIONS["composition"]["description_en"],
         PREVIEW_CONDITIONS["pose"]["description_en"],
     ) for piece in blob.split(",") if piece.strip()}
-    return unique_tags(*(piece.strip() for piece in prompt.split(",") if piece.strip() not in drop))
+    return organize_tags(*(piece.strip() for piece in prompt.split(",") if piece.strip() not in drop))
 
 
 def preview_content(tags: str, conditions: dict) -> str:

@@ -11,7 +11,7 @@ from PIL import Image, ImageChops
 
 from . import bible, box, workflows
 from .config import BOX_LORAS, BOX_TRAIN
-from .intent import PREVIEW_TAGS, preview_content, unique_tags
+from .intent import PREVIEW_TAGS, organize_tags, preview_content, unique_tags
 from .preview_reviews import description_for_focus, review_has_input, review_needs_interpretation, review_of, require_interpreted_generation
 
 IN_FLIGHT = ('interpreting', 'training', 'previewing')
@@ -322,7 +322,7 @@ class PreviewLearning:
 
 
 def desired_generation_prompt(source_prompt: str, reviews: list[dict], ratings: tuple[str, ...] = ('ok', 'ng')) -> str:
-    """判定の理解から作った生成文。部位指定があるときは元の注文にその部位の差分だけ足す。"""
+    """プレビュー全体で一つの生成文。画像ごとの description_en を並べない。"""
     extras = []
     focused = False
     seen = set()
@@ -343,7 +343,7 @@ def desired_generation_prompt(source_prompt: str, reviews: list[dict], ratings: 
     if not extras:
         return '' if focused else source_prompt
     if focused:
-        return unique_tags(*extras)
+        return organize_tags(*extras)
     if len(extras) == 1:
         return extras[0]
     kept = [text for text in extras if not any(text != other and text in other for other in extras)]
@@ -351,4 +351,4 @@ def desired_generation_prompt(source_prompt: str, reviews: list[dict], ratings: 
         return extras[0]
     if len(kept) == 1:
         return kept[0]
-    return ', '.join(kept)
+    return organize_tags(*kept)

@@ -436,6 +436,14 @@ def test_desired_generation_prompt_uses_interpreted_english_not_comment():
     }])
     assert 'cropped top' in outfit and 'trim' in outfit
     assert 'twin tails' not in outfit and 'standing' not in outfit
+    many = desired_generation_prompt(standing, [
+        {'rating': 'ng', 'focus': ['hair'], 'meaning': {'description_en': 'Blonde short hair without twin tails'}},
+        {'rating': 'ng', 'focus': ['hair'], 'meaning': {'description_en': 'Blonde short hair with bangs'}},
+        {'rating': 'ng', 'focus': ['hair'], 'meaning': {'description_en': 'Blonde twin tails with pink ribbons'}},
+        {'rating': 'ng', 'focus': ['hair'], 'meaning': {'description_en': 'Blonde short hair with pink tips'}},
+    ])
+    assert many.count('Blonde short hair') <= 1
+    assert 'twin tails' in many
 
 
 def test_learning_and_preview_use_interpreted_generation_text(tmp_path, monkeypatch):
