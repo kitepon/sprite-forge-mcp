@@ -8,6 +8,13 @@ from backend.intent import IntentRequest, Proposal
 from tests.test_style import make, png
 
 
+async def settled_learning(service, job):
+    task = service._learning_tasks.get(job["job_id"])
+    if task is not None:
+        await task
+    return service.events.load_job(job["job_id"])
+
+
 async def setup(service, tmp_path, kind="character", wish=False, questions=False):
     source = tmp_path / "source.png"
     source.write_bytes(png())
@@ -33,7 +40,7 @@ def test_learning_runs_reading_materials_and_training_from_one_action(tmp_path, 
     service, _ = make(tmp_path, monkeypatch)
     async def scenario():
         await setup(service, tmp_path, kind)
-        job = await service.start_learning("検証用", kind, steps=3)
+        job = await settled_learning(service, await service.start_learning("検証用", kind, steps=3))
         trained = service.events.load_job(job["training_job_id"])
         record = await getattr(service, f"{kind}_info")("検証用")
         assert trained["status"] == "completed"
@@ -46,11 +53,35 @@ def test_learning_runs_reading_materials_and_training_from_one_action(tmp_path, 
     asyncio.run(scenario())
 
 
+def test_start_learning_returns_before_reading_finishes(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+
+    async def scenario():
+        await setup(service, tmp_path)
+        started = asyncio.Event()
+
+        async def slow(job, images):
+            started.set()
+            await asyncio.Event().wait()
+
+        service.intent_interpreter = slow
+        job = await service.start_learning("検証用", steps=3)
+        assert job["status"] == "running"
+        await started.wait()
+        assert service.events.load_job(job["job_id"])["status"] == "running"
+        assert not job.get("training_job_id")
+        service._learning_tasks[job["job_id"]].cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await service._learning_tasks[job["job_id"]]
+
+    asyncio.run(scenario())
+
+
 def test_wishes_are_applied_without_another_confirmation(tmp_path, monkeypatch):
     service, _ = make(tmp_path, monkeypatch)
     async def scenario():
         await setup(service, tmp_path, wish=True)
-        job = await service.start_learning("検証用", steps=3)
+        job = await settled_learning(service, await service.start_learning("検証用", steps=3))
         assert service.events.load_job(job["training_job_id"])["status"] == "completed"
         assert job["accepted"]["changes"][0]["reason_ja"] == "この衣装を採用"
         assert job["accepted_observations"][0]["appearance_ja"] == "赤いコートの成人女性"
@@ -63,7 +94,7 @@ def test_unanswered_or_changed_input_does_not_start_training(tmp_path, monkeypat
     service, _ = make(tmp_path, monkeypatch)
     async def scenario():
         await setup(service, tmp_path, wish=True, questions=True)
-        job = await service.start_learning("検証用", steps=3)
+        job = await settled_learning(service, await service.start_learning("検証用", steps=3))
         assert job["status"] == "awaiting_confirmation"
         if change != "question":
             job["proposal"]["questions"] = []
@@ -82,7 +113,7 @@ def test_answering_a_question_continues_without_another_approval(tmp_path, monke
     service, _ = make(tmp_path, monkeypatch)
     async def scenario():
         await setup(service, tmp_path, wish=True, questions=True)
-        paused = await service.start_learning("検証用", steps=3)
+        paused = await settled_learning(service, await service.start_learning("検証用", steps=3))
         assert paused["status"] == "awaiting_confirmation"
         assert not any(j["kind"] == "lora_train" for j in service.events.list_jobs())
         interpret = service.intent_interpreter
@@ -92,7 +123,7 @@ def test_answering_a_question_continues_without_another_approval(tmp_path, monke
             return proposal
         service.intent_interpreter = answered
         await service.save_comment(IntentRequest(name="検証用", stage="samples", comment="顔立ちを保つ。この画像の衣装を使う"))
-        job = await service.start_learning("検証用", steps=3)
+        job = await settled_learning(service, await service.start_learning("検証用", steps=3))
         assert service.events.load_job(job["training_job_id"])["status"] == "completed"
     asyncio.run(scenario())
 
@@ -104,8 +135,9 @@ def test_failed_reading_is_visible_and_never_trains(tmp_path, monkeypatch):
         async def fail(*_args):
             raise RuntimeError("解析サービスに接続できません")
         service.intent_interpreter = fail
+        job = await service.start_learning("検証用", steps=3)
         with pytest.raises(RuntimeError, match="解析サービス"):
-            await service.start_learning("検証用", steps=3)
+            await service._learning_tasks[job["job_id"]]
         latest = service.events.list_jobs()[0]
         assert latest["status"] == "failed" and "learning_steps" in latest
         assert "解析サービス" in latest["error"]
@@ -140,7 +172,7 @@ def test_source_style_is_learned_without_selecting_existing_style(tmp_path, monk
                     "changes": [{"feature": "style", "scope": "persistent", "panel_key": None, "reference": job["references"][2],
                                  "description_en": "", "avoid_en": "", "avoid_ja": "", "reason_ja": "画像3の画風を優先して学習", "style_name": None, "style_deferred": False}]}
         service.intent_interpreter = interpret
-        job = await service.start_learning("検証用", kind, steps=3)
+        job = await settled_learning(service, await service.start_learning("検証用", kind, steps=3))
         trained = service.events.load_job(job["training_job_id"])
         assert trained["status"] == "completed" and trained["images"] == 2
         assert {m["reference"]["sample_index"] for m in trained["materials"]} == {1, 2}
@@ -170,7 +202,7 @@ def test_invalid_selection_never_starts_or_saves_observations(tmp_path, monkeypa
     service, _ = make(tmp_path, monkeypatch)
     async def scenario():
         await setup(service, tmp_path, wish=True, questions=True)
-        job = await service.start_learning("検証用", steps=3)
+        job = await settled_learning(service, await service.start_learning("検証用", steps=3))
         value = job["proposal"]
         value["questions"] = []
         if case == "missing": value["training_samples"] = None

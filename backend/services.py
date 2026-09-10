@@ -49,6 +49,7 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         self.styles_root = styles_root or STYLES
         self.intent_interpreter = self._interpret_with_comfy
         self._preview_learning_tasks: dict[str, asyncio.Task] = {}
+        self._learning_tasks: dict[str, asyncio.Task] = {}
 
     async def _interpret_with_comfy(self, job, images, **kwargs):
         return await interpret(job, images, comfy=self.comfy, **kwargs)
@@ -874,13 +875,18 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         text = "\n\n".join(f"{label}: {comments[stage]}" for stage, label in
                            (("samples", "参考画像への希望"), ("training", "学習への補足")) if comments[stage].strip())
         job = await self.save_comment(IntentRequest(name=name, kind=kind, stage="training", comment=text))
-        job.update(learning_steps=steps, learning_source_comments=comments)
+        job.update(learning_steps=steps, learning_source_comments=comments, status="running")
         self.events.save_job(job)
-        job = await self.interpret_saved_comment(job["job_id"])
+        task = asyncio.create_task(self._run_start_learning(job["job_id"]))
+        self._learning_tasks[job["job_id"]] = task
+        return job
+
+    async def _run_start_learning(self, job_id: str) -> dict:
+        job = await self.interpret_saved_comment(job_id)
         proposal = Proposal.model_validate(job["proposal"])
         if proposal.questions:
             return job
-        return await self.confirm_learning(job["job_id"], proposal)
+        return await self.confirm_learning(job_id, proposal)
 
     async def confirm_learning(self, job_id: str, proposal: Proposal) -> dict:
         """一度の確認で希望と画像説明を採用し、教材を固定して学習する。"""

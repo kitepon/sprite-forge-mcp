@@ -135,10 +135,13 @@ class IntentServices:
     async def interpret_saved_comment(self, job_id: str) -> dict:
         """保存した注文を一回解釈する。失敗した呼出しは再試行しない。"""
         job = self.events.load_job(job_id)
-        if not job or job.get("kind") != "intent" or job["status"] != "draft":
+        if not job or job.get("kind") != "intent":
             raise ValueError("未解釈の注文が見つかりません。注文を保存してください。")
-        job["status"] = "running"
-        self.events.save_job(job)
+        if job["status"] == "draft":
+            job["status"] = "running"
+            self.events.save_job(job)
+        elif not (job.get("learning_steps") and job["status"] == "running" and not job.get("proposal")):
+            raise ValueError("未解釈の注文が見つかりません。注文を保存してください。")
         self.events.append(job["job_id"], "interpreting", {"name": job["name"]})
         with self._job_errors(job):
             if job["stage"] not in ("samples", "training") and not job["original_comment"].strip() and not any(c.strip() for c in job["image_comments"]):
