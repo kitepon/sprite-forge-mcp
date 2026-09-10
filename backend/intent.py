@@ -14,11 +14,11 @@ Feature = Literal["face", "hair", "outfit", "style", "expression", "pose", "acce
 PREVIEW_TAGS = "full body, standing, front view, looking at viewer"
 SHEET_CONDITIONS = {
     "composition": {
-        "description_en": "character design sheet, character reference sheet, multiple views of the same character in the same outfit, full body turnaround and expression sheet, clean white background",
-        "avoid_en": "different characters, extra people, text, logo, watermark",
+        "description_en": "character design sheet, character reference sheet, same character, same outfit, clean white background",
+        "avoid_en": "duplicate views, identical copies, different characters, extra people, text, logo, watermark",
     },
     "pose": {
-        "description_en": "front view, three-quarter view, side view, back view, several facial expressions",
+        "description_en": "front view, three-quarter view, side view, back view, expression sheet, various poses",
         "avoid_en": "",
     },
 }
