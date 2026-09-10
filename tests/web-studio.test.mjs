@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 
 const storage = new Map();
 globalThis.localStorage = { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) };
-const { progress, imagePaths, discoverJob, operationKey, terminal, intentCaption, kindLabel, jobView } = await import('../web/jobs.js?v=studio-2');
-const { draft, saveDraft, clearDraft } = await import('../web/drafts.js?v=studio-2');
-const { element, action, lightbox } = await import('../web/ui.js?v=studio-2');
+const { progress, imagePaths, discoverJob, operationKey, terminal, intentCaption, kindLabel, jobView } = await import('../web/jobs.js');
+const { draft, saveDraft, clearDraft } = await import('../web/drafts.js');
+const { element, action, lightbox } = await import('../web/ui.js');
 
 test('一枚の拡大画面にnull文字を追加せず、複数画像の移動は維持する', () => {
   class FakeNode {

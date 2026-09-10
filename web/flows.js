@@ -1,13 +1,13 @@
-import { API } from './api.js?v=studio-7';
-import { layoutEditor } from './layout.js?v=studio-3';
-import { state } from './state.js?v=studio-3';
-import { h, icon, field, button, link, picture, empty, notice, action, pageHead, errorState, confirmAction } from './ui.js?v=studio-3';
-import { taskPanel, runJob } from './jobs.js?v=studio-7';
-import { draft, saveDraft, clearDraft, pendingFiles } from './drafts.js?v=studio-3';
-import { commentEditor, referenceNotes, flushCaptions, saveCaption } from './intent.js?v=studio-3';
-import { learning } from './learning.js?v=studio-3';
-import { characterStrength } from './strength.js?v=studio-3';
-import { previewGallery } from './preview.js?v=studio-9';
+import { API } from './api.js';
+import { layoutEditor } from './layout.js';
+import { state } from './state.js';
+import { h, icon, field, button, link, picture, empty, notice, action, pageHead, errorState, confirmAction } from './ui.js';
+import { taskPanel, runJob } from './jobs.js';
+import { draft, saveDraft, clearDraft, pendingFiles } from './drafts.js';
+import { commentEditor, referenceNotes, flushCaptions, saveCaption } from './intent.js';
+import { learning } from './learning.js';
+import { characterStrength } from './strength.js';
+import { previewGallery } from './preview.js';
 
 export const FLOWS = [
   { id: 'sheet', title: 'キャラクターを育てる', desc: '参考画像から、その子らしい設定画へ。', icon: 'layers', steps: ['キャラクター', '参考画像', '学習', 'プレビュー', '一枚シート', '設定画'] },

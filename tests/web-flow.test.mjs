@@ -2,17 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Node as FakeNode, installDom, all } from './web-dom.mjs';
 installDom();
-// flows.js自身は api.js/jobs.js を v7 で読み込む（web/flows.js の import 文が正本）。
-// intent.js/learning.js は v4 を読み込むため、samples() 内から referenceNotes 経由で
-// 呼ばれる API.commentIntents は v4 側、samples() が直接呼ぶ API.character 等は v7 側を
-// モックする必要がある。drafts.js は全消費者が v3 で統一されている。
-const { API } = await import('../web/api.js?v=studio-4');
-const { API: flowsAPI } = await import('../web/api.js?v=studio-7');
-const { samples } = await import('../web/flows.js?v=studio-2');
-const { pendingFiles, saveDraft } = await import('../web/drafts.js?v=studio-3');
-const { referenceNotes, saveCaption } = await import('../web/intent.js?v=studio-2');
-const { learning } = await import('../web/learning.js?v=studio-2');
-const { refreshJobs } = await import('../web/jobs.js?v=studio-4');
+const { API } = await import('../web/api.js');
+const { samples } = await import('../web/flows.js');
+const { pendingFiles, saveDraft } = await import('../web/drafts.js');
+const { referenceNotes, saveCaption } = await import('../web/intent.js');
+const { learning } = await import('../web/learning.js');
+const { refreshJobs } = await import('../web/jobs.js');
 
 test('古い確認待ちは希望を引き継ぎ、再開始の応答待ちに過去の状態を表示しない', async () => {
   const rec = {key:'legacy',created:'now',samples:[],lora_name:''};
@@ -83,12 +78,11 @@ for (const kind of ['character', 'style']) test(`${kind}：画像選択だけで
   t.mock.method(URL, 'createObjectURL', () => 'blob:test');
   t.mock.method(URL, 'revokeObjectURL', () => {});
   let record = { samples: [] }, uploaded = 0, ready = false;
-  flowsAPI[kind] = async () => structuredClone(record);
   API[kind] = async () => structuredClone(record);
   API.commentIntents = async () => [];
-  flowsAPI.upload = async () => [{ path: `upload-${++uploaded}` }];
+  API.upload = async () => [{ path: `upload-${++uploaded}` }];
   const commits = [];
-  flowsAPI[kind === 'character' ? 'addSamples' : 'addStyleSamples'] = (_name, path) => new Promise(resolve => commits.push(() => {
+  API[kind === 'character' ? 'addSamples' : 'addStyleSamples'] = (_name, path) => new Promise(resolve => commits.push(() => {
     record.samples.push({ index: record.samples.length, path, caption: '' }); resolve(structuredClone(record));
   }));
   const root = new FakeNode('root'), cleanup = [];
@@ -108,9 +102,9 @@ test('追加途中の失敗は成功分を保ち、再送は未追加分だけ�
   t.mock.method(URL, 'createObjectURL', () => 'blob:test'); t.mock.method(URL, 'revokeObjectURL', () => {});
   t.mock.method(globalThis, 'setTimeout', () => 0);
   let record = { samples: [] }, uploads = 0, fail = true;
-  flowsAPI.character = async () => structuredClone(record); API.character = async () => structuredClone(record); API.commentIntents = async () => [];
-  flowsAPI.upload = async () => [{ path: `p-${++uploads}` }];
-  flowsAPI.addSamples = async (_, path) => {
+  API.character = async () => structuredClone(record); API.commentIntents = async () => [];
+  API.upload = async () => [{ path: `p-${++uploads}` }];
+  API.addSamples = async (_, path) => {
     if (path === 'p-2' && fail) throw new Error('保存できません');
     record.samples.push({ index: record.samples.length, path, caption: '' }); return structuredClone(record);
   };

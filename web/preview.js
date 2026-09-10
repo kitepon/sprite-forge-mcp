@@ -1,7 +1,7 @@
-import { API } from './api.js?v=studio-4';
-import { h, field, button, picture, action, notice, dateText } from './ui.js?v=studio-3';
-import { jobs, subscribe, refreshJobs, runJob, jobView, terminal } from './jobs.js?v=studio-4';
-import { draft, saveDraft } from './drafts.js?v=studio-3';
+import { API } from './api.js';
+import { h, field, button, picture, action, notice, dateText } from './ui.js';
+import { jobs, subscribe, refreshJobs, runJob, jobView, terminal } from './jobs.js';
+import { draft, saveDraft } from './drafts.js';
 
 const labels = { ok: 'OK：残したい画像', ng: 'NG：直したい画像', '': '未判定' };
 export const reviewLabel = rating => rating === 'ng' ? 'この画像のどこがNGでしたか？' : rating === 'ok' ? 'この画像で残したいところは？（任意）' : 'OK・NGを選んでから理由を書けます';

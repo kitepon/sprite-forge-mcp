@@ -1,8 +1,8 @@
-import { API } from './api.js?v=studio-4';
-import { h, field, button, picture, action, notice, dateText } from './ui.js?v=studio-3';
-import { draft, saveDraft, clearDraft } from './drafts.js?v=studio-3';
-import { subscribe, jobs, connectionError } from './jobs.js?v=studio-4';
-import { trainingSelection } from './training.js?v=studio-3';
+import { API } from './api.js';
+import { h, field, button, picture, action, notice, dateText } from './ui.js';
+import { draft, saveDraft, clearDraft } from './drafts.js';
+import { subscribe, jobs, connectionError } from './jobs.js';
+import { trainingSelection } from './training.js';
 
 const features = { face: '顔', hair: '髪', outfit: '衣装', style: '描き方', expression: '表情', pose: '姿勢・向き', accessory: '小物', background: '背景', subject: '被写体', composition: '構図', lighting: '光' };
 const scopes = { persistent: '今後も共通', this_run: '今回だけ', panel: 'このパネルに残す' };

@@ -1,7 +1,7 @@
-import { API } from './api.js?v=studio-4';
-import { h, field, button, action, picture } from './ui.js?v=studio-3';
-import { draft, saveDraft, clearDraft } from './drafts.js?v=studio-3';
-import { flushCaptions } from './intent.js?v=studio-3';
+import { API } from './api.js';
+import { h, field, button, action, picture } from './ui.js';
+import { draft, saveDraft, clearDraft } from './drafts.js';
+import { flushCaptions } from './intent.js';
 
 const features = { subject: '被写体・体形・体色', face: '顔', hair: '髪', outfit: '衣装', expression: '表情', pose: '姿勢・向き', accessory: '小物', composition: '構図', background: '背景', lighting: '光' };
 export const layoutValues = panels => panels.map(({ description_ja, reference, ...value }) => value);

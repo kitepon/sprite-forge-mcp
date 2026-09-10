@@ -1,4 +1,4 @@
-import { h, picture, dateText } from './ui.js?v=studio-3';
+import { h, picture, dateText } from './ui.js';
 
 export function trainingSelection(samples, references) {
   if (!samples) return null;

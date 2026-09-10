@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Node, installDom, all } from './web-dom.mjs';
 installDom();
-const { previewReviewCard, reviewLabel, focusLabel, meaningSummary } = await import('../web/preview.js?v=studio-9');
-const { API } = await import('../web/api.js?v=studio-4');
+const { previewReviewCard, reviewLabel, focusLabel, meaningSummary } = await import('../web/preview.js');
+const { API } = await import('../web/api.js');
 const strings = node => all(node).flatMap(n => n.children.filter(c => typeof c === 'string'));
 const initial = {id:'image-a',path:'/image-a.png',review:{rating:'',comment:'',focus:[],revision:0,history:[]}};
 

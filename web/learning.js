@@ -1,9 +1,9 @@
-import { API } from './api.js?v=studio-4';
-import { h, field, button, picture, notice } from './ui.js?v=studio-3';
-import { referenceNotes, commentEditor, flushCaptions, savedLearningExplanation } from './intent.js?v=studio-3';
-import { subscribe, jobs, refreshJobs, jobView, connectionError } from './jobs.js?v=studio-4';
-import { trainingMaterials } from './training.js?v=studio-3';
-import { draft, saveDraft } from './drafts.js?v=studio-3';
+import { API } from './api.js';
+import { h, field, button, picture, notice } from './ui.js';
+import { referenceNotes, commentEditor, flushCaptions, savedLearningExplanation } from './intent.js';
+import { subscribe, jobs, refreshJobs, jobView, connectionError } from './jobs.js';
+import { trainingMaterials } from './training.js';
+import { draft, saveDraft } from './drafts.js';
 
 export async function learning(target, kind, name, cleanup, changed) {
   const rec = await (kind === 'character' ? API.character(name) : API.style(name));

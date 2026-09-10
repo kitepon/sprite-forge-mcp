@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Node as FakeNode, installDom, all } from './web-dom.mjs';
 installDom();
-const {API} = await import('../web/api.js?v=studio-4');
-const {commentEditor, savedLearningExplanation} = await import('../web/intent.js?v=studio-2');
-const {characterStrength} = await import('../web/strength.js?v=studio-2');
-const {previewIntentJob, drawingInput} = await import('../web/flows.js?v=studio-2');
+const {API} = await import('../web/api.js');
+const {commentEditor, savedLearningExplanation} = await import('../web/intent.js');
+const {characterStrength} = await import('../web/strength.js');
+const {previewIntentJob, drawingInput} = await import('../web/flows.js');
 const next = () => new Promise(resolve => setImmediate(resolve));
 
 test('旧形式の解析文は参照画像・採用理由・教材説明ごと読み取れ、開始操作を持たない', () => {

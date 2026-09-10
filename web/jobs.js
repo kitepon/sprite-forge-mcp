@@ -1,5 +1,5 @@
-import { API } from './api.js?v=studio-4';
-import { h, icon, picture, notice, link, dateText } from './ui.js?v=studio-3';
+import { API } from './api.js';
+import { h, icon, picture, notice, link, dateText } from './ui.js';
 
 export const intentCaption = job => job?.kind === 'preview_learning' && job.status === 'awaiting_answers' ? 'NGの理由を確認しています・学習は未開始' : job?.kind === 'lora_train' && job.status === 'awaiting_confirmation' ? '教材の確認待ち・学習は未開始' : job?.kind === 'intent' ? ({ draft: '原文を保存済み・未解釈', awaiting_confirmation: '解釈案の確認待ち', confirmed: '確認した条件を採用済み', discarded: '構成案は不採用・原文と案は保存済み' }[job.status] || '') : '';
 export const terminal = job => ['completed', 'success', 'failed', 'error'].includes(job?.status) || !!intentCaption(job);
