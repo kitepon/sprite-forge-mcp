@@ -153,9 +153,9 @@ def test_adopted_lora_is_used_by_setting_sheet_and_old_version_can_be_restored(t
         assert comfy.submitted[0]['4']['class_type'] == 'SAM3_Detect'
         assert comfy.submitted[0]['4']['inputs']['individual_masks'] is True
         assert len(panels) == sheet['total_panels']
-        assert all('4' not in graph and '40' not in graph for graph in panels)
-        assert [graph['20']['inputs']['prompt'] for graph in panels] == [
-            request['instruction'] for request in sheet['panel_requests']
+        assert all(graph['4']['inputs']['lora_name'] == 'new.safetensors' for graph in panels)
+        assert [graph['20']['inputs']['text'] for graph in panels] == [
+            request['prompt'] for request in sheet['panel_requests']
         ]
         restored = await service.adopt_preview_lora('probe', old['job_id'])
         assert restored['lora_name'] == 'old.safetensors'
