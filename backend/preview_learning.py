@@ -278,7 +278,7 @@ class PreviewLearning:
                   'vae': f"{models}/vae/{generation['vae']}",
                   'lora': f"{PureWindowsPath(BOX_LORAS).as_posix()}/{source['loras'][0][0]}",
                   'strength': source['loras'][0][1],
-                  'prompt': extra,
+                  'prompt': self._training_appearance_prompt(job['name'], extra or ''),
                   'negative': source['negative'],
                   'seed': source['seed'], 'size': [generation['width'], generation['height']],
                   'mode': mode,
@@ -330,6 +330,22 @@ class PreviewLearning:
         path = dataset / filename
         path.write_bytes(union_masks(parts))
         return path
+
+    def _training_appearance_prompt(self, name: str, extra: str = "") -> str:
+        """学習画面で確認したキャプションを使う。差分があれば足す。"""
+        record = self._load_character(name)
+        chosen = ""
+        fallback = []
+        for sample in record.get("samples") or []:
+            english = (sample.get("training_caption") or {}).get("caption_en") or ""
+            if not english:
+                continue
+            comment = sample.get("caption") or ""
+            if "服装" in comment or "等身" in comment:
+                chosen = english
+            fallback.append(english)
+        appearance = chosen or (max(fallback, key=len) if fallback else "")
+        return unique_tags(record["trigger"], appearance, extra)
 
     def _prompt_after_learning(self, job: dict) -> str:
         """学習文は指定部位だけ。再プレビューは普通の全身プレビューにその差分を足す。"""

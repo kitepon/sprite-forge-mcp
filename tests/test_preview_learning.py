@@ -134,6 +134,43 @@ def test_snapshot_uses_both_ratings_and_keeps_old_lora(tmp_path, monkeypatch):
     asyncio.run(scenario())
 
 
+def test_relearn_uses_training_screen_caption(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+    seen = []
+
+    async def transferred(directory, remote, **kwargs):
+        seen.append(json.loads((directory / 'input.json').read_text()))
+        return 0, ''
+
+    async def interpret(packet=None, *args, **kwargs):
+        if isinstance(packet, dict) and packet.get('stage') == 'preview_batch_prompt':
+            return {'description_en': 'blonde twin tails, pink tips'}
+        return {'fix': ['髪型'], 'preserve': [], 'questions': [], 'description_en': ''}
+
+    monkeypatch.setattr(box, 'copy_tree_to_box', transferred)
+    wire_training(monkeypatch)
+    service.intent_interpreter = interpret
+
+    async def scenario():
+        source = await prepared(service, tmp_path, '髪型がツインテールではない')
+        rec = service._load_character('probe')
+        rec['samples'][0]['caption'] = '服装と等身はこれを維持'
+        rec['samples'][0]['training_caption'] = {
+            'caption_en': 'slim woman, white cropped top, ruffled mini skirt',
+            'appearance_ja': '細身の白い衣装',
+        }
+        service._save_character(rec)
+        job = await settled(service, await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()), steps=1))
+        prompt = job['training_config']['prompt']
+        assert 'ruffled mini skirt' in prompt
+        assert 'blonde twin tails' in prompt
+        preview = service.events.load_job(job['preview_job_id'])
+        assert 'blonde twin tails' in preview['prompt']
+        assert 'skirt' not in preview['prompt']
+
+    asyncio.run(scenario())
+
+
 def test_ok_only_and_ng_only_train_that_side_without_sample_pairs(tmp_path, monkeypatch):
     service, _ = make(tmp_path, monkeypatch)
     seen = []
@@ -252,7 +289,8 @@ def test_answers_continue_same_request_and_keep_preparation_history(tmp_path, mo
         assert result['preparation_history'][0]['reviews'][1]['review']['revision'] == 1
         assert result['reviews'][1]['review']['revision'] == 2
         assert result['training_config']['pair_regions'] == [['hair']]
-        assert result['training_config']['prompt'] == GENERATED
+        assert GENERATED in result['training_config']['prompt']
+        assert result['training_config']['prompt'].startswith('probe')
         assert '衣装は合っている' not in result['training_config']['prompt']
         preview_prompt = service.events.load_job(result['preview_job_id'])['prompt']
         assert 'twintails' in preview_prompt and preview_prompt.startswith('probe, full body')
@@ -278,7 +316,7 @@ def test_ng_hair_focus_masks_only_hair_and_keeps_source_prompt(tmp_path, monkeyp
         job = await settled(service, await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()), steps=1))
         assert job['status'] == 'completed'
         assert job['training_config']['pair_regions'] == [['hair']]
-        assert job['training_config']['prompt'] == ''
+        assert job['training_config']['prompt'] == 'probe'
         assert sam_prompts(comfy) == ['hair', 'hair']
         ok_id, ng_id = job['pairs'][0]
         assert (Path(job['dataset']) / f'{ok_id}.mask.png').is_file()
@@ -463,7 +501,7 @@ def test_learning_and_preview_use_interpreted_generation_text(tmp_path, monkeypa
         job = await settled(service, await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()), steps=1))
         assert job['status'] == 'completed'
         assert job['generation_prompt'] == GENERATED
-        assert job['training_config']['prompt'] == GENERATED
+        assert GENERATED in job['training_config']['prompt'] and job['training_config']['prompt'].startswith('probe')
         assert '髪型が違う' not in job['training_config']['prompt']
         preview_prompt = service.events.load_job(job['preview_job_id'])['prompt']
         assert 'twintails' in preview_prompt and preview_prompt.startswith('probe, full body')
@@ -573,6 +611,6 @@ def test_legacy_meaning_without_generation_text_is_reinterpreted(tmp_path, monke
         assert job['status'] == 'completed'
         assert len(calls) == 2
         assert job['generation_prompt'] == GENERATED
-        assert job['training_config']['prompt'] == GENERATED
+        assert GENERATED in job['training_config']['prompt'] and job['training_config']['prompt'].startswith('probe')
         assert '髪型が違う' not in job['training_config']['prompt']
     asyncio.run(scenario())
