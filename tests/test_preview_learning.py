@@ -7,7 +7,7 @@ import uuid
 import pytest
 
 from backend import box
-from backend.preview_learning import desired_generation_prompt, pair_spatial_regions, spatial_keys_from_focus_and_text
+from backend.preview_learning import desired_generation_prompt, learning_mode, pair_spatial_regions, preference_pairs, spatial_keys_from_focus_and_text
 from backend.preview_reviews import PreviewReview
 from backend.preview_intent import ReviewCorrection, ReviewMeaning
 from tests.test_style import make, png
@@ -35,6 +35,18 @@ def wire_training(monkeypatch):
         return 0, ''
     monkeypatch.setattr(box, 'stream_preference_training', trained)
     monkeypatch.setattr(box, 'copy_from_box', fetched)
+
+
+def test_learning_mode_and_pairs_do_not_invent_sample_opponents():
+    ok = [{'id': 'ok-1'}, {'id': 'ok-2'}]
+    ng = [{'id': 'ng-1'}]
+    assert learning_mode(ok, ng) == 'preference'
+    assert learning_mode(ok, []) == 'ok'
+    assert learning_mode([], ng) == 'ng'
+    assert learning_mode([], []) == 'none'
+    assert preference_pairs(ok, ng) == [['ok-1', 'ng-1'], ['ok-2', 'ng-1']]
+    assert preference_pairs(ok, []) == []
+    assert preference_pairs([], ng) == []
 
 
 def test_pair_spatial_regions_uses_ng_focus_and_general_fix_words():
@@ -117,6 +129,46 @@ def test_snapshot_uses_both_ratings_and_keeps_old_lora(tmp_path, monkeypatch):
         assert await service.relearn_preview('probe', source['job_id'], request_id, steps=1) == job
         assert len(calls) == 1
     source = None
+    asyncio.run(scenario())
+
+
+def test_ok_only_and_ng_only_train_that_side_without_sample_pairs(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+    seen = []
+
+    async def transferred(directory, remote, **kwargs):
+        seen.append(json.loads((directory / 'input.json').read_text()))
+        return 0, ''
+
+    monkeypatch.setattr(box, 'copy_tree_to_box', transferred)
+    wire_training(monkeypatch)
+    service.intent_interpreter = quiet_interpret()
+
+    async def scenario():
+        await service.create_character('probe', 'she/her', lora_name='person.safetensors')
+        sample = tmp_path / 'reference.png'
+        sample.write_bytes(png('red'))
+        await service.add_samples('probe', str(sample), '元のサンプル')
+        source = await service.preview_character('probe', count=3)
+        await service.save_preview_review('probe', source['job_id'], source['pictures'][0]['id'],
+                                          PreviewReview(rating='ok', revision=0))
+        ok_job = await settled(service, await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()), steps=1))
+        assert ok_job['mode'] == 'ok'
+        assert ok_job['images'] == [source['pictures'][0]['id']]
+        assert ok_job['pairs'] == []
+        assert seen[-1]['mode'] == 'ok'
+        assert seen[-1]['images'][0].endswith(f"{source['pictures'][0]['id']}.png")
+        assert 'sample-' not in seen[-1]['images'][0]
+        await service.save_preview_review('probe', source['job_id'], source['pictures'][0]['id'],
+                                          PreviewReview(rating='', revision=1))
+        await service.save_preview_review('probe', source['job_id'], source['pictures'][1]['id'],
+                                          PreviewReview(rating='ng', revision=0))
+        ng_job = await settled(service, await service.relearn_preview('probe', source['job_id'], str(uuid.uuid4()), steps=1))
+        assert ng_job['mode'] == 'ng'
+        assert ng_job['images'] == [source['pictures'][1]['id']]
+        assert ng_job['pairs'] == []
+        assert seen[-1]['mode'] == 'ng'
+
     asyncio.run(scenario())
 
 
@@ -348,6 +400,14 @@ def test_desired_generation_prompt_uses_interpreted_english_not_comment():
         {'meaning': {'description_en': GENERATED}},
         {'meaning': {'description_en': GENERATED}},
     ]) == GENERATED
+    assert desired_generation_prompt(source, [
+        {'rating': 'ok', 'meaning': {'description_en': 'keep this'}},
+        {'rating': 'ng', 'meaning': {'description_en': GENERATED}},
+    ], ('ok',)) == 'keep this'
+    assert desired_generation_prompt(source, [
+        {'rating': 'ok', 'meaning': {'description_en': 'keep this'}},
+        {'rating': 'ng', 'meaning': {'description_en': GENERATED}},
+    ], ('ng',)) == GENERATED
 
 
 def test_learning_and_preview_use_interpreted_generation_text(tmp_path, monkeypatch):

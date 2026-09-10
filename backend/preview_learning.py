@@ -38,6 +38,23 @@ def spatial_keys_from_focus_and_text(focus, text: str = '') -> tuple[str, ...]:
     return tuple(region for region, markers in FIX_REGION_MARKERS if any(marker in joined for marker in markers))
 
 
+def learning_mode(ok: list, ng: list) -> str:
+    if ok and ng:
+        return 'preference'
+    if ok:
+        return 'ok'
+    if ng:
+        return 'ng'
+    return 'none'
+
+
+def preference_pairs(ok: list[dict], ng: list[dict]) -> list[list[str]]:
+    """OKとNGがあるときだけ対にする。片方だけの学習は対を使わない。"""
+    if not ok or not ng:
+        return []
+    return [[ok[i % len(ok)]['id'], ng[i % len(ng)]['id']] for i in range(max(len(ok), len(ng)))]
+
+
 def pair_spatial_regions(review: dict) -> tuple[str, ...]:
     """NGの空間部位。focusがあればそれを使い、なければ解釈の一般語だけを見る。"""
     if (review.get('rating') or '') != 'ng':
@@ -68,7 +85,7 @@ def union_masks(parts: list[bytes]) -> bytes:
 
 class PreviewLearning:
     async def relearn_preview(self, name: str, job_id: str, request_id: str, steps: int = 20) -> dict:
-        """OKとNGを両方使って再学習する。開始時の判定と教材を固定する。"""
+        """判定から再学習する。OKだけ・NGだけ・判定なしでも開始できる。開始時の判定と教材を固定する。"""
         source = self._preview_review_source(name, job_id)
         existing = self.events.load_job(request_id)
         if existing:
@@ -91,12 +108,13 @@ class PreviewLearning:
             return existing
         ok = [p for p in selected if p['review']['rating'] == 'ok']
         ng = [p for p in selected if p['review']['rating'] == 'ng']
-        if not ok or not ng:
-            raise ValueError('再学習にはOKとNGをそれぞれ1枚以上指定してください。未判定の画像は使いません。')
-        pairs = [[ok[i % len(ok)]['id'], ng[i % len(ng)]['id']] for i in range(max(len(ok), len(ng)))]
-        if steps < len(pairs):
-            raise ValueError(f'すべての判定を学習に使うには、学習回数を{len(pairs)}以上にしてください。')
         record = self._load_character(name)
+        mode = learning_mode(ok, ng)
+        pairs = preference_pairs(ok, ng)
+        images = [p['id'] for p in (ok if mode == 'ok' else ng if mode == 'ng' else [])]
+        needed = len(pairs) if mode == 'preference' else len(images)
+        if needed and steps < needed:
+            raise ValueError(f'すべての判定を学習に使うには、学習回数を{needed}以上にしてください。')
         history = existing.get('preparation_history', []) + [{k: deepcopy(existing[k]) for k in ('reviews', 'samples', 'questions')}] if existing else []
         directory = self.generated_root / f'preference-{request_id}-{len(history)}'
         directory.mkdir(parents=True)
@@ -114,7 +132,7 @@ class PreviewLearning:
             picture['path'] = str(target)
         job = {'job_id': request_id, 'kind': 'preview_learning', 'status': 'interpreting', 'name': name,
                'source_job_id': job_id, 'character_created': record['created'], 'source': deepcopy(source),
-               'reviews': selected, 'samples': samples, 'pairs': pairs, 'steps': steps,
+               'reviews': selected, 'samples': samples, 'mode': mode, 'pairs': pairs, 'images': images, 'steps': steps,
                'learning_rate': 1e-5, 'beta': 1., 'preparation_history': history,
                'dataset': str(directory),
                'lora_name': f"{record['key']}_preference_{request_id}.safetensors"}
@@ -177,6 +195,14 @@ class PreviewLearning:
 
     async def _train_preview_learning(self, job: dict) -> None:
         require_interpreted_generation(job['reviews'])
+        mode = job.get('mode') or learning_mode(
+            [p for p in job['reviews'] if p['review']['rating'] == 'ok'],
+            [p for p in job['reviews'] if p['review']['rating'] == 'ng'])
+        if mode == 'none':
+            job['lora_name'] = job['source']['loras'][0][0]
+            job['status'] = 'previewing'
+            self.events.save_job(job)
+            return
         job['status'] = 'training'
         self.events.save_job(job)
         directory = Path(job['dataset'])
@@ -191,7 +217,7 @@ class PreviewLearning:
         pair_masks: list[list[str] | None] = []
         cache: dict[tuple[str, str], bytes] = {}
         for ok_id, ng_id in job['pairs']:
-            regions = pair_spatial_regions(by_id[ng_id])
+            regions = pair_spatial_regions(by_id.get(ng_id) or {})
             pair_regions.append(list(regions))
             if not regions:
                 pair_masks.append(None)
@@ -200,14 +226,18 @@ class PreviewLearning:
             await self._pair_region_mask(ok_id, (directory / f'{ok_id}.png').read_bytes(), regions, directory, ok_name, cache, job['job_id'])
             await self._pair_region_mask(ng_id, (directory / f'{ng_id}.png').read_bytes(), regions, directory, ng_name, cache, job['job_id'])
             pair_masks.append([f'{remote_directory}/{ok_name}', f'{remote_directory}/{ng_name}'])
+        ratings = {'ok': ('ok',), 'ng': ('ng',), 'preference': ('ok', 'ng')}[mode]
         config = {'model': f"{models}/diffusion_models/{generation['model']}",
                   'qwen3': f"{models}/text_encoders/{generation['text_encoder']}",
                   'vae': f"{models}/vae/{generation['vae']}",
                   'lora': f"{PureWindowsPath(BOX_LORAS).as_posix()}/{source['loras'][0][0]}",
-                  'strength': source['loras'][0][1], 'prompt': desired_generation_prompt(source['prompt'], job['reviews']),
+                  'strength': source['loras'][0][1],
+                  'prompt': desired_generation_prompt(source['prompt'], job['reviews'], ratings),
                   'negative': source['negative'],
                   'seed': source['seed'], 'size': [generation['width'], generation['height']],
+                  'mode': mode,
                   'pairs': [[f'{remote_directory}/{image_id}.png' for image_id in pair] for pair in job['pairs']],
+                  'images': [f'{remote_directory}/{image_id}.png' for image_id in job.get('images') or []],
                   'masks': pair_masks, 'pair_regions': pair_regions,
                   'fixed_loras': [{'path': f'{PureWindowsPath(BOX_LORAS).as_posix()}/{filename}', 'strength': strength}
                                   for filename, strength in source['loras'][1:]]}
@@ -262,7 +292,8 @@ class PreviewLearning:
             preview = {k: deepcopy(v) for k, v in source.items() if k not in ('created_at', 'updated_at')}
             preview.update(job_id=str(uuid.uuid4()), status='queued', pictures=[], total_images=10, learning_job_id=job['job_id'])
             preview['loras'][0] = [job['lora_name'], source['loras'][0][1]]
-            preview['prompt'] = desired_generation_prompt(source['prompt'], job['reviews'])
+            ratings = {'ok': ('ok',), 'ng': ('ng',), 'preference': ('ok', 'ng')}.get(job.get('mode'), ('ok', 'ng'))
+            preview['prompt'] = desired_generation_prompt(source['prompt'], job['reviews'], ratings)
             job['preview_job_id'] = preview['job_id']
             job['status'] = 'previewing'
             self.events.save_job(job)
@@ -272,12 +303,15 @@ class PreviewLearning:
         self.events.save_job(job)
 
 
-def desired_generation_prompt(source_prompt: str, reviews: list[dict]) -> str:
+def desired_generation_prompt(source_prompt: str, reviews: list[dict], ratings: tuple[str, ...] = ('ok', 'ng')) -> str:
     """判定の理解から作った生成文。無ければ元の生成文。コメント原文は使わない。"""
     texts = []
     seen = set()
     for entry in reviews:
         review = review_of(entry)
+        rating = review.get('rating') or ''
+        if rating and rating not in ratings:
+            continue
         text = str((review.get('meaning') or {}).get('description_en') or '').strip()
         if not text or text in seen:
             continue

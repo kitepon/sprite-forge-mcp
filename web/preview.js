@@ -136,8 +136,8 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
     const ok = ratings.filter(v => v === 'ok').length, ng = ratings.filter(v => v === 'ng').length;
     counts.textContent = `OK ${ok}枚 ・ NG ${ng}枚 ・ 未判定 ${ratings.length - ok - ng}枚`;
     const running = jobs.some(j => j.kind === 'preview_learning' && j.source_job_id === selected && !terminal(j));
-    start.disabled = !ok || !ng || !!source?.relearning_unavailable_reason || running;
-    reason.textContent = source?.relearning_unavailable_reason || (running ? 'この判定の再学習を実行中です。' : !ng && ok ? 'すべてOKなら、そのまま一枚シートへ進めます。' : !ok && ng ? 'OKがありません。追加生成、注文の修正、参考画像の見直しができます。' : !ok || !ng ? '再学習にはOKとNGをそれぞれ1枚以上選んでください。未判定は使いません。' : 'NGで選んだ場所をOKの絵に寄せてLoRAを直します。読み取った生成文で新しいプレビューを作ります。理由の不明点がある場合だけ質問します。');
+    start.disabled = running;
+    reason.textContent = source?.relearning_unavailable_reason || (running ? 'この判定の再学習を実行中です。' : ok && ng ? 'NGで選んだ場所をOKの絵に寄せてLoRAを直します。' : ok ? 'OKの条件だけを学習します。' : ng ? 'NGの条件だけを学習します。' : '判定が無くても押せます。学習はせず、同じLoRAでプレビューを描き直します。');
     adopt.disabled = !selected || jobs.find(j => j.job_id === selected)?.status !== 'completed' || running;
     setReady(selected === adopted, selected === adopted ? '' : '画像を確認し、「この学習結果を使って一枚シートへ」を押してください。');
   }

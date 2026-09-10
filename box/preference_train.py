@@ -24,13 +24,24 @@ def main():
     data = json.loads(args.input.read_text(encoding='utf-8'))
     if args.output.resolve() == Path(data['lora']).resolve():
         raise ValueError('試作の出力には元LoRAと異なるパスを指定してください。')
-    pairs = data['pairs']
-    if 'masks' in data:
-        masks = data['masks']
-        if len(masks) != len(pairs):
-            raise ValueError('masks の件数が pairs と違います')
+    mode = data.get('mode', 'preference')
+    pairs = data.get('pairs') or []
+    images = data.get('images') or []
+    if mode == 'preference':
+        if 'masks' in data:
+            masks = data['masks']
+            if len(masks) != len(pairs):
+                raise ValueError('masks の件数が pairs と違います')
+        else:
+            masks = [None] * len(pairs)
+        files = [path for pair in pairs for path in pair]
+        batch = 2
     else:
-        masks = [None] * len(pairs)
+        if not images:
+            raise ValueError('OKだけ／NGだけの学習には画像が必要です')
+        masks = None
+        files = images
+        batch = 1
     sys.path.insert(0, str(args.sd_scripts))
     import numpy as np
     from PIL import Image
@@ -73,7 +84,7 @@ def main():
     encoder.to(device).eval().requires_grad_(False)
     with torch.no_grad(), torch.autocast('cuda', dtype=dtype):
         conditions = strategy_anima.AnimaTextEncodingStrategy().encode_tokens(
-            tokenizer, [encoder], tokenizer.tokenize([data['prompt']] * 2))
+            tokenizer, [encoder], tokenizer.tokenize([data['prompt']] * batch))
         conditions = [value.to(device) for value in conditions]
     encoder.to('cpu')
     del encoder, tokenizer
@@ -84,7 +95,7 @@ def main():
         device='cpu', disable_mmap=True)
     vae.to(device, dtype=dtype).eval().requires_grad_(False)
     cached = {}
-    for filename in dict.fromkeys(path for pair in pairs for path in pair):
+    for filename in dict.fromkeys(files):
         with Image.open(filename) as source:
             picture = source.convert('RGB').resize(tuple(data['size']), Image.Resampling.LANCZOS)
             pixels = torch.from_numpy(np.array(picture)).permute(2, 0, 1).float() / 127.5 - 1
@@ -118,17 +129,23 @@ def main():
     torch.cuda.reset_peak_memory_stats()
     rows = []
     for step in range(args.steps):
-        pair_index = step % len(pairs)
-        latents = torch.cat([cached[path] for path in pairs[pair_index]]).to(device)
-        spatial = None
-        pair_mask = masks[pair_index]
-        if pair_mask:
-            _, _, height, width = latents.shape
-            spatial = torch.stack([load_spatial_mask(pair_mask[0], height, width),
-                                    load_spatial_mask(pair_mask[1], height, width)], dim=0).to(device=device)
-        # OK／NGと固定基準・更新対象で同じ時刻とノイズを使う。
-        noise = torch.randn_like(latents[:1]).expand_as(latents)
-        times = torch.rand(1, device=device).expand(2)
+        if mode == 'preference':
+            pair_index = step % len(pairs)
+            latents = torch.cat([cached[path] for path in pairs[pair_index]]).to(device)
+            spatial = None
+            pair_mask = masks[pair_index]
+            if pair_mask:
+                _, _, height, width = latents.shape
+                spatial = torch.stack([load_spatial_mask(pair_mask[0], height, width),
+                                        load_spatial_mask(pair_mask[1], height, width)], dim=0).to(device=device)
+            noise = torch.randn_like(latents[:1]).expand_as(latents)
+            times = torch.rand(1, device=device).expand(2)
+        else:
+            pair_index = step % len(images)
+            latents = cached[images[pair_index]].to(device)
+            spatial = None
+            noise = torch.randn_like(latents)
+            times = torch.rand(1, device=device)
         sigma = times[:, None, None, None]
         noisy = ((1 - sigma) * latents + sigma * noise).to(dtype)
         target = noise - latents
@@ -140,7 +157,13 @@ def main():
         policy.set_multiplier(data['strength'])
         optimizer.zero_grad(set_to_none=True)
         model_errors = errors(predict(noisy.detach().requires_grad_(True), times), target, spatial)
-        loss = preference_loss(model_errors, fixed_errors, args.beta)
+        if mode == 'ok':
+            loss = model_errors.mean()
+        elif mode == 'ng':
+            import torch.nn.functional as functional
+            loss = -functional.logsigmoid(model_errors - fixed_errors.detach()).mean()
+        else:
+            loss = preference_loss(model_errors, fixed_errors, args.beta)
         loss.backward()
         gradient_norm = torch.stack([p.grad.float().square().sum() for p in policy.parameters() if p.grad is not None]).sum().sqrt()
         if not torch.isfinite(loss) or not torch.isfinite(gradient_norm):
