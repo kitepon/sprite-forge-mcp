@@ -106,7 +106,9 @@ export function previewReviewCard(name, jobId, image, index, changed) {
 
 function pairJobs(job) {
   if (!job) return { without: null, with: null };
-  const sibling = job.paired_job_id ? jobs.find(j => j.job_id === job.paired_job_id) : null;
+  const sibling = jobs.find(j => j.job_id === job.paired_job_id)
+    || (job.pair_id && jobs.find(j => j.pair_id === job.pair_id && j.job_id !== job.job_id))
+    || null;
   const members = [job, sibling].filter(Boolean);
   const without = members.find(j => j.preview_role === 'without_order')
     || members.find(j => !j.intent_job_id && j.preview_role !== 'with_order') || null;
@@ -196,6 +198,13 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
         && ![j.preview_job_id, j.plain_preview_job_id].includes(selected));
       if (grow && (grow.status === 'completed' || grow.status === 'previewing')) {
         await flush(); pick(grow.preview_job_id || grow.plain_preview_job_id); loading = false; return refresh();
+      }
+      const pairRun = jobs.find(j => j.kind === 'preview_pair' && j.name === name
+        && (j.status === 'completed' || j.status === 'running')
+        && (j.preview_job_id || j.plain_preview_job_id)
+        && ![j.preview_job_id, j.plain_preview_job_id].includes(selected));
+      if (pairRun && (baseline || !selected || jobs.find(j => j.job_id === selected)?.kind === 'preview_pair')) {
+        await flush(); pick(pairRun.preview_job_id || pairRun.plain_preview_job_id); loading = false; return refresh();
       }
       if (!previews.some(j => j.job_id === selected)) pick(previews[0]?.job_id || '');
       const seen = new Set();

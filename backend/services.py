@@ -51,6 +51,7 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         self._preview_learning_tasks: dict[str, asyncio.Task] = {}
         self._learning_tasks: dict[str, asyncio.Task] = {}
         self._grow_tasks: dict[str, asyncio.Task] = {}
+        self._preview_pair_tasks: dict[str, asyncio.Task] = {}
 
     async def _interpret_with_comfy(self, job, images, **kwargs):
         return await interpret(job, images, comfy=self.comfy, **kwargs)
@@ -396,6 +397,44 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
             plain = self.events.load_job(plain["job_id"])
         return {"pair_id": pair_id, "without_order": plain, "with_order": ordered,
                 "job_id": (ordered or plain)["job_id"]}
+
+    async def start_preview_pair(self, name: str, tags: str = PREVIEW_TAGS, seed: int = 1, count: int = 10,
+                                 style: str = "", intent_job_id: str = "") -> dict[str, Any]:
+        """注文なしと注文ありを一連で生成する。HTTPの外で進め、片方だけで終わらせない。"""
+        if not intent_job_id:
+            raise ValueError("制作への注文を採用してから、注文なしと注文ありを並べて生成してください。")
+        self._load_character(name)
+        job_id = str(uuid.uuid4())
+        job = {
+            "job_id": job_id, "kind": "preview_pair", "status": "running", "name": name,
+            "tags": tags, "seed": seed, "count": max(1, count), "style": style,
+            "intent_job_id": intent_job_id, "progress": {"step": 0, "total": 2},
+        }
+        self.events.save_job(job)
+        self._ensure_preview_pair(job_id)
+        return job
+
+    def _ensure_preview_pair(self, job_id: str) -> asyncio.Task:
+        task = self._preview_pair_tasks.get(job_id)
+        if task is None or task.done():
+            task = asyncio.create_task(self._run_preview_pair(job_id))
+            self._preview_pair_tasks[job_id] = task
+        return task
+
+    async def _run_preview_pair(self, job_id: str) -> None:
+        job = self.events.load_job(job_id)
+        with self._job_errors(job):
+            if not job.get("plain_preview_job_id"):
+                pair = await self.preview_character_pair(
+                    job["name"], tags=job.get("tags") or PREVIEW_TAGS, seed=job.get("seed") or 1,
+                    count=job.get("count") or 10, style=job.get("style") or "",
+                    intent_job_id=job.get("intent_job_id") or "")
+                job["plain_preview_job_id"] = pair["without_order"]["job_id"]
+                job["preview_job_id"] = pair["job_id"]
+                job["pair_id"] = pair["pair_id"]
+                job["progress"] = {"step": 2, "total": 2}
+            job["status"] = "completed"
+            self.events.save_job(job)
 
     async def _generate_preview_images(self, job):
         job_id = job['job_id']

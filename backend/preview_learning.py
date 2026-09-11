@@ -279,6 +279,8 @@ class PreviewLearning:
                 self._ensure_preview_learning(job['job_id'])
             if job.get('kind') == 'lora_grow' and job.get('status') in ('running', 'training', 'previewing'):
                 self._ensure_grow(job['job_id'])
+            if job.get('kind') == 'preview_pair' and job.get('status') == 'running':
+                self._ensure_preview_pair(job['job_id'])
 
     async def _run_preview_learning(self, job_id: str) -> None:
         job = self.events.load_job(job_id)

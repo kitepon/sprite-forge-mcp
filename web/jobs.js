@@ -3,7 +3,7 @@ import { h, icon, picture, notice, link, dateText } from './ui.js';
 
 export const intentCaption = job => job?.kind === 'preview_learning' && job.status === 'awaiting_answers' ? 'NGの理由を確認しています・学習は未開始' : job?.kind === 'lora_train' && job.status === 'awaiting_confirmation' ? '教材の確認待ち・学習は未開始' : job?.kind === 'intent' ? ({ draft: '原文を保存済み・未解釈', awaiting_confirmation: '解釈案の確認待ち', confirmed: '確認した条件を採用済み', discarded: '構成案は不採用・原文と案は保存済み' }[job.status] || '') : '';
 export const terminal = job => ['completed', 'success', 'failed', 'error'].includes(job?.status) || !!intentCaption(job);
-export const kindLabel = kind => ({ intent: '注文の解釈', sheet_layout: 'シート構成の保存', character_sheet: '一枚シート', character_bible: '設定画', preview: 'プレビュー', preview_learning: '判定から再学習', lora_grow: 'OKを教材に足して学習', lora_train: '学習', from_bible: 'キャラクターの一枚', image: '画風の一枚', redraw_panel: 'パネルの描き直し', panel_retry: '項目の出し直し', sprite: 'スプライト', transparent: '背景を透過', pixelize: 'ドットに整える', refine: '描き直し', variant: 'バリエーション' }[kind] || '画像の処理');
+export const kindLabel = kind => ({ intent: '注文の解釈', sheet_layout: 'シート構成の保存', character_sheet: '一枚シート', character_bible: '設定画', preview: 'プレビュー', preview_pair: '注文なし／ありのプレビュー', preview_learning: '判定から再学習', lora_grow: 'OKを教材に足して学習', lora_train: '学習', from_bible: 'キャラクターの一枚', image: '画風の一枚', redraw_panel: 'パネルの描き直し', panel_retry: '項目の出し直し', sprite: 'スプライト', transparent: '背景を透過', pixelize: 'ドットに整える', refine: '描き直し', variant: 'バリエーション' }[kind] || '画像の処理');
 export function imagePaths(job = {}) {
   const paths = [job.sheet_path, job.path, ...(job.pictures || []).map(p => typeof p === 'string' ? p : p.path), ...(job.candidates || []).map(p => p.path)];
   return [...new Set(paths.filter(Boolean))];
@@ -15,6 +15,7 @@ export function progress(job) {
   if (job?.kind === 'character_bible' && job.total_panels) return { value: job.completed_panels || 0, total: job.total_panels, unit: 'パネル' };
   if (job?.kind === 'character_sheet') return { value: job.path ? 1 : 0, total: 1, unit: '枚' };
   if (job?.kind === 'preview' && job.total_images) return { value: job.pictures?.length || 0, total: job.total_images, unit: '枚' };
+  if (job?.kind === 'preview_pair' && job.progress?.total) return { value: job.progress.step || 0, total: job.progress.total, unit: '組' };
   if (job?.kind === 'panel_retry' && job.total_images) return { value: job.candidates?.length || 0, total: job.total_images, unit: '枚' };
   return null;
 }
@@ -86,7 +87,7 @@ function startNotice(title, job) {
 export function jobView(job, { title, startedAt, error, requesting, notStarted, hideImages } = {}) {
   const failed = ['failed', 'error'].includes(job?.status);
   const done = ['completed','success','confirmed'].includes(job?.status); const resting = !!intentCaption(job); const p = progress(job);
-  const caption = intentCaption(job) || (done ? 'できました' : failed ? '処理に失敗しました' : notStarted ? '入力を確認してください' : job?.kind === 'preview_learning' && job.status === 'interpreting' ? '判定を読んでいます' : job?.kind === 'preview_learning' && job.status === 'training' ? '判定の内容で LoRA を学習しています' : job?.kind === 'preview_learning' && job.status === 'previewing' ? '学習結果のプレビューを生成しています' : job?.kind === 'lora_grow' && job.status === 'training' ? 'OKの画像を教材に足して学習しています' : job?.kind === 'lora_grow' && job.status === 'previewing' ? '学習後のプレビュー（注文なし／あり）を生成しています' : job?.kind === 'intent' ? '画像と注文を解釈しています' : job?.status === 'queued' ? '準備・GPU の処理待ち' : job ? '最後の報告：処理中' : requesting ? '開始の応答を待っています' : '応答を確認してください');
+  const caption = intentCaption(job) || (done ? 'できました' : failed ? '処理に失敗しました' : notStarted ? '入力を確認してください' : job?.kind === 'preview_learning' && job.status === 'interpreting' ? '判定を読んでいます' : job?.kind === 'preview_learning' && job.status === 'training' ? '判定の内容で LoRA を学習しています' : job?.kind === 'preview_learning' && job.status === 'previewing' ? '学習結果のプレビューを生成しています' : job?.kind === 'lora_grow' && job.status === 'training' ? 'OKの画像を教材に足して学習しています' : job?.kind === 'lora_grow' && job.status === 'previewing' ? '学習後のプレビュー（注文なし／あり）を生成しています' : job?.kind === 'preview_pair' && job.status === 'running' ? '注文なし10枚と注文あり10枚を生成しています' : job?.kind === 'intent' ? '画像と注文を解釈しています' : job?.status === 'queued' ? '準備・GPU の処理待ち' : job ? '最後の報告：処理中' : requesting ? '開始の応答を待っています' : '応答を確認してください');
   const elapsed = startedAt && !resting && !done && !failed && !notStarted ? h('span', { class: 'elapsed', 'data-started': startedAt }) : null;
   const view = h('section', { class: `job-view ${failed ? 'failed' : done ? 'completed' : ''}` },
     h('div', { class: 'job-heading' }, h('span', { class: `job-symbol ${done || failed || resting ? '' : 'working'}` }, icon(done ? 'check' : failed ? 'activity' : 'spark', 24)), h('div', {}, h('strong', {}, title || `${job?.name || job?.style || ''} ${kindLabel(job?.kind)}`), h('p', { class: 'muted', role: 'status' }, caption)), elapsed),

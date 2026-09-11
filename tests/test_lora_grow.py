@@ -95,6 +95,43 @@ def test_preview_pair_keeps_same_seed_and_splits_order(tmp_path, monkeypatch):
     asyncio.run(scenario())
 
 
+def test_start_preview_pair_requires_order_and_builds_both_sets(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+
+    async def interpret(job, images):
+        return proposal(job["references"][0], scope="this_run", text="white cropped top, midriff")
+
+    service.intent_interpreter = interpret
+
+    async def scenario():
+        await setup(service, tmp_path)
+        rec = await service.character_info("probe")
+        rec["lora_name"] = "fixture.safetensors"
+        rec["samples"][0]["training_caption"] = {"caption_en": "a girl", "appearance_ja": "少女"}
+        service._save_character(rec)
+        with pytest.raises(ValueError, match="制作への注文"):
+            await service.start_preview_pair("probe", count=1)
+        intent = await service.interpret_comment(IntentRequest(
+            name="probe", stage="preview", comment="セパレートで"))
+        await service.confirm_comment_intent(intent["job_id"], Proposal.model_validate(intent["proposal"]))
+        started = await service.start_preview_pair(
+            "probe", seed=4, count=1, intent_job_id=intent["job_id"])
+        assert started["kind"] == "preview_pair"
+        assert started["status"] == "running"
+        await service._preview_pair_tasks[started["job_id"]]
+        job = service.events.load_job(started["job_id"])
+        assert job["status"] == "completed"
+        plain = service.events.load_job(job["plain_preview_job_id"])
+        ordered = service.events.load_job(job["preview_job_id"])
+        assert plain["preview_role"] == "without_order"
+        assert ordered["preview_role"] == "with_order"
+        assert "white cropped top" not in plain["prompt"]
+        assert "white cropped top" in ordered["prompt"]
+        assert plain["paired_job_id"] == ordered["job_id"]
+
+    asyncio.run(scenario())
+
+
 def test_grow_without_ok_is_an_error(tmp_path, monkeypatch):
     service, _ = make(tmp_path, monkeypatch)
 

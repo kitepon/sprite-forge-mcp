@@ -159,14 +159,12 @@ async function previewStep(target, ctx, styled, cleanup, setReady, next) {
   let gallery;
   const tags = input(`${key}:tags`, 'full body, standing, front view, looking at viewer', { multiline: true, rows: 3 }); const seed = seedControl(key);
   target.append(advanced(characterStrength(await API.character(name)), field('英語の自由入力（解釈した注文を使わない場合）', tags, '注文を解釈して使う場合は既定値のままにします。姿勢などは上の制作への注文へ書いてください。'), field('Seed', seed, '同じ数値で構図を比較できます。')),
-    taskPanel({ kind: 'preview', name, style }, 'プレビュー', '注文なし10枚と注文あり10枚を生成する', async () => {
+    taskPanel({ kind: 'preview_pair', name, style }, 'プレビュー', '注文なし10枚と注文あり10枚を生成する', async () => {
       await editor.save(); await gallery?.flush(); gallery?.followNext();
-      const content = requireText(tags, '内容'); const intent = previewIntentJob(editor, content);
-      const pairId = crypto.randomUUID();
-      const plain = await API.previewCharacter(name, content, number(seed), 10, style, '', { preview_role: 'without_order', pair_id: pairId });
-      if (!intent) return plain;
-      return API.previewCharacter(name, content, number(seed), 10, style, intent, { preview_role: 'with_order', pair_id: pairId, paired_job_id: plain.job_id });
-    }, cleanup, job => gallery?.select(job.job_id), { hideImages: true }));
+      const content = requireText(tags, '内容');
+      const intent = previewIntentJob(editor, content);
+      return API.startPreviewPair(name, content, number(seed), 10, style, intent);
+    }, cleanup, job => gallery?.select(job.preview_job_id || job.plain_preview_job_id || job.job_id), { hideImages: true }));
   gallery = await previewGallery(target, name, style, cleanup, setReady, next);
   if (styled) {
     const strength = input(`${key}:strength`, '0.7', { type: 'number', min: 0.1, max: 2, step: 0.1 });
