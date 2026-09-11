@@ -537,7 +537,8 @@ def test_hair_focus_keeps_source_pose_and_adds_only_hair_delta(tmp_path, monkeyp
         assert 'standing' not in prompt
         preview = service.events.load_job(job['preview_job_id'])
         assert 'twin tails' in preview['prompt']
-        assert 'standing' in preview['prompt']
+        assert 'standing' not in preview['prompt']
+        assert 'front view' not in preview['prompt']
         assert '1girl' in preview['prompt'] and 'solo' in preview['prompt']
         assert 'skirt' not in preview['prompt'] and 'cropped top' not in preview['prompt']
         review = (await service.preview_reviews('probe', source['job_id']))['pictures'][1]['review']

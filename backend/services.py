@@ -31,7 +31,7 @@ from .config import CACHE, CHARACTERS, STYLES, UPLOADS
 from .events import EventStore
 from .intent_service import IntentServices
 from .intent_runner import interpret
-from .intent import IntentRequest, ONE_CHARACTER, Proposal, PREVIEW_TAGS, drawing_content, generation_negative, identity_from_preview_prompt, preview_content, sheet_conditions, sheet_content, unique_tags, validate_proposal
+from .intent import IntentRequest, ONE_CHARACTER, Proposal, PREVIEW_TAGS, drawing_content, generation_negative, identity_from_preview_prompt, is_preview_format_tags, preview_content, sheet_conditions, sheet_content, unique_tags, validate_proposal
 from .panel_intent import resolve_panel, saved_corrections
 from .sheet_layout import LayoutServices, layout_for, matching_keys, panel_from
 from .preview_reviews import PreviewReviews
@@ -353,6 +353,8 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         record = self._load_character(name)
         if not record.get("lora_name"):
             raise ValueError(f"{name!r} has no LoRA yet: train_character_lora first")
+        if is_preview_format_tags(tags):
+            tags = PREVIEW_TAGS
         intent = self._generation_intent(record, "character", "preview", intent_job_id)
         chain, style_word, style = self._generation_loras(record, style, intent)
         job_id = str(uuid.uuid4())

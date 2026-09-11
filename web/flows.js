@@ -32,7 +32,10 @@ function advanced(...children) { return h('details', { class: 'advanced' }, h('s
 function seedControl(key) { return input(`${key}:seed`, '1', { type: 'number', min: 0, step: 1 }); }
 function requireText(control, label) { if (!control.value.trim()) { control.focus(); throw new Error(`${label}を入力してください。`); } return control.value.trim(); }
 function number(control) { if (!control.reportValidity()) throw new Error('数値の入力を確認してください。'); return Number(control.value); }
-export function previewIntentJob(editor, content) { return content === 'full body, standing, front view, looking at viewer' ? editor.confirmedJob() : ''; }
+export function previewIntentJob(editor, content) {
+  const format = new Set(['full body', 'full body, standing, front view, looking at viewer']);
+  return format.has(content) ? editor.confirmedJob() : '';
+}
 
 async function choose(target, kind, ctx, createAllowed, changed) {
   const isChar = kind === 'character'; const noun = isChar ? 'キャラクター' : '画風';
@@ -157,7 +160,7 @@ async function previewStep(target, ctx, styled, cleanup, setReady, next) {
   const editor = await commentEditor(wishes, { name, kind: 'character', stage: 'preview', cleanup });
   target.append(h('p', {}, '制作への注文で望む衣装を出します。OKにした絵を教材に足してLoRAを更新し、安定するまで繰り返してから一枚シートへ進みます。'), wishes);
   let gallery;
-  const tags = input(`${key}:tags`, 'full body, standing, front view, looking at viewer', { multiline: true, rows: 3 }); const seed = seedControl(key);
+  const tags = input(`${key}:tags`, 'full body', { multiline: true, rows: 3 }); const seed = seedControl(key);
   target.append(advanced(characterStrength(await API.character(name)), field('英語の自由入力（解釈した注文を使わない場合）', tags, '注文を解釈して使う場合は既定値のままにします。姿勢などは上の制作への注文へ書いてください。'), field('Seed', seed, '同じ数値で構図を比較できます。')),
     taskPanel({ kind: 'preview_pair', name, style }, 'プレビュー', '注文なし10枚と注文あり10枚を生成する', async () => {
       await editor.save(); await gallery?.flush(); gallery?.followNext();

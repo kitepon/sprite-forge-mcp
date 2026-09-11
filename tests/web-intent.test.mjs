@@ -160,6 +160,7 @@ test('パネルの原文を選択中のパネルへ保存する', async () => {
 test('未採用の注文があっても、別経路の自由入力には解釈IDを付けない', () => {
   const editor = {confirmedJob() { throw new Error('未確認'); }};
   assert.equal(previewIntentJob(editor, 'side view'), '');
+  assert.throws(() => previewIntentJob(editor, 'full body'), /未確認/);
   assert.throws(() => previewIntentJob(editor, 'full body, standing, front view, looking at viewer'), /未確認/);
 });
 

@@ -11,7 +11,8 @@ from .bible import COMMON, QUALITY_NEGATIVE, SINGLE_VIEW_NEGATIVE
 RecordKind = Literal["character", "style"]
 Stage = Literal["samples", "training", "preview", "sheet", "panel", "drawing", "layout"]
 Feature = Literal["face", "hair", "outfit", "style", "expression", "pose", "accessory", "background", "subject", "composition", "lighting"]
-PREVIEW_TAGS = "full body, standing, front view, looking at viewer"
+PREVIEW_TAGS = "full body"
+PREVIEW_POSE_TAGS = "standing, front view, looking at viewer"
 SHEET_CONDITIONS = {
     "composition": {
         "description_en": "the world's most attractive character design sheet, strict accurate human anatomy, white background",
@@ -21,7 +22,6 @@ SHEET_CONDITIONS = {
 DRAWING_CONDITIONS = {"composition": {"description_en": "", "avoid_en": SINGLE_VIEW_NEGATIVE}}
 PREVIEW_CONDITIONS = {
     "composition": {**DRAWING_CONDITIONS["composition"], "description_en": "full body"},
-    "pose": {"description_en": "standing, front view, looking at viewer", "avoid_en": ""},
 }
 
 
@@ -222,18 +222,23 @@ def organize_tags(*blobs: str) -> str:
 def identity_from_preview_prompt(prompt: str, trigger: str = "") -> str:
     """採用したプレビュー生成文から、構図・背景・trigger を除いた本人指定を残す。"""
     drop = {piece.strip() for blob in (
-        trigger, PREVIEW_TAGS, COMMON,
+        trigger, PREVIEW_TAGS, PREVIEW_POSE_TAGS, COMMON,
         PREVIEW_CONDITIONS["composition"]["description_en"],
-        PREVIEW_CONDITIONS["pose"]["description_en"],
     ) for piece in blob.split(",") if piece.strip()}
     return organize_tags(*(piece.strip() for piece in prompt.split(",") if piece.strip() not in drop))
 
 
+def is_preview_format_tags(tags: str) -> bool:
+    """旧い姿勢つき形式文も、いまの全身だけの形式文と同じ扱いにする。"""
+    text = (tags or "").strip()
+    return text in {PREVIEW_TAGS, f"{PREVIEW_TAGS}, {PREVIEW_POSE_TAGS}"}
+
+
 def preview_content(tags: str, conditions: dict) -> str:
-    """既定の構図・姿勢を、その特徴の確定条件で置き換える。自由文は分解しない。"""
+    """既定の構図を、その特徴の確定条件で置き換える。自由文は分解しない。姿勢は注文があるときだけ足す。"""
     if not conditions:
-        return tags
-    if tags and tags != PREVIEW_TAGS:
+        return PREVIEW_TAGS if is_preview_format_tags(tags) else tags
+    if tags and not is_preview_format_tags(tags):
         raise ValueError("英語の自由入力と解釈した注文は同時に使えません。自由入力の内容を制作への注文に含めて解釈してください。")
     return prompt_parts({**PREVIEW_CONDITIONS, **conditions})[0]
 

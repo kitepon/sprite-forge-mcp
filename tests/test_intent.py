@@ -318,7 +318,7 @@ def test_preview_interpretation_receives_stage_defaults_without_persisting_them(
     service, _ = make(tmp_path, monkeypatch)
 
     async def interpret(job, images):
-        assert job["stage_conditions"]["pose"]["description_en"] == "standing, front view, looking at viewer"
+        assert "pose" not in job["stage_conditions"]
         assert job["stage_conditions"]["composition"]["description_en"] == "full body"
         return proposal(scope="this_run", feature="pose", text="standing, side view")
 

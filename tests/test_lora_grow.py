@@ -60,6 +60,7 @@ def test_preview_order_reaches_prompt_and_ok_images_join_training(tmp_path, monk
         assert preview["paired_job_id"] == plain["job_id"]
         assert "white cropped top" in preview["prompt"]
         assert "white cropped top" not in plain["prompt"]
+        assert "standing" not in plain["prompt"] and "front view" not in plain["prompt"]
         assert preview["loras"][0][0] == record["lora_name"]
         assert comfy.submitted[-1]["4"]["inputs"]["lora_name"] == record["lora_name"]
 
@@ -90,7 +91,9 @@ def test_preview_pair_keeps_same_seed_and_splits_order(tmp_path, monkeypatch):
         assert ordered["preview_role"] == "with_order"
         assert plain["paired_job_id"] == ordered["job_id"]
         assert "white cropped top" not in plain["prompt"]
+        assert "standing" not in plain["prompt"] and "front view" not in plain["prompt"]
         assert "white cropped top" in ordered["prompt"]
+        assert "standing" not in ordered["prompt"] and "front view" not in ordered["prompt"]
 
     asyncio.run(scenario())
 
@@ -126,7 +129,9 @@ def test_start_preview_pair_requires_order_and_builds_both_sets(tmp_path, monkey
         assert plain["preview_role"] == "without_order"
         assert ordered["preview_role"] == "with_order"
         assert "white cropped top" not in plain["prompt"]
+        assert "standing" not in plain["prompt"]
         assert "white cropped top" in ordered["prompt"]
+        assert "standing" not in ordered["prompt"]
         assert plain["paired_job_id"] == ordered["job_id"]
 
     asyncio.run(scenario())
