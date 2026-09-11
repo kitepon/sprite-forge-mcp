@@ -105,16 +105,17 @@ export function previewReviewCard(name, jobId, image, index, changed) {
 }
 
 function pairJobs(job) {
-  if (!job) return { without: null, with: null };
+  if (!job) return { without: null, with: null, legacy: null };
+  if (!job.preview_role && !job.pair_id) return { without: null, with: null, legacy: job };
   const sibling = jobs.find(j => j.job_id === job.paired_job_id)
     || (job.pair_id && jobs.find(j => j.pair_id === job.pair_id && j.job_id !== job.job_id))
     || null;
   const members = [job, sibling].filter(Boolean);
-  const without = members.find(j => j.preview_role === 'without_order')
-    || members.find(j => !j.intent_job_id && j.preview_role !== 'with_order') || null;
-  const withOrder = members.find(j => j.preview_role === 'with_order')
-    || members.find(j => j.intent_job_id && j !== without) || null;
-  return { without, with: withOrder };
+  return {
+    without: members.find(j => j.preview_role === 'without_order') || null,
+    with: members.find(j => j.preview_role === 'with_order') || null,
+    legacy: null,
+  };
 }
 
 export async function previewGallery(target, name, style, cleanup, setReady, next) {
@@ -129,8 +130,10 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
   const reason = h('p', { class: 'small muted', role: 'status' });
   const gridPlain = h('div', { class: 'preview-review-grid' });
   const gridOrdered = h('div', { class: 'preview-review-grid' });
+  const sectionLegacy = h('section', { class: 'stack' }, h('h3', {}, '以前のプレビュー（1組）'), h('p', { class: 'muted' }, 'これは注文なしと注文ありを並べる前の記録です。上の生成ボタンで、二組を出してください。'), h('div', { class: 'preview-review-grid', id: 'legacy-grid' }));
   const sectionPlain = h('section', { class: 'stack' }, h('h3', {}, '注文なし（LoRAと形式文だけ）'), plainPrompt, gridPlain);
   const sectionOrdered = h('section', { class: 'stack' }, h('h3', {}, '注文あり'), orderedPrompt, gridOrdered);
+  const gridLegacy = sectionLegacy.querySelector('#legacy-grid');
   const progress = h('div'), comparison = h('div'), error = h('p', { class: 'error-text', role: 'alert' });
   const start = button('OKの画像を教材に足して学習する', e => action(e.currentTarget, async () => {
     await flush();
@@ -159,7 +162,7 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
   function pick(id) {
     if (selected === id) return;
     cards.forEach(card => card.dispose()); cards.clear();
-    gridPlain.replaceChildren(); gridOrdered.replaceChildren();
+    gridPlain.replaceChildren(); gridOrdered.replaceChildren(); gridLegacy.replaceChildren();
     selected = id; saveDraft(key, id); source = null;
   }
   async function flush() { await Promise.all([...cards.values()].map(card => card.flush())); }
@@ -228,14 +231,20 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
       if (!selected) { summarize(); return; }
       const current = jobs.find(j => j.job_id === selected);
       const pair = pairJobs(current);
+      sectionLegacy.hidden = !pair.legacy;
+      sectionPlain.hidden = !pair.without && !pair.with;
+      sectionOrdered.hidden = !pair.without && !pair.with;
       plainPrompt.querySelector('pre').textContent = pair.without?.prompt || '';
       orderedPrompt.querySelector('pre').textContent = pair.with?.prompt || '';
-      sectionPlain.hidden = !pair.without && !pair.with;
       const learning = jobs.find(j => j.job_id === current.learning_job_id)
         || jobs.find(j => (j.kind === 'lora_grow' || j.kind === 'preview_learning') && (
           j.source_job_id === selected || j.preview_job_id === selected || j.plain_preview_job_id === selected));
       const id = selected;
-      const views = await Promise.all([paintGrid(pair.without, gridPlain, 'plain'), paintGrid(pair.with, gridOrdered, 'ordered')]);
+      const views = await Promise.all([
+        paintGrid(pair.legacy, gridLegacy, 'legacy'),
+        paintGrid(pair.without, gridPlain, 'plain'),
+        paintGrid(pair.with, gridOrdered, 'ordered'),
+      ]);
       if (disposed || id !== selected) return;
       source = views.find(Boolean) || null; error.textContent = '';
       const train = learning?.training_job_id && jobs.find(j => j.job_id === learning.training_job_id);
@@ -249,8 +258,8 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
     finally { loading = false; }
   }
   target.append(h('section', { class: 'stack preview-review' }, field('確認する学習結果', select), comparison, counts,
-    h('p', { class: 'muted' }, '上段は制作への注文なし、下段は注文ありです。同じ seed です。望む絵にOKを付け、教材に足してLoRAを更新します。'),
-    sectionPlain, sectionOrdered,
+    h('p', { class: 'muted' }, '「注文なし10枚と注文あり10枚を生成する」を押すと、同じ seed で二組並びます。いま見えている1組は旧い記録です。'),
+    sectionLegacy, sectionPlain, sectionOrdered,
     h('div', { class: 'stack' }, progress, reason, h('div', { class: 'actions' }, start, adopt)), error));
   setReady(false, 'プレビューを読み込んでいます。');
   adopted = (await API.character(name)).adopted_preview_job_id;
