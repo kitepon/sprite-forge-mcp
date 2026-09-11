@@ -95,7 +95,7 @@ def test_three_stages_each_stop_for_correction(tmp_path, monkeypatch):
     assert record["lora_name"] == training["lora_name"] and record["train_job"] == training["job_id"]
     preview = run(service.preview_character("Bell", "waving", seed=7, count=2))
     assert len(preview["pictures"]) == 2
-    assert comfy.submitted[-1]["20"]["inputs"]["text"] == "bell, waving, 1girl, solo, simple background, white background"
+    assert comfy.submitted[-1]["20"]["inputs"]["text"] == "bell, waving, 1girl, solo"
     assert comfy.submitted[-1]["4"]["inputs"]["lora_name"] == training["lora_name"] and comfy.submitted[-1]["23"]["inputs"]["seed"] == 8
     comfy.submitted.clear()
 
