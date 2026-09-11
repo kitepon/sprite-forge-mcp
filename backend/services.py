@@ -1032,18 +1032,16 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
                               "path": str(target), "caption": caption, "original_comment": sample.get("caption", ""), **observed,
                               **({"training_policy": deepcopy(policy)} if policy else {})})
         for index, extra in enumerate(record.get("training_additions") or []):
-            english = (extra.get("caption_en") or "").strip()
-            if not english:
-                raise ValueError("追加したプレビュー教材に学習文がありません。")
             directory = panels / "primary" if selection else panels
             directory.mkdir(parents=True, exist_ok=True)
             target = directory / f"add-{index:03d}.png"
             target.write_bytes(Path(extra["path"]).read_bytes())
-            caption = ", ".join(t for t in (trigger, english) if t)
+            # 追加プレビューはトリガーに姿を載せる。注文の衣装文は生成用であり、教材へは載せない。
+            caption = trigger
             target.with_suffix(".txt").write_text(caption, encoding="utf-8")
             materials.append({"source": extra.get("source_image_id"), "path": str(target), "caption": caption,
-                              "caption_en": english, "training_policy": {"priority": "primary" if selection else "normal",
-                                                                         "features": ["outfit"], "reason_ja": "プレビューでOKにした画像"}})
+                              "caption_en": "", "training_policy": {"priority": "primary" if selection else "normal",
+                                                                    "features": ["outfit"], "reason_ja": "プレビューでOKにした画像"}})
         job = {"job_id": job_id, "kind": "lora_train", "status": "awaiting_confirmation", "name": name,
                "record_kind": kind, "record_key": record["key"], "record_created": record["created"],
                "tool": f"train_{kind}_lora", "materials": materials,

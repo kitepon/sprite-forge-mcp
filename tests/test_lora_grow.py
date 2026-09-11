@@ -50,7 +50,9 @@ def test_preview_order_reaches_prompt_and_ok_images_join_training(tmp_path, monk
         trained = service.events.load_job(job["training_job_id"])
         assert trained["status"] == "completed"
         assert any(item["path"].endswith("add-000.png") for item in trained["materials"])
-        assert any("white cropped top" in item["caption"] for item in trained["materials"])
+        added = next(item for item in trained["materials"] if item["path"].endswith("add-000.png"))
+        assert added["caption"] == rec["trigger"]
+        assert "white cropped top" not in added["caption"]
         preview = service.events.load_job(job["preview_job_id"])
         plain = service.events.load_job(job["plain_preview_job_id"])
         assert preview["kind"] == "preview"
