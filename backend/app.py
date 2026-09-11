@@ -33,6 +33,7 @@ for name, function in (
     ("list_characters", services.list_characters),
     ("delete_character", services.delete_character),
     ("preview_character", services.preview_character),
+    ("preview_character_pair", services.preview_character_pair),
     ("preview_reviews", services.preview_reviews),
     ("save_preview_review", services.save_preview_review),
     ("correct_preview_interpretation", services.correct_preview_interpretation),

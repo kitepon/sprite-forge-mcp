@@ -99,7 +99,7 @@ class PreviewLearning:
         view = await self.preview_reviews(name, job_id)
         if view['relearning_unavailable_reason']:
             raise ValueError(view['relearning_unavailable_reason'])
-        ok = [picture for picture in view['pictures'] if picture['review']['rating'] == 'ok']
+        ok = await self._ok_pictures_from_pair(name, job_id)
         if not ok:
             raise ValueError('OKの画像を選んでから教材に足してください。')
         record = self._load_character(name)
@@ -108,17 +108,20 @@ class PreviewLearning:
         steps = steps or record.get('steps') or 1200
         if steps < 1:
             raise ValueError('学習ステップは1以上を指定してください。')
+        sibling = self.events.load_job(source['paired_job_id']) if source.get('paired_job_id') else None
+        ordered = source if source.get('preview_role') == 'with_order' or source.get('intent_job_id') else (
+            sibling if sibling and (sibling.get('preview_role') == 'with_order' or sibling.get('intent_job_id')) else source)
         job = {
             'job_id': request_id, 'kind': 'lora_grow', 'status': 'running', 'name': name,
             'source_job_id': job_id, 'character_created': record['created'],
             'ok_ids': [picture['id'] for picture in ok],
             'pictures': [{'id': picture['id'], 'path': picture['path'], 'sha256': picture['sha256']} for picture in ok],
             'source': {
-                'prompt': source['prompt'], 'tags': source.get('tags') or PREVIEW_TAGS,
-                'intent_job_id': source.get('intent_job_id') or '',
-                'intent_positive': source.get('intent_positive') or '',
-                'seed': source['seed'], 'style': source.get('style') or '',
-                'total_images': source.get('total_images') or 10,
+                'prompt': ordered['prompt'], 'tags': ordered.get('tags') or PREVIEW_TAGS,
+                'intent_job_id': ordered.get('intent_job_id') or '',
+                'intent_positive': ordered.get('intent_positive') or '',
+                'seed': ordered['seed'], 'style': ordered.get('style') or '',
+                'total_images': ordered.get('total_images') or 10,
             },
             'steps': steps, 'progress': {'step': 0, 'total': steps},
         }
@@ -150,16 +153,33 @@ class PreviewLearning:
                 self.events.save_job(job)
                 await self.train_character_lora(job['name'], prepared['steps'], prepared['job_id'])
             if not job.get('preview_job_id'):
+                job['status'] = 'previewing'
+                self.events.save_job(job)
                 source = job['source']
-                preview = await self.preview_character(
+                pair = await self.preview_character_pair(
                     job['name'], tags=source.get('tags') or PREVIEW_TAGS, seed=source['seed'],
                     count=source.get('total_images') or 10, style=source.get('style') or '',
                     intent_job_id=source.get('intent_job_id') or '')
-                preview['learning_job_id'] = job_id
-                self.events.save_job(preview)
-                job['preview_job_id'] = preview['job_id']
+                plain, ordered = pair['without_order'], pair['with_order']
+                for preview in (plain, ordered):
+                    if not preview:
+                        continue
+                    preview['learning_job_id'] = job_id
+                    self.events.save_job(preview)
+                job['plain_preview_job_id'] = plain['job_id']
+                job['preview_job_id'] = pair['job_id']
             job['status'] = 'completed'
             self.events.save_job(job)
+
+    async def _ok_pictures_from_pair(self, name: str, job_id: str) -> list[dict]:
+        view = await self.preview_reviews(name, job_id)
+        pictures = [picture for picture in view['pictures'] if picture['review']['rating'] == 'ok']
+        job = self.events.load_job(job_id) or {}
+        sibling_id = job.get('paired_job_id')
+        if sibling_id:
+            other = await self.preview_reviews(name, sibling_id)
+            pictures.extend(picture for picture in other['pictures'] if picture['review']['rating'] == 'ok')
+        return pictures
 
     def _store_preview_additions(self, record: dict, job: dict) -> list[dict]:
         caption = identity_from_preview_prompt(job['source']['prompt'], record['trigger'])

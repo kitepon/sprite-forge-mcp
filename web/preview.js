@@ -104,6 +104,17 @@ export function previewReviewCard(name, jobId, image, index, changed) {
   } };
 }
 
+function pairJobs(job) {
+  if (!job) return { without: null, with: null };
+  const sibling = job.paired_job_id ? jobs.find(j => j.job_id === job.paired_job_id) : null;
+  const members = [job, sibling].filter(Boolean);
+  const without = members.find(j => j.preview_role === 'without_order')
+    || members.find(j => !j.intent_job_id && j.preview_role !== 'with_order') || null;
+  const withOrder = members.find(j => j.preview_role === 'with_order')
+    || members.find(j => j.intent_job_id && j !== without) || null;
+  return { without, with: withOrder };
+}
+
 export async function previewGallery(target, name, style, cleanup, setReady, next) {
   const key = `preview-gallery:${name}:${style}`;
   let selected = draft(key, ''), disposed = false, loading = false, baseline = null, adopted = null, source = null;
@@ -111,17 +122,20 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
   const cards = new Map();
   const select = h('select', { 'aria-label': '確認する学習結果' });
   const counts = h('p', { class: 'review-counts', role: 'status' });
-  const promptView = h('details', { class: 'preview-prompt' }, h('summary', {}, 'この10枚の生成文'), h('pre', { class: 'training-caption' }));
+  const plainPrompt = h('details', { class: 'preview-prompt' }, h('summary', {}, '注文なしの生成文'), h('pre', { class: 'training-caption' }));
+  const orderedPrompt = h('details', { class: 'preview-prompt' }, h('summary', {}, '注文ありの生成文'), h('pre', { class: 'training-caption' }));
   const reason = h('p', { class: 'small muted', role: 'status' });
-  const grid = h('div', { class: 'preview-review-grid' });
+  const gridPlain = h('div', { class: 'preview-review-grid' });
+  const gridOrdered = h('div', { class: 'preview-review-grid' });
+  const sectionPlain = h('section', { class: 'stack' }, h('h3', {}, '注文なし（LoRAと形式文だけ）'), plainPrompt, gridPlain);
+  const sectionOrdered = h('section', { class: 'stack' }, h('h3', {}, '注文あり'), orderedPrompt, gridOrdered);
   const progress = h('div'), comparison = h('div'), error = h('p', { class: 'error-text', role: 'alert' });
   const start = button('OKの画像を教材に足して学習する', e => action(e.currentTarget, async () => {
     await flush();
     const prior = jobs.find(j => j.kind === 'lora_grow' && j.source_job_id === selected && !terminal(j));
     const requestId = prior?.job_id || crypto.randomUUID();
-    const result = await runJob({ kind: 'lora_grow', name, source_job_id: selected }, 'OKを教材に足して学習',
+    await runJob({ kind: 'lora_grow', name, source_job_id: selected }, 'OKを教材に足して学習',
       () => API.growLoraFromPreview(name, selected, requestId), prior || null);
-    if (result?.preview_job_id) pick(result.preview_job_id);
     await refresh();
   }));
   const adopt = button('この学習結果を使って一枚シートへ', e => action(e.currentTarget, async () => {
@@ -132,21 +146,44 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
     const ratings = [...cards.values()].map(card => card.rating());
     const ok = ratings.filter(v => v === 'ok').length, ng = ratings.filter(v => v === 'ng').length;
     counts.textContent = `OK ${ok}枚 ・ NG ${ng}枚 ・ 未判定 ${ratings.length - ok - ng}枚`;
-    const running = jobs.some(j => (j.kind === 'lora_grow' || j.kind === 'preview_learning') && j.source_job_id === selected && !terminal(j));
+    const running = jobs.some(j => (j.kind === 'lora_grow' || j.kind === 'preview_learning') && (
+      j.source_job_id === selected || j.preview_job_id === selected || j.plain_preview_job_id === selected) && !terminal(j));
     start.disabled = running || !ok;
-    reason.textContent = source?.relearning_unavailable_reason || (running ? '教材を足して学習しています。' : ok ? `OK ${ok}枚を教材に足してLoRAを更新します。` : '望む絵にOKを付けてから、教材に足してください。');
-    adopt.disabled = !selected || jobs.find(j => j.job_id === selected)?.status !== 'completed' || running;
+    reason.textContent = source?.relearning_unavailable_reason || (running ? '教材を足して学習しています。終わると新しい注文なし／ありのプレビューに切り替わります。' : ok ? `OK ${ok}枚を教材に足してLoRAを更新します。` : '望む絵にOKを付けてから、教材に足してください。');
+    const current = jobs.find(j => j.job_id === selected);
+    adopt.disabled = !selected || current?.status !== 'completed' || running;
     setReady(selected === adopted, selected === adopted ? '' : '画像を確認し、「この学習結果を使って一枚シートへ」を押してください。');
   }
   function pick(id) {
     if (selected === id) return;
-    cards.forEach(card => card.dispose()); cards.clear(); grid.replaceChildren();
+    cards.forEach(card => card.dispose()); cards.clear();
+    gridPlain.replaceChildren(); gridOrdered.replaceChildren();
     selected = id; saveDraft(key, id); source = null;
   }
   async function flush() { await Promise.all([...cards.values()].map(card => card.flush())); }
   select.addEventListener('change', async () => {
     try { await flush(); pick(select.value); await refresh(); } catch (e) { error.textContent = e.message; select.value = selected; }
   });
+  async function paintGrid(job, grid, prefix) {
+    if (!job) {
+      grid.replaceChildren(h('p', { class: 'muted' }, 'まだありません。'));
+      return null;
+    }
+    const view = await API.previewReviews(name, job.job_id);
+    if (disposed) return view;
+    const keep = new Set(view.pictures.map(image => image.id));
+    for (const [id, card] of [...cards]) {
+      if (!keep.has(id) && grid.contains(card.node)) { card.dispose(); cards.delete(id); card.node.remove(); }
+    }
+    for (const [index, image] of view.pictures.entries()) {
+      if (cards.has(image.id)) cards.get(image.id).update(image.review);
+      else {
+        const card = previewReviewCard(name, job.job_id, image, index, summarize);
+        cards.set(image.id, card); grid.append(card.node);
+      }
+    }
+    return view;
+  }
   async function refresh() {
     if (loading || disposed) return;
     loading = true;
@@ -154,46 +191,57 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
       const previews = jobs.filter(j => j.kind === 'preview' && j.name === name && (!style || (j.style || '') === style));
       const newest = baseline && previews.find(j => !baseline.has(j.job_id));
       if (newest) { await flush(); pick(newest.job_id); baseline = null; }
+      const grow = jobs.find(j => j.kind === 'lora_grow' && j.source_job_id === selected
+        && (j.preview_job_id || j.plain_preview_job_id)
+        && ![j.preview_job_id, j.plain_preview_job_id].includes(selected));
+      if (grow && (grow.status === 'completed' || grow.status === 'previewing')) {
+        await flush(); pick(grow.preview_job_id || grow.plain_preview_job_id); loading = false; return refresh();
+      }
       if (!previews.some(j => j.job_id === selected)) pick(previews[0]?.job_id || '');
-      const options = JSON.stringify(previews.map(j => [j.job_id, j.pictures?.length]));
+      const seen = new Set();
+      const choices = [];
+      for (const job of previews) {
+        const keyId = job.pair_id || job.job_id;
+        if (seen.has(keyId)) continue;
+        seen.add(keyId);
+        const pair = pairJobs(job);
+        const label = pair.without && pair.with
+          ? `${job.learning_job_id ? '学習後' : 'プレビュー'} · ${dateText(job.created_at)} · 注文なし10 + 注文あり10`
+          : `${job.learning_job_id ? '学習後' : 'プレビュー'} · ${dateText(job.created_at)} · ${job.pictures?.length || 0}枚`;
+        choices.push([job.job_id, label]);
+      }
+      const options = JSON.stringify(choices);
       if (options !== optionsSignature) {
         optionsSignature = options;
-        select.replaceChildren(...previews.map(j => h('option', { value: j.job_id }, `${j.learning_job_id ? '再学習後' : 'プレビュー'} · ${dateText(j.created_at)} · ${j.pictures?.length || 0}枚`)));
+        select.replaceChildren(...choices.map(([id, label]) => h('option', { value: id }, label)));
       }
       select.value = selected;
-      if (!selected) { promptView.querySelector('pre').textContent = ''; summarize(); return; }
+      if (!selected) { summarize(); return; }
       const current = jobs.find(j => j.job_id === selected);
-      promptView.querySelector('pre').textContent = current?.prompt || '';
-      const learning = jobs.find(j => j.job_id === current.learning_job_id) || jobs.find(j => (j.kind === 'lora_grow' || j.kind === 'preview_learning') && j.source_job_id === selected);
-      if (learning?.status === 'previewing' && learning.preview_job_id !== selected) {
-        await flush(); pick(learning.preview_job_id); loading = false; return refresh();
-      }
+      const pair = pairJobs(current);
+      plainPrompt.querySelector('pre').textContent = pair.without?.prompt || '';
+      orderedPrompt.querySelector('pre').textContent = pair.with?.prompt || '';
+      sectionPlain.hidden = !pair.without && !pair.with;
+      const learning = jobs.find(j => j.job_id === current.learning_job_id)
+        || jobs.find(j => (j.kind === 'lora_grow' || j.kind === 'preview_learning') && (
+          j.source_job_id === selected || j.preview_job_id === selected || j.plain_preview_job_id === selected));
       const id = selected;
-      const view = await API.previewReviews(name, id);
+      const views = await Promise.all([paintGrid(pair.without, gridPlain, 'plain'), paintGrid(pair.with, gridOrdered, 'ordered')]);
       if (disposed || id !== selected) return;
-      source = view; error.textContent = '';
-      for (const [index, image] of view.pictures.entries()) {
-        if (cards.has(image.id)) cards.get(image.id).update(image.review);
-        else { const card = previewReviewCard(name, id, image, index, summarize); cards.set(image.id, card); grid.append(card.node); }
-      }
-      progress.replaceChildren(jobView(learning?.status === 'previewing' ? current : learning || current, { hideImages: true, title: learning ? 'OKを教材に足して学習' : 'プレビュー' }));
+      source = views.find(Boolean) || null; error.textContent = '';
+      const train = learning?.training_job_id && jobs.find(j => j.job_id === learning.training_job_id);
+      const shown = train && train.status !== 'completed' ? train : (learning && !terminal(learning) ? learning : current);
+      progress.replaceChildren(jobView(shown, { hideImages: true, title: learning ? 'OKを教材に足して学習' : 'プレビュー' }));
       const compareKey = `${selected}:${learning?.job_id || ''}`;
       if (compareKey !== comparisonSignature) comparison.replaceChildren();
-      if (compareKey !== comparisonSignature && current.learning_job_id && learning) {
-        const old = jobs.find(j => j.job_id === learning.source_job_id);
-        comparison.append(h('details', { class: 'preview-comparison' }, h('summary', {}, '再学習前の画像と判定を見る'),
-          h('div', { class: 'preview-review-grid' }, (learning.reviews || []).map(p => h('figure', {}, picture(p.path, '再学習前'),
-            h('figcaption', {}, `${labels[p.review.rating]}：${p.review.comment || '理由なし'}`),
-            p.review.meaning ? h('p', {}, meaningSummary(p.review.rating, p.review.meaning)) : null))),
-          old ? button('以前の学習結果を使う', async () => { await flush(); pick(old.job_id); await refresh(); }, 'quiet') : null));
-      }
       comparisonSignature = compareKey;
       summarize();
     } catch (e) { if (!disposed) error.textContent = `判定を読み込めませんでした：${e.message}`; }
     finally { loading = false; }
   }
-  target.append(h('section', { class: 'stack preview-review' }, field('確認する学習結果', select), comparison, counts, promptView,
-    h('p', { class: 'muted' }, '10枚は同じ生成文です。望む絵にOKを付け、教材に足してLoRAを更新します。安定したら一枚シートへ進みます。'), grid,
+  target.append(h('section', { class: 'stack preview-review' }, field('確認する学習結果', select), comparison, counts,
+    h('p', { class: 'muted' }, '上段は制作への注文なし、下段は注文ありです。同じ seed です。望む絵にOKを付け、教材に足してLoRAを更新します。'),
+    sectionPlain, sectionOrdered,
     h('div', { class: 'stack' }, progress, reason, h('div', { class: 'actions' }, start, adopt)), error));
   setReady(false, 'プレビューを読み込んでいます。');
   adopted = (await API.character(name)).adopted_preview_job_id;

@@ -52,10 +52,45 @@ def test_preview_order_reaches_prompt_and_ok_images_join_training(tmp_path, monk
         assert any(item["path"].endswith("add-000.png") for item in trained["materials"])
         assert any("white cropped top" in item["caption"] for item in trained["materials"])
         preview = service.events.load_job(job["preview_job_id"])
+        plain = service.events.load_job(job["plain_preview_job_id"])
         assert preview["kind"] == "preview"
         assert preview["learning_job_id"] == job["job_id"]
+        assert preview["preview_role"] == "with_order"
+        assert plain["preview_role"] == "without_order"
+        assert preview["paired_job_id"] == plain["job_id"]
+        assert "white cropped top" in preview["prompt"]
+        assert "white cropped top" not in plain["prompt"]
         assert preview["loras"][0][0] == record["lora_name"]
         assert comfy.submitted[-1]["4"]["inputs"]["lora_name"] == record["lora_name"]
+
+    asyncio.run(scenario())
+
+
+def test_preview_pair_keeps_same_seed_and_splits_order(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+
+    async def interpret(job, images):
+        return proposal(job["references"][0], scope="this_run", text="white cropped top, midriff")
+
+    service.intent_interpreter = interpret
+
+    async def scenario():
+        await setup(service, tmp_path)
+        rec = await service.character_info("probe")
+        rec["lora_name"] = "fixture.safetensors"
+        rec["samples"][0]["training_caption"] = {"caption_en": "a girl", "appearance_ja": "少女"}
+        service._save_character(rec)
+        intent = await service.interpret_comment(IntentRequest(
+            name="probe", stage="preview", comment="セパレートで"))
+        await service.confirm_comment_intent(intent["job_id"], Proposal.model_validate(intent["proposal"]))
+        pair = await service.preview_character_pair("probe", seed=4, count=1, intent_job_id=intent["job_id"])
+        plain, ordered = pair["without_order"], pair["with_order"]
+        assert plain["seed"] == ordered["seed"] == 4
+        assert plain["preview_role"] == "without_order"
+        assert ordered["preview_role"] == "with_order"
+        assert plain["paired_job_id"] == ordered["job_id"]
+        assert "white cropped top" not in plain["prompt"]
+        assert "white cropped top" in ordered["prompt"]
 
     asyncio.run(scenario())
 

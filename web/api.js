@@ -25,7 +25,7 @@ export const API = {
   removeSample: (name, index) => api(`/api/characters/${encodeURIComponent(name)}/samples/${index}`, { method: "DELETE" }),
   setCaption: (name, index, caption) => api(`/api/characters/${encodeURIComponent(name)}/samples/${index}/caption?${new URLSearchParams({ caption })}`, { method: "POST" }),
   train: (name, steps = 1200, prepared_job_id = '') => api(`/api/lora?${new URLSearchParams({ name, steps, prepared_job_id })}`, { method: "POST" }),
-  previewCharacter: (name, tags, seed = 1, count = 10, style = "", intent_job_id = "") => api(`/api/characters/${encodeURIComponent(name)}/preview?${new URLSearchParams({ tags, seed, count, style, intent_job_id })}`, { method: "POST" }),
+  previewCharacter: (name, tags, seed = 1, count = 10, style = "", intent_job_id = "", extra = {}) => api(`/api/characters/${encodeURIComponent(name)}/preview?${new URLSearchParams({ tags, seed, count, style, intent_job_id, ...extra })}`, { method: "POST" }),
   previewReviews: (name, job) => api(`/api/characters/${encodeURIComponent(name)}/previews/${encodeURIComponent(job)}/reviews`),
   savePreviewReview: (name, job, image, review) => api(`/api/characters/${encodeURIComponent(name)}/previews/${encodeURIComponent(job)}/reviews/${encodeURIComponent(image)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(review) }),
   correctPreviewInterpretation: (name, job, image, correction) => api(`/api/characters/${encodeURIComponent(name)}/previews/${encodeURIComponent(job)}/reviews/${encodeURIComponent(image)}/interpretation`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(correction) }),

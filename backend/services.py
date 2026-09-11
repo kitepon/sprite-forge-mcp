@@ -345,7 +345,8 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
 
     async def preview_character(self, name: str, tags: str = PREVIEW_TAGS,
                                 seed: int = 1, count: int = 10, style: str = "", turbo: bool = False,
-                                intent_job_id: str = "") -> dict[str, Any]:
+                                intent_job_id: str = "", preview_role: str = "", pair_id: str = "",
+                                paired_job_id: str = "") -> dict[str, Any]:
         """Stage 2 check: a few seconds per picture with the trained LoRA. Look, then decide whether
         to retrain (fix samples / captions / steps) or go on to the bible."""
         record = self._load_character(name)
@@ -360,15 +361,41 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
                              "" if "subject" in conditions else "1girl, solo",
                              "" if "background" in conditions else bible.COMMON)
         negative = generation_negative(conditions)
+        role = preview_role or ("with_order" if intent_job_id else "without_order")
         job = {"job_id": job_id, "kind": "preview", "status": "queued", "name": name, "prompt": prompt, "seed": seed, "loras": chain,
                "style": style, "tags": tags, "total_images": max(1, count), "pictures": [], "negative": negative,
-               "generation_prompt": "", "character_created": record['created'], **intent}
+               "generation_prompt": "", "character_created": record['created'], "preview_role": role, **intent}
+        if pair_id:
+            job["pair_id"] = pair_id
+        if paired_job_id:
+            job["paired_job_id"] = paired_job_id
+            sibling = self.events.load_job(paired_job_id)
+            if sibling:
+                sibling["paired_job_id"] = job_id
+                sibling["pair_id"] = pair_id or sibling.get("pair_id")
+                self.events.save_job(sibling)
         graph = workflows.anima_txt2img(prompt, seed, turbo=turbo, loras=chain, negative=negative, width=832, height=1216)
         job['generation'] = {'model': graph['1']['inputs']['unet_name'], 'text_encoder': graph['2']['inputs']['clip_name'],
                              'vae': graph['3']['inputs']['vae_name'], 'width': 832, 'height': 1216, 'turbo': turbo,
                              **{k: graph['23']['inputs'][k] for k in ('steps', 'cfg', 'sampler_name', 'scheduler', 'denoise')}}
         self.events.save_job(job); self._record_call("preview_character", job_id, {"name": name, "seed": seed, "count": count})
         return await self._generate_preview_images(job)
+
+    async def preview_character_pair(self, name: str, tags: str = PREVIEW_TAGS, seed: int = 1, count: int = 10,
+                                     style: str = "", intent_job_id: str = "") -> dict[str, Any]:
+        """注文なし10枚と、注文があるときだけ注文あり10枚を同じseedで出す。"""
+        pair_id = str(uuid.uuid4())
+        plain = await self.preview_character(
+            name, tags=tags, seed=seed, count=count, style=style, intent_job_id="",
+            preview_role="without_order", pair_id=pair_id)
+        ordered = None
+        if intent_job_id:
+            ordered = await self.preview_character(
+                name, tags=tags, seed=seed, count=count, style=style, intent_job_id=intent_job_id,
+                preview_role="with_order", pair_id=pair_id, paired_job_id=plain["job_id"])
+            plain = self.events.load_job(plain["job_id"])
+        return {"pair_id": pair_id, "without_order": plain, "with_order": ordered,
+                "job_id": (ordered or plain)["job_id"]}
 
     async def _generate_preview_images(self, job):
         job_id = job['job_id']
