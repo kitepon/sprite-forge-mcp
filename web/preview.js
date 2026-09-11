@@ -147,14 +147,27 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
     await flush(); const record = await API.adoptPreview(name, selected);
     adopted = record.adopted_preview_job_id; setReady(true, ''); await next();
   }));
+  function growFor(id) {
+    const current = jobs.find(j => j.job_id === id);
+    const related = [id, current?.paired_job_id].filter(Boolean);
+    return jobs.find(j => (j.kind === 'lora_grow' || j.kind === 'preview_learning') && (
+      related.includes(j.source_job_id) || related.includes(j.preview_job_id) || related.includes(j.plain_preview_job_id)));
+  }
   function summarize() {
     const ratings = [...cards.values()].map(card => card.rating());
     const ok = ratings.filter(v => v === 'ok').length, ng = ratings.filter(v => v === 'ng').length;
     counts.textContent = `OK ${ok}枚 ・ NG ${ng}枚 ・ 未判定 ${ratings.length - ok - ng}枚`;
-    const running = jobs.some(j => (j.kind === 'lora_grow' || j.kind === 'preview_learning') && (
-      j.source_job_id === selected || j.preview_job_id === selected || j.plain_preview_job_id === selected) && !terminal(j));
+    const learning = growFor(selected);
+    const running = learning && !terminal(learning);
+    const train = learning?.training_job_id && jobs.find(j => j.job_id === learning.training_job_id);
+    const step = train?.progress || learning?.progress;
     start.disabled = running || !ok;
-    reason.textContent = source?.relearning_unavailable_reason || (running ? '教材を足して学習しています。終わると新しい注文なし／ありのプレビューに切り替わります。' : ok ? `OK ${ok}枚を教材に足してLoRAを更新します。` : '望む絵にOKを付けてから、教材に足してください。');
+    reason.textContent = source?.relearning_unavailable_reason || (running && learning?.status === 'previewing'
+      ? '学習後のプレビュー（注文なし／あり）を生成しています。'
+      : running && step?.total
+        ? `学習中 ${step.step || 0} / ${step.total} ステップ。終わると新しいプレビューに切り替わります。`
+        : running ? '教材を足して学習しています。終わると新しいプレビューに切り替わります。'
+          : ok ? `OK ${ok}枚を教材に足してLoRAを更新します。` : '望む絵にOKを付けてから、教材に足してください。');
     const current = jobs.find(j => j.job_id === selected);
     adopt.disabled = !selected || current?.status !== 'completed' || running;
     setReady(selected === adopted, selected === adopted ? '' : '画像を確認し、「この学習結果を使って一枚シートへ」を押してください。');
@@ -196,10 +209,10 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
       const previews = jobs.filter(j => j.kind === 'preview' && j.name === name && (!style || (j.style || '') === style));
       const newest = baseline && previews.find(j => !baseline.has(j.job_id));
       if (newest) { await flush(); pick(newest.job_id); baseline = null; }
-      const grow = jobs.find(j => j.kind === 'lora_grow' && j.source_job_id === selected
-        && (j.preview_job_id || j.plain_preview_job_id)
-        && ![j.preview_job_id, j.plain_preview_job_id].includes(selected));
-      if (grow && (grow.status === 'completed' || grow.status === 'previewing')) {
+      const grow = growFor(selected);
+      if (grow && (grow.status === 'completed' || grow.status === 'previewing')
+        && (grow.preview_job_id || grow.plain_preview_job_id)
+        && ![grow.preview_job_id, grow.plain_preview_job_id].includes(selected)) {
         await flush(); pick(grow.preview_job_id || grow.plain_preview_job_id); loading = false; return refresh();
       }
       const pairRun = jobs.find(j => j.kind === 'preview_pair' && j.name === name
@@ -236,9 +249,7 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
       sectionOrdered.hidden = !pair.without && !pair.with;
       plainPrompt.querySelector('pre').textContent = pair.without?.prompt || '';
       orderedPrompt.querySelector('pre').textContent = pair.with?.prompt || '';
-      const learning = jobs.find(j => j.job_id === current.learning_job_id)
-        || jobs.find(j => (j.kind === 'lora_grow' || j.kind === 'preview_learning') && (
-          j.source_job_id === selected || j.preview_job_id === selected || j.plain_preview_job_id === selected));
+      const learning = jobs.find(j => j.job_id === current.learning_job_id) || growFor(selected);
       const id = selected;
       const views = await Promise.all([
         paintGrid(pair.legacy, gridLegacy, 'legacy'),
@@ -248,8 +259,13 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
       if (disposed || id !== selected) return;
       source = views.find(Boolean) || null; error.textContent = '';
       const train = learning?.training_job_id && jobs.find(j => j.job_id === learning.training_job_id);
-      const shown = train && train.status !== 'completed' ? train : (learning && !terminal(learning) ? learning : current);
-      progress.replaceChildren(jobView(shown, { hideImages: true, title: learning ? 'OKを教材に足して学習' : 'プレビュー' }));
+      let shown = current;
+      if (learning && !terminal(learning)) {
+        shown = { ...learning };
+        if (train?.progress) shown.progress = train.progress;
+        if (train && train.status !== 'completed' && shown.status === 'running') shown.status = 'training';
+      }
+      progress.replaceChildren(jobView(shown, { hideImages: true, title: learning && !terminal(learning) ? 'OKを教材に足して学習' : 'プレビュー' }));
       const compareKey = `${selected}:${learning?.job_id || ''}`;
       if (compareKey !== comparisonSignature) comparison.replaceChildren();
       comparisonSignature = compareKey;
@@ -258,9 +274,9 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
     finally { loading = false; }
   }
   target.append(h('section', { class: 'stack preview-review' }, field('確認する学習結果', select), comparison, counts,
+    h('div', { class: 'stack' }, progress, reason, h('div', { class: 'actions' }, start, adopt)),
     h('p', { class: 'muted' }, '「注文なし10枚と注文あり10枚を生成する」を押すと、同じ seed で二組並びます。いま見えている1組は旧い記録です。'),
-    sectionLegacy, sectionPlain, sectionOrdered,
-    h('div', { class: 'stack' }, progress, reason, h('div', { class: 'actions' }, start, adopt)), error));
+    sectionLegacy, sectionPlain, sectionOrdered, error));
   setReady(false, 'プレビューを読み込んでいます。');
   adopted = (await API.character(name)).adopted_preview_job_id;
   cleanup.push(() => { disposed = true; cards.forEach(card => card.dispose()); });
