@@ -155,7 +155,7 @@ async function previewStep(target, ctx, styled, cleanup, setReady, next) {
   const name = ctx.character, style = styled ? ctx.style : ''; const key = `preview:${name}:${style}`;
   const wishes = h('section', { class: 'stack' }, h('h3', {}, '全体への注文'), h('p', { class: 'muted small' }, 'ここでは元の参考画像を参照して、生成する内容を指定します。生成画像への指摘は、その画像のOK・NGと理由欄へ書いてください。'));
   const editor = await commentEditor(wishes, { name, kind: 'character', stage: 'preview', cleanup });
-  target.append(h('p', {}, '10枚の生成画像を見て、OK・NGを指定します。両方の判定でLoRAを修正し、結果を確かめてから一枚シートへ進めます。'), wishes);
+  target.append(h('p', {}, '制作への注文で望む衣装を出します。OKにした絵を教材に足してLoRAを更新し、安定するまで繰り返してから一枚シートへ進みます。'), wishes);
   let gallery;
   const tags = input(`${key}:tags`, 'full body, standing, front view, looking at viewer', { multiline: true, rows: 3 }); const seed = seedControl(key);
   target.append(advanced(characterStrength(await API.character(name)), field('英語の自由入力（解釈した注文を使わない場合）', tags, '注文を解釈して使う場合は既定値のままにします。姿勢などは上の制作への注文へ書いてください。'), field('Seed', seed, '同じ数値で構図を比較できます。')),

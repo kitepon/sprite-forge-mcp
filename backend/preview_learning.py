@@ -11,7 +11,7 @@ from PIL import Image, ImageChops
 
 from . import bible, box, workflows
 from .config import BOX_LORAS, BOX_TRAIN
-from .intent import PREVIEW_TAGS, organize_tags, preview_content, unique_tags
+from .intent import PREVIEW_TAGS, identity_from_preview_prompt, organize_tags, preview_content, unique_tags
 from .preview_reviews import description_for_focus, review_has_input, review_needs_interpretation, review_of, require_interpreted_generation
 
 IN_FLIGHT = ('interpreting', 'training', 'previewing')
@@ -85,6 +85,109 @@ def union_masks(parts: list[bytes]) -> bytes:
 
 
 class PreviewLearning:
+    async def grow_lora_from_preview(self, name: str, job_id: str, request_id: str, steps: int = 0) -> dict:
+        """OKにしたプレビューを教材に足し、サンプルと同じLoRA学習で更新する。"""
+        source = self._preview_review_source(name, job_id)
+        existing = self.events.load_job(request_id)
+        if existing:
+            if existing.get('kind') != 'lora_grow' or existing.get('source_job_id') != job_id or existing.get('name') != name:
+                raise ValueError('別の学習に使われた要求IDです。')
+            if existing['status'] in ('running', 'training', 'previewing'):
+                self._ensure_grow(request_id)
+            return existing
+        uuid.UUID(request_id)
+        view = await self.preview_reviews(name, job_id)
+        if view['relearning_unavailable_reason']:
+            raise ValueError(view['relearning_unavailable_reason'])
+        ok = [picture for picture in view['pictures'] if picture['review']['rating'] == 'ok']
+        if not ok:
+            raise ValueError('OKの画像を選んでから教材に足してください。')
+        record = self._load_character(name)
+        if not record.get('lora_name'):
+            raise ValueError('先にサンプルからLoRAを作ってください。')
+        steps = steps or record.get('steps') or 1200
+        if steps < 1:
+            raise ValueError('学習ステップは1以上を指定してください。')
+        job = {
+            'job_id': request_id, 'kind': 'lora_grow', 'status': 'running', 'name': name,
+            'source_job_id': job_id, 'character_created': record['created'],
+            'ok_ids': [picture['id'] for picture in ok],
+            'pictures': [{'id': picture['id'], 'path': picture['path'], 'sha256': picture['sha256']} for picture in ok],
+            'source': {
+                'prompt': source['prompt'], 'tags': source.get('tags') or PREVIEW_TAGS,
+                'intent_job_id': source.get('intent_job_id') or '',
+                'intent_positive': source.get('intent_positive') or '',
+                'seed': source['seed'], 'style': source.get('style') or '',
+                'total_images': source.get('total_images') or 10,
+            },
+            'steps': steps, 'progress': {'step': 0, 'total': steps},
+        }
+        self.events.save_job(job)
+        self._ensure_grow(request_id)
+        return self.events.load_job(request_id)
+
+    def _ensure_grow(self, job_id: str) -> asyncio.Task:
+        task = self._grow_tasks.get(job_id)
+        if task is None or task.done():
+            task = asyncio.create_task(self._run_grow(job_id))
+            self._grow_tasks[job_id] = task
+        return task
+
+    async def _run_grow(self, job_id: str) -> None:
+        job = self.events.load_job(job_id)
+        with self._job_errors(job):
+            record = self._load_character(job['name'])
+            if record['created'] != job['character_created']:
+                raise ValueError('学習中に対象のキャラクターが作り直されたため、結果を採用していません。')
+            if not job.get('additions'):
+                job['additions'] = self._store_preview_additions(record, job)
+                self._save_character(record)
+                self.events.save_job(job)
+            if not job.get('training_job_id'):
+                prepared = await self.prepare_training(job['name'], 'character', job['steps'])
+                job['training_job_id'] = prepared['job_id']
+                job['status'] = 'training'
+                self.events.save_job(job)
+                await self.train_character_lora(job['name'], prepared['steps'], prepared['job_id'])
+            if not job.get('preview_job_id'):
+                source = job['source']
+                preview = await self.preview_character(
+                    job['name'], tags=source.get('tags') or PREVIEW_TAGS, seed=source['seed'],
+                    count=source.get('total_images') or 10, style=source.get('style') or '',
+                    intent_job_id=source.get('intent_job_id') or '')
+                preview['learning_job_id'] = job_id
+                self.events.save_job(preview)
+                job['preview_job_id'] = preview['job_id']
+            job['status'] = 'completed'
+            self.events.save_job(job)
+
+    def _store_preview_additions(self, record: dict, job: dict) -> list[dict]:
+        caption = identity_from_preview_prompt(job['source']['prompt'], record['trigger'])
+        if not caption:
+            caption = (job['source'].get('intent_positive') or '').strip()
+        folder = self._character_dir(record['name']) / 'additions'
+        folder.mkdir(parents=True, exist_ok=True)
+        existing = {(item.get('source_image_id'), item.get('sha256')) for item in record.get('training_additions') or []}
+        added = []
+        for picture in job['pictures']:
+            content = Path(picture['path']).read_bytes()
+            digest = hashlib.sha256(content).hexdigest()
+            if digest != picture['sha256']:
+                raise ValueError('判定した画像の内容が変わっています。新しくプレビューを生成してください。')
+            key = (picture['id'], digest)
+            if key in existing:
+                continue
+            path = folder / f"{picture['id']}.png"
+            path.write_bytes(content)
+            item = {'path': str(path), 'caption_en': caption, 'source_job_id': job['source_job_id'],
+                    'source_image_id': picture['id'], 'sha256': digest}
+            record.setdefault('training_additions', []).append(item)
+            existing.add(key)
+            added.append(item)
+        if not added and not record.get('training_additions'):
+            raise ValueError('足す教材がありません。')
+        return added
+
     async def relearn_preview(self, name: str, job_id: str, request_id: str, steps: int = 20) -> dict:
         """判定から再学習する。OKだけ・NGだけ・判定なしでも開始できる。開始時の判定と教材を固定する。"""
         source = self._preview_review_source(name, job_id)
@@ -154,6 +257,8 @@ class PreviewLearning:
         for job in self.events.list_jobs():
             if job.get('kind') == 'preview_learning' and job.get('status') in IN_FLIGHT:
                 self._ensure_preview_learning(job['job_id'])
+            if job.get('kind') == 'lora_grow' and job.get('status') in ('running', 'training', 'previewing'):
+                self._ensure_grow(job['job_id'])
 
     async def _run_preview_learning(self, job_id: str) -> None:
         job = self.events.load_job(job_id)

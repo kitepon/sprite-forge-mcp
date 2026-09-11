@@ -31,7 +31,7 @@ class IntentServices:
             raise ValueError("画風の希望は、画風の学習・選択で反映する必要があります。内容の注文と分けて確認してください。")
         positive, negative = prompt_parts(conditions)
         result = {"intent_job_id": job_id or None, "intent_conditions": conditions,
-                  "intent_positive": positive, "intent_negative": negative}
+                  "intent_positive": positive, "intent_negative": negative, "intent_stage": stage}
         if job_id:
             selected = [c for c in job["accepted"]["changes"]
                         if c["feature"] == "style" and not c.get("style_deferred", False)]

@@ -83,7 +83,7 @@ export async function referenceNotes(target, { name, kind, stage = 'samples' }) 
 export async function commentEditor(target, { name, kind, stage, panel = '', interpretEnabled = true, learningJob = null, learningActions = null, onLearningConfirm = null, cleanup = [] }) {
   const key = `intent:${kind}:${name}:${stage}:${panel}`;
   let job = null, savedText = '', busy = false, saveVersion = 0;
-  const input = h('textarea', { rows: 3, placeholder: stage === 'preview' ? '例：参考画像の顔と髪を保って、横向きの全身像を描いて。' : '例：4枚目の衣装を今後も使って。顔と髪はそのままで。', 'aria-label': '制作への注文' });
+  const input = h('textarea', { rows: 3, placeholder: stage === 'preview' ? '例：短い上着とスカートのセパレートで、正面の全身。' : '例：4枚目の衣装を今後も使って。顔と髪はそのままで。', 'aria-label': '制作への注文' });
   const status = h('p', { class: 'draft-status', role: 'status' });
   const output = h('div', { class: 'intent-proposal stack' });
   const titles = { preview: '顔や衣装の調整', drawing: '描きたい内容', sheet: '設定画全体への希望', panel: 'このパネルの修正', samples: '画像から採用したい特徴', training: '読み取った希望の確認' };

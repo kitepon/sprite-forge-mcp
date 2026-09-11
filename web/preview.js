@@ -115,12 +115,12 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
   const reason = h('p', { class: 'small muted', role: 'status' });
   const grid = h('div', { class: 'preview-review-grid' });
   const progress = h('div'), comparison = h('div'), error = h('p', { class: 'error-text', role: 'alert' });
-  const start = button('この判定でLoRAを再学習する', e => action(e.currentTarget, async () => {
+  const start = button('OKの画像を教材に足して学習する', e => action(e.currentTarget, async () => {
     await flush();
-    const prior = jobs.find(j => j.kind === 'preview_learning' && j.source_job_id === selected && (j.status === 'awaiting_answers' || !terminal(j)));
+    const prior = jobs.find(j => j.kind === 'lora_grow' && j.source_job_id === selected && !terminal(j));
     const requestId = prior?.job_id || crypto.randomUUID();
-    const result = await runJob({ kind: 'preview_learning', name, source_job_id: selected }, '判定から再学習',
-      () => API.relearnPreview(name, selected, requestId), prior || null);
+    const result = await runJob({ kind: 'lora_grow', name, source_job_id: selected }, 'OKを教材に足して学習',
+      () => API.growLoraFromPreview(name, selected, requestId), prior || null);
     if (result?.preview_job_id) pick(result.preview_job_id);
     await refresh();
   }));
@@ -132,9 +132,9 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
     const ratings = [...cards.values()].map(card => card.rating());
     const ok = ratings.filter(v => v === 'ok').length, ng = ratings.filter(v => v === 'ng').length;
     counts.textContent = `OK ${ok}枚 ・ NG ${ng}枚 ・ 未判定 ${ratings.length - ok - ng}枚`;
-    const running = jobs.some(j => j.kind === 'preview_learning' && j.source_job_id === selected && !terminal(j));
-    start.disabled = running;
-    reason.textContent = source?.relearning_unavailable_reason || (running ? 'この判定の再学習を実行中です。' : ok && ng ? 'NGで選んだ場所をOKの絵に寄せてLoRAを直します。' : ok ? 'OKの条件だけを学習します。' : ng ? 'NGの条件だけを学習します。' : '判定が無くても押せます。学習はせず、同じLoRAでプレビューを描き直します。');
+    const running = jobs.some(j => (j.kind === 'lora_grow' || j.kind === 'preview_learning') && j.source_job_id === selected && !terminal(j));
+    start.disabled = running || !ok;
+    reason.textContent = source?.relearning_unavailable_reason || (running ? '教材を足して学習しています。' : ok ? `OK ${ok}枚を教材に足してLoRAを更新します。` : '望む絵にOKを付けてから、教材に足してください。');
     adopt.disabled = !selected || jobs.find(j => j.job_id === selected)?.status !== 'completed' || running;
     setReady(selected === adopted, selected === adopted ? '' : '画像を確認し、「この学習結果を使って一枚シートへ」を押してください。');
   }
@@ -164,7 +164,7 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
       if (!selected) { promptView.querySelector('pre').textContent = ''; summarize(); return; }
       const current = jobs.find(j => j.job_id === selected);
       promptView.querySelector('pre').textContent = current?.prompt || '';
-      const learning = jobs.find(j => j.job_id === current.learning_job_id) || jobs.find(j => j.kind === 'preview_learning' && j.source_job_id === selected);
+      const learning = jobs.find(j => j.job_id === current.learning_job_id) || jobs.find(j => (j.kind === 'lora_grow' || j.kind === 'preview_learning') && j.source_job_id === selected);
       if (learning?.status === 'previewing' && learning.preview_job_id !== selected) {
         await flush(); pick(learning.preview_job_id); loading = false; return refresh();
       }
@@ -176,7 +176,7 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
         if (cards.has(image.id)) cards.get(image.id).update(image.review);
         else { const card = previewReviewCard(name, id, image, index, summarize); cards.set(image.id, card); grid.append(card.node); }
       }
-      progress.replaceChildren(jobView(learning?.status === 'previewing' ? current : learning || current, { hideImages: true, title: learning ? '判定から再学習' : 'プレビュー' }));
+      progress.replaceChildren(jobView(learning?.status === 'previewing' ? current : learning || current, { hideImages: true, title: learning ? 'OKを教材に足して学習' : 'プレビュー' }));
       const compareKey = `${selected}:${learning?.job_id || ''}`;
       if (compareKey !== comparisonSignature) comparison.replaceChildren();
       if (compareKey !== comparisonSignature && current.learning_job_id && learning) {
@@ -193,7 +193,7 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
     finally { loading = false; }
   }
   target.append(h('section', { class: 'stack preview-review' }, field('確認する学習結果', select), comparison, counts, promptView,
-    h('p', { class: 'muted' }, '10枚は同じ生成文です。差は LoRA と seed です。各画像にOK・NGを付けてください。'), grid,
+    h('p', { class: 'muted' }, '10枚は同じ生成文です。望む絵にOKを付け、教材に足してLoRAを更新します。安定したら一枚シートへ進みます。'), grid,
     h('div', { class: 'stack' }, progress, reason, h('div', { class: 'actions' }, start, adopt)), error));
   setReady(false, 'プレビューを読み込んでいます。');
   adopted = (await API.character(name)).adopted_preview_job_id;

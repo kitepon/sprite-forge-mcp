@@ -50,6 +50,7 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         self.intent_interpreter = self._interpret_with_comfy
         self._preview_learning_tasks: dict[str, asyncio.Task] = {}
         self._learning_tasks: dict[str, asyncio.Task] = {}
+        self._grow_tasks: dict[str, asyncio.Task] = {}
 
     async def _interpret_with_comfy(self, job, images, **kwargs):
         return await interpret(job, images, comfy=self.comfy, **kwargs)
@@ -360,7 +361,7 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
                              "" if "background" in conditions else bible.COMMON)
         negative = generation_negative(conditions)
         job = {"job_id": job_id, "kind": "preview", "status": "queued", "name": name, "prompt": prompt, "seed": seed, "loras": chain,
-               "style": style, "total_images": max(1, count), "pictures": [], "negative": negative,
+               "style": style, "tags": tags, "total_images": max(1, count), "pictures": [], "negative": negative,
                "generation_prompt": "", "character_created": record['created'], **intent}
         graph = workflows.anima_txt2img(prompt, seed, turbo=turbo, loras=chain, negative=negative, width=832, height=1216)
         job['generation'] = {'model': graph['1']['inputs']['unet_name'], 'text_encoder': graph['2']['inputs']['clip_name'],
@@ -394,9 +395,18 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
             return job
 
     def _prompt_conditions(self, intent: dict[str, Any]) -> dict:
-        """サンプルから覚えた persistent な姿は LoRA が持つ。今回確認した注文だけ文章に残す。"""
+        """プレビューは今回の注文だけ文章にする。サンプル由来の persistent な姿は注文で言い直さない限り載せない。"""
         conditions = intent.get("intent_conditions") or {}
-        if intent.get("intent_job_id"):
+        job_id = intent.get("intent_job_id")
+        if job_id and intent.get("intent_stage") == "preview":
+            job = self.events.load_job(job_id) or {}
+            ordered = {}
+            for change in (job.get("accepted") or {}).get("changes") or []:
+                if change.get("feature") == "style":
+                    continue
+                ordered[change["feature"]] = change
+            return ordered
+        if job_id:
             return dict(conditions)
         return {key: value for key, value in conditions.items()
                 if not (key in ("outfit", "subject", "face") and value.get("scope") == "persistent")}
@@ -954,6 +964,19 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
             materials.append({"reference": {"record_key": record["key"], "sample_index": sample["index"], "path": sample["path"]},
                               "path": str(target), "caption": caption, "original_comment": sample.get("caption", ""), **observed,
                               **({"training_policy": deepcopy(policy)} if policy else {})})
+        for index, extra in enumerate(record.get("training_additions") or []):
+            english = (extra.get("caption_en") or "").strip()
+            if not english:
+                raise ValueError("追加したプレビュー教材に学習文がありません。")
+            directory = panels / "primary" if selection else panels
+            directory.mkdir(parents=True, exist_ok=True)
+            target = directory / f"add-{index:03d}.png"
+            target.write_bytes(Path(extra["path"]).read_bytes())
+            caption = ", ".join(t for t in (trigger, english) if t)
+            target.with_suffix(".txt").write_text(caption, encoding="utf-8")
+            materials.append({"source": extra.get("source_image_id"), "path": str(target), "caption": caption,
+                              "caption_en": english, "training_policy": {"priority": "primary" if selection else "normal",
+                                                                         "features": ["outfit"], "reason_ja": "プレビューでOKにした画像"}})
         job = {"job_id": job_id, "kind": "lora_train", "status": "awaiting_confirmation", "name": name,
                "record_kind": kind, "record_key": record["key"], "record_created": record["created"],
                "tool": f"train_{kind}_lora", "materials": materials,
