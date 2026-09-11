@@ -479,7 +479,7 @@ class PreviewLearning:
         extras = job.get('generation_prompt') or ''
         record = self._load_character(job['name'])
         _, style_word, _ = self._generation_loras(record, job['source'].get('style') or '', {})
-        return unique_tags(record['trigger'], style_word, PREVIEW_TAGS, extras, '1girl, solo')
+        return unique_tags(record['trigger'], style_word, PREVIEW_TAGS, extras, '1girl, solo', bible.COMMON)
 
     async def _preview_after_learning(self, job: dict) -> None:
         source = job['source']

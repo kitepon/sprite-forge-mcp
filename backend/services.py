@@ -361,7 +361,8 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         conditions = self._prompt_conditions(intent)
         content = preview_content(tags, conditions)
         prompt = unique_tags(record["trigger"], style_word, content,
-                             "" if "subject" in conditions else "1girl, solo")
+                             "" if "subject" in conditions else "1girl, solo",
+                             "" if "background" in conditions else bible.COMMON)
         negative = generation_negative(conditions)
         role = preview_role or ("with_order" if intent_job_id else "without_order")
         job = {"job_id": job_id, "kind": "preview", "status": "queued", "name": name, "prompt": prompt, "seed": seed, "loras": chain,

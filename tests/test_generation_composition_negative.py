@@ -26,7 +26,7 @@ def test_generation_keeps_defaults_or_uses_confirmed_composition(tmp_path, monke
             assert job["stage_conditions"]["composition"]["avoid_en"] == bible.SINGLE_VIEW_NEGATIVE
             if route == "preview":
                 assert job["stage_conditions"]["subject"]["description_en"] == "1girl"
-                assert "background" not in job["stage_conditions"]
+                assert job["stage_conditions"]["background"]["description_en"] == bible.COMMON
             value = proposal(scope="this_run", feature="composition", text="two full-body views, front and back")
             for feature, text in [("subject", "two depictions of the same adult"), ("pose", "standing"),
                                   ("background", "gray background"), ("outfit", "a blue coat")]:
@@ -54,7 +54,7 @@ def test_generation_keeps_defaults_or_uses_confirmed_composition(tmp_path, monke
             assert "1girl" not in job["prompt"]
         else:
             assert job["negative"] == bible.NEGATIVE
-            assert job["prompt"] == ("probe, full body, 1girl, solo"
+            assert job["prompt"] == ("probe, full body, 1girl, solo, simple background, white background"
                                      if route == "preview" else ("probe_style" if kind == "style" else "probe") + ", one adult standing")
         assert graph["4"]["inputs"]["lora_name"] == ("look.safetensors" if kind == "style" else "person.safetensors")
 

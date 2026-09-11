@@ -107,7 +107,8 @@ class IntentServices:
                                    for item in await self.list_styles() if item.get("lora_name")]
         if request.kind == "character" and request.stage == "preview":
             job["stage_conditions"] = {**deepcopy(PREVIEW_CONDITIONS),
-                                       "subject": {"description_en": bible.subject_tag(record["char_desc"]), "avoid_en": ""}}
+                                       "subject": {"description_en": bible.subject_tag(record["char_desc"]), "avoid_en": ""},
+                                       "background": {"description_en": bible.COMMON, "avoid_en": ""}}
         elif request.stage == "drawing":
             job["stage_conditions"] = deepcopy(DRAWING_CONDITIONS)
         if request.stage in ("sheet", "panel", "layout"):
