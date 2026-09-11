@@ -290,7 +290,7 @@ class IntentCliTests(unittest.TestCase):
         comfy = FakeComfy()
         payload = {
             'stage': 'training',
-            'original_comment': '2枚目は服装と等身、3枚目は画風',
+            'original_comment': '2枚目から服装（お腹が見えるセパレート）、画風は3〜6枚目',
             'image_comments': ['服装と等身はこれを維持', '画風はこれを維持'],
             'references': [
                 {'record_key': 'char', 'sample_index': 0, 'path': '/tmp/a.png'},
@@ -304,15 +304,15 @@ class IntentCliTests(unittest.TestCase):
         self.assertIn(TRAINING_OBSERVE_MARK, outfit)
         self.assertIn('服装と等身はこれを維持', outfit)
         self.assertNotIn('画風はこれを維持', outfit)
-        self.assertNotIn('用途が画風なら', outfit)
-        self.assertNotIn('覆う範囲', outfit)
-        self.assertNotIn('切れ目や露出', outfit)
+        self.assertNotIn('セパレート', outfit)
+        self.assertIn('見えないことは書かない', outfit)
         self.assertIn(TRAINING_OBSERVE_MARK, style)
         self.assertIn('画風はこれを維持', style)
         self.assertNotIn('服装と等身はこれを維持', style)
-        self.assertNotIn('別の衣装や体形は学習文にしない', style)
-        self.assertIn('2枚目は服装と等身、3枚目は画風', outfit)
-        self.assertIn('2枚目は服装と等身、3枚目は画風', style)
+        self.assertNotIn('セパレート', style)
+        self.assertIn('見えないことは書かない', style)
+        self.assertNotIn('観察:', compose)
+        self.assertIn('セパレート', compose)
         _, schema_text = compose.split(SCHEMA_LEAD, 1)
         schema = json.loads(schema_text.strip())
         self.assertNotIn('observations', schema.get('properties', {}))

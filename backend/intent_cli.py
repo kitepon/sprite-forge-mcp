@@ -148,19 +148,17 @@ def observe_range(payload: dict) -> dict:
 
 
 def _training_purpose(payload: dict, index: int) -> dict | None:
-    """学習観察へ渡す、この画像の用途。生成工程の観察範囲とは別。"""
+    """学習観察へ渡す、この画像への文。全体希望は採用方針の整理に残し、観察へは混ぜない。"""
     if payload.get("stage") not in ("samples", "training"):
         return None
     comments = payload.get("image_comments") or []
     comment = comments[index].strip() if index < len(comments) and isinstance(comments[index], str) else ""
-    return {"comment": comment, "overall": (payload.get("original_comment") or "").strip()}
+    return {"comment": comment}
 
 
 def _observe_prompt(index: int, schema: dict, view: dict | None = None, purpose: dict | None = None) -> str:
     if purpose is not None:
-        extra = ["次の文の趣旨に従って書いてください。"]
-        if purpose["overall"]:
-            extra.append(f"全体の希望: {purpose['overall']}")
+        extra = ["この画像への文の趣旨に従って書いてください。この画像に見えないことは書かないでください。"]
         if purpose["comment"]:
             extra.append(f"この画像への文: {purpose['comment']}")
         lead = f"{TRAINING_OBSERVE_MARK}{''.join(extra)}これは{index}枚目の参考画像です。"
@@ -312,8 +310,11 @@ async def execute(payload: dict, images: list[bytes], *, comfy, keep_model_loade
                      else IntentRevision if (model is GenerationProposal and sightings)
                      else model)
     compose_schema = _strict_schema(compose_model)
-    proposal = _validate(compose_model, await _ask(comfy, _compose_prompt(compose_payload, compose_schema, sightings),
-                                                   image=compose_image, keep_model_loaded=keep_model_loaded))
+    # 学習の採用方針は希望文から決める。観察を混ぜると、他の画像の内容が移る。
+    compose_sightings = [] if compose_model is TrainingRevision else sightings
+    proposal = _validate(compose_model, await _ask(
+        comfy, _compose_prompt(compose_payload, compose_schema, compose_sightings),
+        image=compose_image, keep_model_loaded=keep_model_loaded))
     if compose_model is LayoutChange:
         # モデルには差分だけを書かせ、全項目の構成はここで現在の構成へ合成する。
         proposal = merge_layout_change(proposal, payload["sheet_layout"])
