@@ -937,7 +937,7 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
                 for stage in ("samples", "training")}
 
     async def start_learning(self, name: str, kind: str = "character", steps: int = 1200) -> dict:
-        """画像の読取りから学習まで進める。未回答の質問がある場合だけ止まる。"""
+        """参考画像の読取りから、ゼロからの学習まで進める。未回答の質問がある場合だけ止まる。"""
         if kind not in ("character", "style") or steps < 1:
             raise ValueError("学習対象とステップ数を確認してください。")
         record = self._intent_record(name, kind)
@@ -967,7 +967,7 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         return await self.confirm_learning(job_id, proposal)
 
     async def confirm_learning(self, job_id: str, proposal: Proposal) -> dict:
-        """一度の確認で希望と画像説明を採用し、教材を固定して学習する。"""
+        """参考画像だけで LoRA を作り直す。OKで足したプレビュー教材は外してから学ぶ。"""
         job = self.events.load_job(job_id)
         if not job or "learning_steps" not in job or job.get("training_job_id"):
             raise ValueError("学習開始前の確認内容を指定してください。")
@@ -986,6 +986,10 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
             job = await self.confirm_training_observations(job_id, proposal.observations)
         if job["status"] != "confirmed":
             job = await self.confirm_comment_intent(job_id, proposal)
+        record = self._intent_record(job["name"], job["record_kind"])
+        if record.get("training_additions"):
+            record["training_additions"] = []
+            self._save_intent_record(record, job["record_kind"])
         prepared = await self.prepare_training(job["name"], job["record_kind"], job["learning_steps"])
         job["training_job_id"] = prepared["job_id"]
         self.events.save_job(job)

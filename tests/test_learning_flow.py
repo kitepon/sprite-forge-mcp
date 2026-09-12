@@ -53,6 +53,47 @@ def test_learning_runs_reading_materials_and_training_from_one_action(tmp_path, 
     asyncio.run(scenario())
 
 
+def test_start_learning_rebuilds_from_samples_and_drops_preview_additions(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+
+    async def scenario():
+        await setup(service, tmp_path)
+        record = service._load_character("検証用")
+        folder = service._character_dir("検証用") / "additions"
+        folder.mkdir(parents=True)
+        path = folder / "ok.png"
+        path.write_bytes(png())
+        record["training_additions"] = [{
+            "path": str(path), "caption_en": "white cropped top",
+            "source_job_id": "src", "source_image_id": "ok", "sha256": "x",
+        }]
+        service._save_character(record)
+        job = await settled_learning(service, await service.start_learning("検証用", steps=3))
+        trained = service.events.load_job(job["training_job_id"])
+        latest = service._load_character("検証用")
+        assert latest.get("training_additions") == []
+        assert [item.get("reference", {}).get("sample_index") for item in trained["materials"]] == [0]
+        assert all("add-" not in item["path"] for item in trained["materials"])
+
+    asyncio.run(scenario())
+
+
+def test_unanswered_learning_keeps_preview_additions(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+
+    async def scenario():
+        await setup(service, tmp_path, questions=True)
+        record = service._load_character("検証用")
+        record["training_additions"] = [{"path": "kept.png", "source_image_id": "ok", "sha256": "x", "caption_en": ""}]
+        service._save_character(record)
+        job = await settled_learning(service, await service.start_learning("検証用", steps=3))
+        assert job["status"] == "awaiting_confirmation"
+        assert service._load_character("検証用")["training_additions"][0]["path"] == "kept.png"
+        assert not any(j["kind"] == "lora_train" for j in service.events.list_jobs())
+
+    asyncio.run(scenario())
+
+
 def test_start_learning_returns_before_reading_finishes(tmp_path, monkeypatch):
     service, _ = make(tmp_path, monkeypatch)
 

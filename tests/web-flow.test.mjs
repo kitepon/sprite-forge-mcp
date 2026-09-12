@@ -81,7 +81,7 @@ test('失敗した学習のあとは、やり直すを開かなくても開始�
   API.character = async () => rec; API.commentIntents = async () => []; API.jobs = async () => [job];
   const root = new FakeNode('root'), cleanup=[];
   await learning(root,'character','失敗後',cleanup,()=>{});
-  const start = all(root).find(n => n.textContent === '今の画像でもう一度学習する');
+  const start = all(root).find(n => n.textContent === '参考画像から LoRA を作り直す');
   assert.ok(start);
   const redo = all(root).find(n => n.tag === 'details' && n.children.some(c => c.children?.includes('学習をやり直す')));
   assert.ok(redo.hidden);

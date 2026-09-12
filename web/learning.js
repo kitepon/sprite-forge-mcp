@@ -9,9 +9,12 @@ export async function learning(target, kind, name, cleanup, changed) {
   const rec = await (kind === 'character' ? API.character(name) : API.style(name));
   let busy = false, disposed = false, signature = '', explanationSignature = '', version = 0;
   let latestExplanation = null, reviewBox = null;
-  const summary = h('div', { class: 'learning-summary stack' }, h('strong', {}, `${rec.samples.length} 枚の画像から学習します`),
+  const extras = (rec.training_additions || []).length;
+  const startLabel = rec.lora_name ? '参考画像から LoRA を作り直す' : 'この内容で学習を始める';
+  const summary = h('div', { class: 'learning-summary stack' }, h('strong', {}, `${rec.samples.length} 枚の参考画像だけで、LoRA を作ります`),
     h('div', { class: 'learning-images' }, rec.samples.map((s, i) => h('figure', {}, picture(s.path, `参考画像 ${i + 1}`), h('figcaption', {}, `画像 ${i + 1}`)))),
     rec.samples.some(s => s.caption) ? h('div', { class: 'stack small' }, rec.samples.map((s, i) => s.caption ? h('p', {}, h('strong', {}, `画像 ${i + 1}：`), s.caption) : null)) : null,
+    extras ? h('p', { class: 'muted small' }, `OKで足した教材 ${extras} 枚は、この操作では外します。足し直すのはプレビューの学習です。`) : null,
     h('p', { class: 'muted small' }, '画像の読み取りと教材の準備は自動です。希望の解釈に確認が必要なときだけお聞きします。'));
   target.append(summary);
   const notes = await referenceNotes(target, { name, kind });
@@ -34,7 +37,7 @@ export async function learning(target, kind, name, cleanup, changed) {
     catch (error) { notice(`学習の応答を確認できませんでした：${error.message}。保存された制作状況を確認します。`, true); }
     finally { busy = false; await refreshJobs(); paint(); }
   };
-  const start = button(rec.lora_name ? '今の画像でもう一度学習する' : 'この内容で学習を始める', () => execute(() => {
+  const start = button(startLabel, () => execute(() => {
     if (!steps.reportValidity()) throw new Error('学習ステップを確認してください。');
     return API.startLearning(name, kind, Number(steps.value));
   }));
@@ -77,7 +80,7 @@ export async function learning(target, kind, name, cleanup, changed) {
     (repeating ? repeat : actions).append(start);
     actions.hidden = repeating;
     start.disabled = busy || !!running;
-    start.textContent = busy || running ? '学習の準備・実行中' : reviewing ? '希望を修正して読み取り直す' : complete ? '今の画像でもう一度学習する' : 'この内容で学習を始める';
+    start.textContent = busy || running ? '学習の準備・実行中' : reviewing ? '希望を修正して読み取り直す' : complete ? '参考画像から LoRA を作り直す' : 'この内容で学習を始める';
     if (reviewing) start.className = 'quiet'; else start.className = '';
     notes.input.disabled = busy || !!running;
     if (legacy) legacy.input.disabled = busy || !!running;
