@@ -8,6 +8,23 @@ from backend.services import Services
 from tests.test_style import make, png, panel_orders
 
 
+def test_replace_opens_a_new_empty_bible(tmp_path, monkeypatch):
+    service, _ = make(tmp_path, monkeypatch)
+    run = asyncio.run
+    run(service.create_character("probe", "she/her", lora_name="fixture.safetensors"))
+    first = run(service.generate_character_bible("probe"))
+    retry = run(service.retry_panel("probe", "turn_front", count=1))
+    run(service.adopt_panel("probe", retry["job_id"], retry["candidates"][0]["seed"]))
+    assert (Path(first["panels_dir"]) / "turn_front.png").is_file()
+    second = run(service.generate_character_bible("probe", replace=True))
+    assert second["job_id"] != first["job_id"]
+    assert second["completed_panels"] == 0
+    assert not (Path(second["panels_dir"]) / "turn_front.png").is_file()
+    assert (Path(first["panels_dir"]) / "turn_front.png").is_file()
+    panels = run(service.list_bible_panels("probe", generated=True))
+    assert panels[0]["key"] == "turn_front" and panels[0]["adopted"] is False
+
+
 def test_bible_opens_without_a_one_sheet(tmp_path, monkeypatch):
     service, comfy = make(tmp_path, monkeypatch)
     asyncio.run(service.create_character("probe", "she/her", lora_name="fixture.safetensors"))
@@ -80,6 +97,7 @@ def test_ui_drops_one_sheet_and_picks_ten_per_panel():
     assert "['キャラクター', '画風', 'プレビュー', '設定画']" in flows
     assert "一枚シート" not in flows
     assert "このパネルを10枚出す" in flows
+    assert "設定画を全部作り直す" in flows
     assert "採用したパネルでLoRAを更新する" in flows
     assert "pending_sheet" not in main
     assert "この学習結果を使って設定画へ" in preview

@@ -33,7 +33,7 @@ export const API = {
   relearnPreview: (name, job, requestId) => api(`/api/characters/${encodeURIComponent(name)}/previews/${encodeURIComponent(job)}/relearn?${new URLSearchParams({request_id: requestId})}`, { method: 'POST' }),
   growLoraFromPreview: (name, job, requestId) => api(`/api/characters/${encodeURIComponent(name)}/previews/${encodeURIComponent(job)}/grow?${new URLSearchParams({request_id: requestId})}`, { method: 'POST' }),
   adoptPreview: (name, job) => api(`/api/characters/${encodeURIComponent(name)}/previews/${encodeURIComponent(job)}/adopt`, { method: 'POST' }),
-  bible: (name, seed = 1, intent_job_id = "", style = "") => api(`/api/bible?${new URLSearchParams({ name, seed, intent_job_id, style })}`, { method: "POST" }),
+  bible: (name, seed = 1, intent_job_id = "", style = "", replace = false) => api(`/api/bible?${new URLSearchParams({ name, seed, intent_job_id, style, ...(replace ? { replace: 'true' } : {}) })}`, { method: "POST" }),
   panels: (name = '', generated = false) => api(name ? `/api/panels?${new URLSearchParams({ name, generated })}` : '/api/panels'),
   sheetLayout: name => api(`/api/characters/${encodeURIComponent(name)}/layout`),
   saveLayout: (name, expected, panels) => api(`/api/characters/${encodeURIComponent(name)}/layout`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expected, panels }) }),

@@ -518,13 +518,14 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
 
     async def generate_character_bible(self, name: str, seed: int = 1, attr: str = "",
                                        style: str = "", turbo: bool = False,
-                                       intent_job_id: str = "") -> dict[str, Any]:
-        """設定画の台帳を用意する。各パネルは retry_panel で候補を出して採用する。"""
+                                       intent_job_id: str = "", replace: bool = False) -> dict[str, Any]:
+        """設定画の台帳を用意する。各パネルは retry_panel で候補を出して採用する。
+        ``replace`` なら既存の採用パネルを捨てて、新しい空の設定画にする。"""
         record = self._load_character(name)
         self._require_character_lora(record)
         intent = self._generation_intent(record, "character", "sheet", intent_job_id)
         chain, style_word, style = self._generation_loras(record, style, intent)
-        if record.get("bible"):
+        if record.get("bible") and not replace:
             existing = self.events.load_job(record["bible"]["job_id"]) or {
                 "job_id": record["bible"]["job_id"], "kind": "character_bible",
                 "status": "completed", "name": name, **record["bible"]}
@@ -616,7 +617,10 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
     async def list_bible_panels(self, name: str = "", generated: bool = False) -> list[dict]:
         """キャラクターの次回構成、または完成済みシートのパネルを返す。"""
         record = self._load_character(name) if name else {}
-        return [{**value, "tags": panel_from(value).tags} for value in layout_for(record, generated=generated)]
+        root = Path((record.get("bible") or {}).get("panels_dir") or "")
+        return [{**value, "tags": panel_from(value).tags,
+                 "adopted": (root / f"{value['key']}.png").is_file() if root.is_dir() else False}
+                for value in layout_for(record, generated=generated)]
 
     def _bible_source(self, record: dict[str, Any], panel: str):
         """設定画の構成と、対象パネルの仕様を返す。"""

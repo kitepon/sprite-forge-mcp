@@ -199,10 +199,20 @@ async function sheet(target, ctx, styled, cleanup) {
   const existing = h('div', { class: 'stack' }); const edit = h('div', { class: 'stack' });
   const showExisting = record => { if (record.bible?.sheet_path) existing.replaceChildren(h('h3', {}, 'いまの設定画'), picture(record.bible.sheet_path, `${name}の設定画`, { version: record.bible.at })); };
   showExisting(rec);
+  let refreshEditor;
+  const startFirst = () => refreshEditor?.startNext();
+  const restart = button('設定画を全部作り直す', e => action(e.currentTarget, async () => {
+    if (!await confirmAction('今の設定画パネルを捨てて、先頭から10枚ずつ作り直しますか？')) return;
+    await API.bible(name, 1, '', style, true);
+    const fresh = await API.character(name);
+    showExisting(fresh);
+    await refreshEditor?.(fresh);
+    startFirst();
+  }));
   const grow = button('採用したパネルでLoRAを更新する', e => action(e.currentTarget, () => runJob({ kind: 'lora_train', name }, 'パネルから追加学習', () => API.growLoraFromPanels(name))), 'quiet');
-  target.append(h('p', {}, 'パネルを選んで10枚出します。その中から採用し、全パネルについて繰り返します。採用済みも、また10枚出して差し替えられます。'),
-    grow, existing, edit);
-  const refreshEditor = await redraw(edit, name, rec, cleanup, showExisting, style);
+  target.append(h('p', {}, '「設定画を全部作り直す」で先頭パネルの10枚から始まります。1枚採用すると次のパネルの10枚が出ます。個別のパネルだけ差し替えることもできます。'),
+    h('div', { class: 'actions' }, restart, grow), existing, edit);
+  refreshEditor = await redraw(edit, name, rec, cleanup, showExisting, style);
   return async () => { await layout.save(); await refreshEditor?.save(); };
 }
 async function redraw(target, name, rec, cleanup, updated, style = '') {
@@ -231,6 +241,7 @@ async function redraw(target, name, rec, cleanup, updated, style = '') {
       const done = await API.adoptPanel(name, job.job_id, candidate.seed);
       notice(`${label}を候補で差し替えました。前の絵は履歴に残っています。`);
       const fresh = await API.character(name); if (!target.isConnected) return; await refresh(fresh); updated(fresh); showCandidates(done);
+      await startNext();
     });
     const now = current && rec.bible?.panels_dir ? h('figure', {}, picture(current, `${label}（採用中）`, { version: rec.bible?.at }), h('figcaption', {}, '採用中')) : null;
     candidates.replaceChildren(h('h3', {}, `${label} の候補`),
@@ -238,7 +249,17 @@ async function redraw(target, name, rec, cleanup, updated, style = '') {
       h('div', { class: 'result-grid' }, now,
         ...job.candidates.map((candidate, index) => { const adopted = job.adopted?.seed === candidate.seed; return h('figure', { class: adopted ? 'adopted' : '' }, picture(candidate.path, `${label} 候補 ${index + 1}`), h('figcaption', {}, `候補 ${index + 1}`, adopted ? h('span', { class: 'badge green' }, '採用中') : button('この一枚を採用', adopt(candidate), 'small-button'))); })));
   };
-  target.append(h('div', { class: 'stack' }, h('h3', {}, 'パネルを選んで10枚から採用する'), h('p', { class: 'muted' }, '項目を選んで押すと10枚描きます。採用済みのパネルも、もう一度10枚出して差し替えられます。'), picker, selectedTitle,
+  const startNext = async () => {
+    const list = await API.panels(name, true);
+    const next = list.find(panel => !panel.adopted);
+    if (!next) { notice('全パネルを採用しました。'); return; }
+    selected = list.find(p => p.key === next.key) || next; panels = list; paint();
+    await loadComment();
+    await panelEditor.save();
+    const job = await runJob({ kind: 'panel_retry', name }, 'パネルの候補', () => API.retryPanel(name, selected.key, 10, style));
+    if (job) showCandidates(job);
+  };
+  target.append(h('div', { class: 'stack' }, h('h3', {}, 'パネルを選んで10枚から採用する'), h('p', { class: 'muted' }, '全部作り直すと先頭から始まります。個別の項目を選んで10枚出すこともできます。'), picker, selectedTitle,
     taskPanel({ kind: 'panel_retry', name }, 'パネルの候補', 'このパネルを10枚出す', async () => { await panelEditor.save(); return API.retryPanel(name, selected.key, 10, style); }, cleanup, showCandidates, { hideCompletedImages: true }), candidates));
 target.append(h('details', { class: 'redraw-editor' }, h('summary', {}, icon('tool'), '注文を付けて描き直す'), h('div', { class: 'stack' }, h('p', { class: 'muted' }, '上で選んだ項目に、言葉で注文を付けて描き直します。「このパネルに残す」は生成が成功してから保存し、「今回だけ」は次回へ残しません。'), commentBox, field('注文の使い方', mode, '採用した注文を使う時は、詳細設定の英語欄は使いません。'), advanced(field('英語の自由入力', tags, '自由入力はパネルの内容全体を置き換えます。採用した条件とは併用できません。'), field('避けたいもの（英語）', avoid), field('Seed', seed)), taskPanel({ kind: 'redraw_panel', name }, 'パネルの描き直し', '選んだパネルを描き直す', async () => { await panelEditor.save(); const interpreted = mode.value === 'intent'; return API.redraw(name, selected.key, interpreted ? '' : tags.value, number(seed), interpreted ? '' : avoid.value, interpreted ? panelEditor.confirmedJob() : '', mode.value, style); }, cleanup, job => {
     // The old picture remains visible in the result for side-by-side comparison.
@@ -254,6 +275,7 @@ target.append(h('details', { class: 'redraw-editor' }, h('summary', {}, icon('to
     if (changedSheet) await loadComment();
   };
   refresh.save = () => panelEditor.save();
+  refresh.startNext = startNext;
   return refresh;
 }
 
