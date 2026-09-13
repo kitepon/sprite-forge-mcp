@@ -817,11 +817,19 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
             for key in job["layout_keys"]:
                 sub_id = job["panel_jobs"].get(key)
                 existing = self.events.load_job(sub_id) if sub_id else None
+                if not existing or existing.get("status") != "completed":
+                    found = next((item for item in self.events.list_jobs()
+                                  if item.get("kind") == "panel_retry" and item.get("name") == job["name"]
+                                  and item.get("panel") == key and item.get("source_bible") == job.get("bible_id")
+                                  and item.get("status") == "completed"), None)
+                    if found:
+                        job["panel_jobs"][key] = found["job_id"]
+                        existing = found
                 if existing and existing.get("status") == "completed":
                     job["completed_panels"] = sum(
                         1 for panel in job["layout_keys"]
-                        if (self.events.load_job(job["panel_jobs"][panel]) or {}).get("status") == "completed"
-                        if panel in job["panel_jobs"])
+                        if panel in job["panel_jobs"]
+                        and (self.events.load_job(job["panel_jobs"][panel]) or {}).get("status") == "completed")
                     job["progress"] = {"step": job["completed_panels"], "total": job["total_panels"]}
                     self.events.save_job(job)
                     continue

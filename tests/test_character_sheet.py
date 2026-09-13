@@ -25,6 +25,12 @@ def test_retry_all_panels_fills_every_panel_without_waiting(tmp_path, monkeypatc
         assert front["status"] == "completed" and len(front["candidates"]) == 1
         assert front["source_bible"] == opened["job_id"]
         assert len(panel_orders(comfy)) == 23
+        first = await service.retry_panel("probe", "turn_front", count=1)
+        again = await service.retry_all_panels("probe", count=1)
+        await service._retry_all_tasks[again["job_id"]]
+        resumed = service.events.load_job(again["job_id"])
+        assert resumed["status"] == "completed"
+        assert resumed["panel_jobs"]["turn_front"] == first["job_id"]
     asyncio.run(scenario())
 
 
