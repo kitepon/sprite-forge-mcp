@@ -120,6 +120,8 @@ def test_ui_drops_one_sheet_and_picks_ten_per_panel():
     assert "設定画を全部作り直す" in flows
     assert "retryAllPanels" in api
     assert "全パネルの10枚を止めずに出します" in flows
+    assert "'全部作り直す'" in flows
+    assert "hideImages: true" in flows
     assert "採用したパネルでLoRAを更新する" in flows
     assert "pending_sheet" not in main
     assert "この学習結果を使って設定画へ" in preview

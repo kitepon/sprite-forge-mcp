@@ -2,7 +2,7 @@ import { API } from './api.js';
 import { layoutEditor } from './layout.js';
 import { state } from './state.js';
 import { h, icon, field, button, link, picture, empty, notice, action, pageHead, errorState, confirmAction } from './ui.js';
-import { taskPanel, runJob, jobs, subscribe } from './jobs.js';
+import { taskPanel, runJob, jobs, subscribe, jobView, operations, operationKey } from './jobs.js';
 import { draft, saveDraft, clearDraft, pendingFiles } from './drafts.js';
 import { commentEditor, referenceNotes, flushCaptions, saveCaption } from './intent.js';
 import { learning } from './learning.js';
@@ -200,17 +200,30 @@ async function sheet(target, ctx, styled, cleanup) {
   const showExisting = record => { if (record.bible?.sheet_path) existing.replaceChildren(h('h3', {}, 'いまの設定画'), picture(record.bible.sheet_path, `${name}の設定画`, { version: record.bible.at })); };
   showExisting(rec);
   let refreshEditor;
+  const remakeSpec = { kind: 'panel_retry_all', name };
+  const remakeView = h('div');
+  const live = jobs.find(j => j.kind === 'panel_retry_all' && j.name === name && !['completed', 'failed', 'error'].includes(j.status));
+  if (live && !operations.get(operationKey(remakeSpec))) {
+    operations.set(operationKey(remakeSpec), { spec: remakeSpec, title: '全パネルの候補', job: live, requesting: false, error: '' });
+  }
+  cleanup.push(subscribe(() => {
+    const op = operations.get(operationKey(remakeSpec));
+    remakeView.replaceChildren(op?.job ? jobView(op.job, { ...op, title: '全パネルの候補', hideImages: true }) : []);
+    if (op?.job) refreshEditor?.showPanelJob();
+  }));
   const restart = button('設定画を全部作り直す', e => action(e.currentTarget, async () => {
-    if (!await confirmAction('今の設定画を捨てて、全パネルの10枚を止めずに出しますか？')) return;
-    const job = await runJob({ kind: 'panel_retry_all', name }, '全パネルの候補', () => API.retryAllPanels(name, 10, style, true));
+    if (!await confirmAction('今の設定画を捨てて、全パネルの10枚を止めずに出しますか？',
+                             '採用済みのパネルは捨てます。出た10枚から選び直します。', '全部作り直す')) return;
+    const job = await runJob(remakeSpec, '全パネルの候補', () => API.retryAllPanels(name, 10, style, true));
     const fresh = await API.character(name);
     showExisting(fresh);
     await refreshEditor?.(fresh);
     if (job) refreshEditor?.showPanelJob();
   }));
   const grow = button('採用したパネルでLoRAを更新する', e => action(e.currentTarget, () => runJob({ kind: 'lora_train', name }, 'パネルから追加学習', () => API.growLoraFromPanels(name))), 'quiet');
-  target.append(h('p', {}, '「設定画を全部作り直す」で全パネルの10枚を止めずに出します。出ている候補から採用できます。個別のパネルだけ出し直すこともできます。'),
-    h('div', { class: 'actions' }, restart, grow), existing, edit);
+  target.append(h('p', {}, '「設定画を全部作り直す」で全パネルの10枚を止めずに出します。出ている候補から採用できます。個別のパネルだけ差し替えることもできます。'),
+    h('div', { class: 'actions' }, restart, grow), remakeView, existing, edit);
+
   refreshEditor = await redraw(edit, name, rec, cleanup, showExisting, style);
   return async () => { await layout.save(); await refreshEditor?.save(); };
 }
@@ -226,7 +239,7 @@ async function redraw(target, name, rec, cleanup, updated, style = '') {
     saveDraft(`${key}:panel`, selected.key); const override = rec.panel_overrides?.[selected.key] || {};
     selectedTitle.textContent = `${selected.section} · ${selected.label}`; tags.value = draft(`${key}:${selected.key}:tags`, override.tags || ''); tags.placeholder = selected.tags; avoid.value = draft(`${key}:${selected.key}:avoid`, override.avoid || '');
     picker.replaceChildren(...panels.map(panel => {
-      const path = rec.bible?.panels_dir ? `${rec.bible.panels_dir}/${panel.key}.png` : '';
+      const path = panel.adopted && rec.bible?.panels_dir ? `${rec.bible.panels_dir}/${panel.key}.png` : '';
       const tile = button([path ? picture(path, panel.label, { plain: true, version: rec.bible?.at }) : icon('image'), h('span', {}, panel.label)], e => action(e.currentTarget, async () => { if (changing) return; changing = true; try { await panelEditor.save(); selected = panel; paint(); await loadComment(); showPanelJob(); } finally { changing = false; paint(); } }), `panel-tile ${selected.key === panel.key ? 'selected' : ''}`); tile.disabled = changing; tile.setAttribute('aria-pressed', String(selected.key === panel.key)); return tile;
     }));
   }; paint();
@@ -263,7 +276,7 @@ target.append(h('details', { class: 'redraw-editor' }, h('summary', {}, icon('to
   const refresh = async fresh => {
     const changedSheet = rec.bible?.job_id !== fresh.bible?.job_id;
     rec = fresh;
-    if (fresh.bible?.layout) panels = fresh.bible.layout.map(p => ({ ...p, tags: p.parts.map(part => part.description_en).filter(Boolean).join(', ') }));
+    panels = await API.panels(name, true);
     selected = panels.find(p => p.key === selected.key) || panels[0];
     paint();
     if (changedSheet) await loadComment();
