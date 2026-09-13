@@ -77,23 +77,41 @@ def sam3_mask(image_name: str, prompt: str = "character", points: str | None = N
     return {"1":{"class_type":"CheckpointLoaderSimple","inputs":{"ckpt_name":"sam3.1_multiplex_fp16.safetensors"}},"2":{"class_type":"CLIPTextEncode","inputs":{"text":prompt,"clip":["1",1]}},"3":{"class_type":"LoadImage","inputs":{"image":image_name}},"4":{"class_type":"SAM3_Detect","inputs":detect},"5":{"class_type":"MaskToImage","inputs":{"mask":["4",0]}},"6":{"class_type":"SaveImage","inputs":{"images":["5",0],"filename_prefix":"sprite-forge/sam3-mask"}}}
 
 
-def anima_refine(image_name: str, prompt: str, seed: int, *, lora_name: str, lora_strength: float = .8,
-                 denoise: float = .45, steps: int = 28, cfg: float = 4.0) -> Graph:
+def anima_refine(image_name: str, prompt: str, seed: int, *, lora_name: str | None = None,
+                 lora_strength: float = .8, loras: list[tuple[str, float]] | None = None,
+                 denoise: float = .45, steps: int | None = None, cfg: float | None = None,
+                 negative: str = "", width: int | None = None, height: int | None = None,
+                 turbo: bool = False, filename_prefix: str = "sprite-forge/anima-refine") -> Graph:
     """Redraw an existing picture with Anima Base + a character/style LoRA (img2img).
     The picture supplies the composition; the LoRA supplies the character and the look."""
-    return {
-        "1": {"class_type":"UNETLoader","inputs":{"unet_name":"anima-base-v1.0.safetensors","weight_dtype":"default"}},
+    graph: Graph = {
+        "1": {"class_type":"UNETLoader","inputs":{"unet_name":"anima-turbo-v1.1.safetensors" if turbo else "anima-base-v1.0.safetensors","weight_dtype":"default"}},
         "2": {"class_type":"CLIPLoader","inputs":{"clip_name":"qwen_3_06b_base.safetensors","type":"qwen_image"}},
         "3": {"class_type":"VAELoader","inputs":{"vae_name":"qwen_image_vae.safetensors"}},
-        "4": {"class_type":"LoraLoader","inputs":{"model":["1",0],"clip":["2",0],"lora_name":lora_name,"strength_model":lora_strength,"strength_clip":lora_strength}},
-        "10":{"class_type":"LoadImage","inputs":{"image":image_name}},
-        "11":{"class_type":"VAEEncode","inputs":{"pixels":["10",0],"vae":["3",0]}},
-        "20":{"class_type":"CLIPTextEncode","inputs":{"text":prompt,"clip":["4",1]}},
-        "21":{"class_type":"CLIPTextEncode","inputs":{"text":"","clip":["4",1]}},
-        "23":{"class_type":"KSampler","inputs":{"model":["4",0],"seed":seed,"steps":steps,"cfg":cfg,"sampler_name":"euler","scheduler":"simple","positive":["20",0],"negative":["21",0],"latent_image":["11",0],"denoise":denoise}},
-        "24":{"class_type":"VAEDecode","inputs":{"samples":["23",0],"vae":["3",0]}},
-        "25":{"class_type":"SaveImage","inputs":{"images":["24",0],"filename_prefix":"sprite-forge/anima-refine"}},
     }
+    model, clip = ["1", 0], ["2", 0]
+    chain = ([(lora_name, lora_strength)] if lora_name else []) + list(loras or [])
+    for index, (name, strength) in enumerate(chain):
+        node = "4" if index == 0 else str(39 + index)
+        graph[node]={"class_type":"LoraLoader","inputs":{"model":model,"clip":clip,"lora_name":name,"strength_model":strength,"strength_clip":strength}}
+        model, clip = [node,0], [node,1]
+    pixels: list = ["10", 0]
+    graph["10"] = {"class_type":"LoadImage","inputs":{"image":image_name}}
+    if width and height:
+        graph["9"] = {"class_type":"ImageScale","inputs":{"image":pixels,"upscale_method":"lanczos","width":width,"height":height,"crop":"disabled"}}
+        pixels = ["9", 0]
+    graph.update({
+        "11":{"class_type":"VAEEncode","inputs":{"pixels":pixels,"vae":["3",0]}},
+        "20":{"class_type":"CLIPTextEncode","inputs":{"text":prompt,"clip":clip}},
+        "21":{"class_type":"CLIPTextEncode","inputs":{"text":negative,"clip":clip}},
+        "23":{"class_type":"KSampler","inputs":{"model":model,"seed":seed,"steps":4 if turbo else (28 if steps is None else steps),
+                                               "cfg":1.0 if turbo else (4.0 if cfg is None else cfg),
+                                               "sampler_name":"euler","scheduler":"simple","positive":["20",0],"negative":["21",0],
+                                               "latent_image":["11",0],"denoise":denoise}},
+        "24":{"class_type":"VAEDecode","inputs":{"samples":["23",0],"vae":["3",0]}},
+        "25":{"class_type":"SaveImage","inputs":{"images":["24",0],"filename_prefix":filename_prefix}},
+    })
+    return graph
 
 
 def anima_base(prompt: str, seed: int, width: int = 1024, height: int = 1024) -> Graph:

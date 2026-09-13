@@ -1,9 +1,9 @@
-"""Character bible (model sheet), drawn from the approved reference sheet.
+"""Character bible (model sheet), generated from the approved reference sheet and the character LoRA.
 
 The owner brings pictures of a character, a LoRA is trained on them, and one sheet is drawn and
-approved. Every panel of the bible is then drawn by the edit model from that approved sheet alone.
-One panel shows one character. Content (view, expression, outfit, chibi, item) comes from the panel
-and the owner's order; LoRA and the preview generation text are not passed.
+approved. Every panel is generated — sheet pixels are never pasted into a panel. The matching
+figure or its pose from the sheet is the base; the LoRA keeps identity. Clothing pixels are not
+passed when the panel changes outfit.
 """
 from __future__ import annotations
 
@@ -20,6 +20,9 @@ from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 QUALITY_NEGATIVE = "lowres, bad anatomy, bad hands, text, watermark"
 SINGLE_VIEW_NEGATIVE = "multiple views, reference sheet, collage, multiple people, extra characters"
+ACTION_POSE_MARKERS = ("dynamic pose", "running", "jumping", "casting", "action")
+FACE_DENOISE = 0.55
+FIGURE_DENOISE = 0.4
 
 
 class Panel(NamedTuple):
@@ -215,6 +218,29 @@ def reference_key(panel: Panel) -> str:
     if panel.key == "turn_34":
         return "three_quarter"
     return "front"
+
+
+def draw_mode(panel: Panel) -> str:
+    """合格シートと LoRA から、このパネルをどう生成するか。
+
+    img2img: 同じ服のまま、顔や向きの絵を初期画像にする。
+    pose: 服の画素は渡さず、骨格だけ取る（別衣装・素体）。
+    txt2img: シートにない姿勢や縮尺なので LoRA だけで描く（アクション・ちび・小物）。
+    """
+    if panel.kind == "face":
+        return "img2img"
+    if panel.kind in ("chibi", "item"):
+        return "txt2img"
+    if any(feature == "outfit" for feature, _ in panel.parts):
+        return "pose"
+    pose = " ".join(text for feature, text in panel.parts if feature == "pose")
+    if any(marker in pose for marker in ACTION_POSE_MARKERS):
+        return "txt2img"
+    return "img2img"
+
+
+def img2img_denoise(panel: Panel) -> float:
+    return FACE_DENOISE if panel.kind == "face" else FIGURE_DENOISE
 
 
 def palette(rgb: Image.Image, k: int = 7) -> list[tuple[int, int, int]]:

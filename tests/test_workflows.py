@@ -38,6 +38,12 @@ def test_anima_refine_is_img2img_with_lora():
     assert graph["23"]["inputs"]["latent_image"] == ["11", 0] and graph["23"]["inputs"]["denoise"] == 0.4
     assert graph["11"]["inputs"]["pixels"] == ["10", 0] and graph["4"]["inputs"]["lora_name"] == "bell.safetensors"
     assert graph["20"]["inputs"]["clip"] == ["4", 1] and graph["23"]["inputs"]["model"] == ["4", 0]
+    sized = workflows.anima_refine("face.png", "smile", 1, loras=[("char.safetensors", 0.8), ("style.safetensors", 0.6)],
+                                   negative="lowres", width=1024, height=1024, denoise=0.55,
+                                   filename_prefix="sprite-forge/bible")
+    assert sized["9"]["inputs"]["width"] == 1024 and sized["11"]["inputs"]["pixels"] == ["9", 0]
+    assert sized["21"]["inputs"]["text"] == "lowres" and sized["40"]["inputs"]["lora_name"] == "style.safetensors"
+    assert sized["23"]["inputs"]["denoise"] == 0.55 and sized["25"]["inputs"]["filename_prefix"] == "sprite-forge/bible"
 
 
 def test_anima_txt2img_stacks_loras_in_order():

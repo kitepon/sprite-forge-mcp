@@ -57,8 +57,9 @@ def test_completed_panels_and_previews_are_visible_before_entire_job_finishes(tm
     snapshots.clear()
     approve_sheet(service, "Bell")
     run(service.generate_character_bible("Bell"))
-    assert snapshots[1]["completed_panels"] == 1 and snapshots[1]["total_panels"] == 23
-    assert len(snapshots[1]["panels"]) == 1 and Path(snapshots[1]["panels"][0]).is_file()
+    progress = [snap for snap in snapshots if snap and snap.get("panels")]
+    assert progress[0]["completed_panels"] == 1 and progress[0]["total_panels"] == 23
+    assert len(progress[0]["panels"]) == 1 and Path(progress[0]["panels"][0]).is_file()
     assert snapshots[-1]["completed_panels"] == 22
 
 

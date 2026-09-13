@@ -583,10 +583,47 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
             prompt, seed, turbo=turbo, loras=loras, negative=negative,
             width=width, height=height, filename_prefix="sprite-forge/bible")
 
+    async def _sheet_references(self, approved: Path, dest: Path, job_id: str = "sheet-refs") -> dict[str, str]:
+        """合格シートから向きごとの一体を切り、Comfy へ載せる。切り貼りではなく生成の初期画像／骨格用。"""
+        dest.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.sha256(approved.read_bytes()).hexdigest()
+        stamp = dest / "source.sha256"
+        keys = ("front", "side", "three_quarter", "back", "head")
+        cached = stamp.is_file() and stamp.read_text() == digest and all((dest / f"{key}.png").is_file() for key in keys)
+        if not cached:
+            uploaded = await self.comfy.upload(approved.read_bytes(), "approved-sheet.png")
+            prompt_id = await self.comfy.submit(workflows.sam3_mask(uploaded, "character", individual=True), job_id)
+            masks = [await self._view(image) for image in self._images(await self._history_until_done(prompt_id))]
+            views = bible.pose_views(bible.figure_masks(masks))
+            figures = {key: bible.figure_on_white(approved, mask) for key, mask in views.items()}
+            figures["head"] = bible.head_crop(figures["front"])
+            for key, image in figures.items():
+                (dest / f"{key}.png").write_bytes(bible._png(image))
+            stamp.write_text(digest)
+        return {key: await self.comfy.upload((dest / f"{key}.png").read_bytes(), f"sheet-ref-{key}.png") for key in keys}
+
+    def _bible_graph(self, spec, request: dict[str, Any], refs: dict[str, str],
+                     loras: list[tuple[str, float]], turbo: bool = False):
+        prompt, negative, seed = request["prompt"], request["negative"], request["seed"]
+        width, height = bible.size(spec)
+        mode = bible.draw_mode(spec)
+        if mode == "img2img":
+            return workflows.anima_refine(
+                refs[bible.reference_key(spec)], prompt, seed, loras=loras, negative=negative,
+                denoise=bible.img2img_denoise(spec), width=width, height=height, turbo=turbo,
+                filename_prefix="sprite-forge/bible")
+        pose_image = None
+        if mode == "pose":
+            key = bible.reference_key(spec)
+            pose_image = refs["front" if key == "head" else key]
+        return workflows.anima_txt2img(
+            prompt, seed, turbo=turbo, loras=loras, negative=negative, pose_image=pose_image,
+            width=width, height=height, filename_prefix="sprite-forge/bible")
+
     async def generate_character_bible(self, name: str, seed: int = 1, attr: str = "",
                                        style: str = "", turbo: bool = False,
                                        intent_job_id: str = "") -> dict[str, Any]:
-        """LoRA とプレビュー生成文とパネル指令で設定画を描く。指令には1人だけを入れる。"""
+        """LoRA と合格シートとパネル指令で設定画を描く。指令には1人だけを入れる。切り貼りしない。"""
         record = self._load_character(name)
         approved = self._approved_sheet(record)
         self._require_character_lora(record)
@@ -603,6 +640,8 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
                     for index, panel in enumerate(specs)]
         for panel, request in zip(specs, requests):
             request["prompt"] = self._bible_prompt(record, panel, request, style_word)
+            request["draw_mode"] = bible.draw_mode(panel)
+            request["reference"] = bible.reference_key(panel) if request["draw_mode"] != "txt2img" else ""
         job_id = str(uuid.uuid4())
         key = record["key"]
         bible_root = self._character_dir(name) / "bible" / job_id
@@ -616,13 +655,15 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         self._record_call("generate_character_bible", job_id, {"name": name, "seed": seed, "source": str(approved)})
         self.events.append(job_id, "queued", {"name": name})
         try:
+            refs = await self._sheet_references(approved, self._character_dir(name) / "sheet_refs", job_id)
+            job["references"] = refs
             panels: list[tuple[str, Path]] = []
             for index, panel in enumerate(specs):
                 job.update(status="generating panels", panel=panel.key, completed_panels=index)
                 self.events.save_job(job)
                 request = requests[index]
-                content, elapsed = await self._run_edit(job_id, self._anima_panel(
-                    request["prompt"], request["seed"], request["negative"], bible.size(panel), chain, turbo))
+                content, elapsed = await self._run_edit(job_id, self._bible_graph(
+                    panel, request, refs, chain, turbo))
                 panel_path = panel_root / f"{panel.key}.png"
                 panel_path.parent.mkdir(parents=True, exist_ok=True)
                 panel_path.write_bytes(bible.crop_nonwhite(content))
@@ -779,8 +820,10 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         self.events.save_job(job); self._record_call("redraw_panel", job_id, {"name": name, "panel": panel, "seed": seed})
         self.events.append(job_id, "queued", {"prompt": prompt})
         with self._job_errors(job):
-            content, elapsed = await self._run_edit(job_id, self._anima_panel(
-                prompt, seed, negative, bible.size(spec), chain, turbo))
+            refs = await self._sheet_references(Path(info["source"]), self._character_dir(name) / "sheet_refs", job_id)
+            request["seed"] = seed
+            content, elapsed = await self._run_edit(job_id, self._bible_graph(
+                spec, request, refs, chain, turbo))
             source_bible_id = record["bible"]["job_id"]
             record = self._load_character(name)
             applicable = panel in matching_keys(layout, layout_for(record))
@@ -848,12 +891,14 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         self.events.save_job(job); self._record_call("retry_panel", job_id, {"name": name, "panel": panel, "count": count})
         self.events.append(job_id, "queued", {"prompt": request["prompt"], "seeds": seeds})
         with self._job_errors(job):
+            refs = await self._sheet_references(Path(info["source"]), self._character_dir(name) / "sheet_refs", job_id)
             root = Path(info["panels_dir"]) / "candidates"
             root.mkdir(parents=True, exist_ok=True)
             candidates: list[dict[str, Any]] = []
             for index, seed in enumerate(seeds):
-                content, elapsed = await self._run_edit(job_id, self._anima_panel(
-                    request["prompt"], seed, request["negative"], bible.size(spec), chain, turbo))
+                request["seed"] = seed
+                content, elapsed = await self._run_edit(job_id, self._bible_graph(
+                    spec, request, refs, chain, turbo))
                 path = root / f"{panel}-{job_id[:8]}-{index}.png"
                 path.write_bytes(bible.crop_nonwhite(content))
                 candidates.append({"seed": seed, "path": str(path), "elapsed_s": elapsed})

@@ -109,8 +109,9 @@ def test_three_stages_each_stop_for_correction(tmp_path, monkeypatch):
     first = panels[0]
     assert "only one character" in job["panel_requests"][0]["prompt"]
     assert first["20"]["inputs"]["text"] == job["panel_requests"][0]["prompt"]
-    assert first["21"]["inputs"]["text"] == job["panel_requests"][0]["negative"] and first["22"]["inputs"]["width"] == 832
-    assert first["4"]["class_type"] == "LoraLoader" and "6" not in first
+    assert first["21"]["inputs"]["text"] == job["panel_requests"][0]["negative"] and first["9"]["inputs"]["width"] == 832
+    assert first["4"]["class_type"] == "LoraLoader" and "8" not in first
+    assert first["10"]["class_type"] == "LoadImage" and first["23"]["inputs"]["denoise"] < 1
     assert first["25"]["inputs"]["filename_prefix"] == "sprite-forge/bible"
     assert "multiple people" in first["21"]["inputs"]["text"]
     assert Image.open(job["sheet_path"]).width == 2040 and "APPROVED REFERENCE SHEET" in open(job["html_path"], encoding="utf-8").read()
@@ -153,6 +154,15 @@ def test_panel_prompts_carry_content_only_and_the_subject_comes_from_the_descrip
     assert bible.reference_key(next(p for p in PANELS if p.key == "turn_side")) == "side"
     assert bible.reference_key(next(p for p in PANELS if p.key == "turn_back")) == "back"
     assert bible.reference_key(next(p for p in PANELS if p.kind == "face")) == "head"
+    by_key = {p.key: p for p in PANELS}
+    assert bible.draw_mode(by_key["ex_smile"]) == "img2img" and bible.draw_mode(by_key["turn_front"]) == "img2img"
+    assert bible.draw_mode(by_key["cos_casual"]) == "pose" and bible.draw_mode(by_key["body_front"]) == "pose"
+    assert bible.draw_mode(by_key["act_run"]) == "txt2img" and bible.draw_mode(by_key["chibi_big"]) == "txt2img"
+    assert bible.draw_mode(by_key["item_head"]) == "txt2img"
+    swim = bible.Panel("cos_swim", "ALTERNATE COSTUMES", "SWIM", "full",
+                      (("composition", "full body"), ("pose", "standing, front view"),
+                       ("outfit", "bikini swimsuit, two-piece swimwear")))
+    assert bible.draw_mode(swim) == "pose" and bible.reference_key(swim) == "front"
 
 
 def test_sheet_keeps_left_full_body_even_when_a_side_view_is_taller():
@@ -174,6 +184,27 @@ def test_sheet_keeps_left_full_body_even_when_a_side_view_is_taller():
     assert views["side"].getpixel((0, 0)) == (0, 255, 0)
     assert views["three_quarter"].getpixel((0, 0)) == (0, 0, 255)
     assert views["back"].getpixel((0, 0)) == (255, 255, 0)
+
+
+def test_bible_graphs_keep_face_pixels_and_drop_outfit_pixels(tmp_path, monkeypatch):
+    service, comfy = make(tmp_path, monkeypatch)
+    run = asyncio.run
+    run(service.create_character("Bell", "she/her", lora_name="bell.safetensors"))
+    approve_sheet(service, "Bell")
+    job = run(service.generate_character_bible("Bell"))
+    graphs = {request["panel"]: graph for request, graph in zip(job["panel_requests"], panel_orders(comfy))}
+    assert job["panel_requests"][0]["draw_mode"] == "img2img"
+    smile, casual, run_p, item = graphs["ex_smile"], graphs["cos_casual"], graphs["act_run"], graphs["item_head"]
+    assert smile["10"]["class_type"] == "LoadImage" and smile["23"]["inputs"]["denoise"] == bible.FACE_DENOISE
+    assert "8" not in smile and smile["9"]["inputs"]["width"] == 1024
+    assert casual["8"]["class_type"] == "AnimaControlApply" and casual["23"]["inputs"]["denoise"] == 1.0
+    assert casual["23"]["inputs"]["latent_image"] == ["22", 0]
+    assert "8" not in run_p and "10" not in run_p and run_p["23"]["inputs"]["denoise"] == 1.0
+    assert "8" not in item and "10" not in item
+    refs = service._character_dir("Bell") / "sheet_refs"
+    assert (refs / "head.png").is_file() and (refs / "front.png").is_file()
+    second = run(service.generate_character_bible("Bell", seed=2))
+    assert second["panel_requests"][0]["draw_mode"] == "img2img"
 
 
 def test_japanese_names_get_an_ascii_key_and_still_work(tmp_path, monkeypatch):

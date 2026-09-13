@@ -268,7 +268,7 @@ def test_redraw_temporary_changes_do_not_replace_saved_panel_condition(tmp_path,
         assert first["intent_job_id"] == intent["job_id"]
         with pytest.raises(ValueError, match="英語"):
             await service.redraw_panel("probe", "turn_front", "green coat", intent_job_id=temp["job_id"])
-        assert len(comfy.submitted) == 2
+        assert len(panel_orders(comfy)) == 2
     asyncio.run(scenario())
 
 
