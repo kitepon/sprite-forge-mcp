@@ -134,7 +134,7 @@ export async function commentEditor(target, { name, kind, stage, panel = '', int
         output.append(h('article', {class:'intent-change stack'}, h('div', {class:'section-heading'}, h('strong', {}, '画風'), scope),
           ...source, h('p', {}, change.reason_ja),
           ...(kind === 'character' && stage !== 'panel' ? [field('他の画風を使いたい場合はこちらから選択', selected, '登録済みの画風を追加できます。一つのシートの画風は統一します。')] : []),
-          ...(stage === 'panel' ? [h('p', {class:'muted small'}, '部分描き直しは合格した一枚シートの姿から描くため、画風は変えられません。画風を変える時は、一枚シートから作り直してください。')] : []),
+          ...(stage === 'panel' ? [h('p', {class:'muted small'}, '部分描き直しでは画風は変えられません。画風を変える時は、画風を選んでパネルを出し直してください。')] : []),
           ...(kind === 'style' ? [h('p', {class:'muted small'}, 'この画風自体を変える希望は、素材と学習の工程で確認してください。')] : []),
           h('label', { class: 'intent-defer' }, defer, h('span', {}, '今回は画風の希望を反映しない')),
           h('p', {class:'muted small'}, stage === 'panel'

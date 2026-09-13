@@ -146,20 +146,13 @@ def test_adopted_lora_is_used_by_setting_sheet_and_old_version_can_be_restored(t
         assert adopted['lora_name'] == 'new.safetensors' and adopted['character_strength'] == .65
         assert await service.adopt_preview_lora('probe', new['job_id']) == adopted
         comfy.submitted.clear()
-        one = await service.generate_character_sheet('probe')
-        assert 'twin tails' in one['prompt'] and 'character design sheet' in one['prompt']
-        assert 'skirt' not in one['prompt'] and 'cropped top' not in one['prompt']
-        approve_sheet(service, 'probe')
-        comfy.submitted.clear()
-        sheet = await service.generate_character_bible('probe')
-        panels = panel_orders(comfy)
-        assert len(panels) == sheet['total_panels']
-        assert all(graph['4']['inputs']['lora_name'] == 'new.safetensors' for graph in panels)
-        assert [graph['20']['inputs']['text'] for graph in panels] == [
-            request['prompt'] for request in sheet['panel_requests']
-        ]
-        assert all('twin tails' in request['prompt'] for request in sheet['panel_requests'])
-        assert 'only one character' in sheet['panel_requests'][0]['prompt']
+        await service.generate_character_bible('probe')
+        retry = await service.retry_panel('probe', 'turn_front', count=1)
+        graph = panel_orders(comfy)[-1]
+        assert graph['4']['inputs']['lora_name'] == 'new.safetensors'
+        assert graph['20']['inputs']['text'] == retry['prompt']
+        assert 'twin tails' in retry['prompt']
+        assert 'only one character' in retry['prompt']
         restored = await service.adopt_preview_lora('probe', old['job_id'])
         assert restored['lora_name'] == 'old.safetensors'
         assert restored['lora_history'][-1]['lora_name'] == 'new.safetensors'

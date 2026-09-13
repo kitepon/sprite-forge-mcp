@@ -143,7 +143,7 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
       () => API.growLoraFromPreview(name, selected, requestId), prior || null);
     await refresh();
   }));
-  const adopt = button('この学習結果を使って一枚シートへ', e => action(e.currentTarget, async () => {
+  const adopt = button('この学習結果を使って設定画へ', e => action(e.currentTarget, async () => {
     await flush(); const record = await API.adoptPreview(name, selected);
     adopted = record.adopted_preview_job_id; setReady(true, ''); await next();
   }));
@@ -170,7 +170,7 @@ export async function previewGallery(target, name, style, cleanup, setReady, nex
           : ok ? `OK ${ok}枚を教材に足してLoRAを更新します。` : '望む絵にOKを付けてから、教材に足してください。');
     const current = jobs.find(j => j.job_id === selected);
     adopt.disabled = !selected || current?.status !== 'completed' || running;
-    setReady(selected === adopted, selected === adopted ? '' : '画像を確認し、「この学習結果を使って一枚シートへ」を押してください。');
+    setReady(selected === adopted, selected === adopted ? '' : '画像を確認し、「この学習結果を使って設定画へ」を押してください。');
   }
   function pick(id) {
     if (selected === id) return;

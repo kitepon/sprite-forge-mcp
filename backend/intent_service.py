@@ -234,8 +234,8 @@ class IntentServices:
         styles = [c for c in proposal.changes if c.feature == "style" and not c.style_deferred and not learning]
         for change in styles:
             if job["stage"] == "panel":
-                raise ValueError("部分描き直しは合格した一枚シートの姿から描くため、画風は変えられません。"
-                                 "画風を変える時は、一枚シートから作り直してください。"
+                raise ValueError("部分描き直しでは画風は変えられません。"
+                                 "画風を変える時は、画風を選んでパネルを出し直してください。"
                                  "この注文を使わずに進める場合は「今回は画風の希望を反映しない」を選んでください。")
             if change.style_name is None:
                 raise ValueError("画風の希望はまだ反映できません。使う画風を選ぶか、確認画面で「今回は画風の希望を反映しない」を選んでください。")

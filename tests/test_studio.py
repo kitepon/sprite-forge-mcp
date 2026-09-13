@@ -55,12 +55,12 @@ def test_completed_panels_and_previews_are_visible_before_entire_job_finishes(tm
     assert snapshots[1]["status"] == "running" and len(snapshots[1]["pictures"]) == 1
     assert Path(snapshots[1]["pictures"][0]["path"]).is_file()
     snapshots.clear()
-    approve_sheet(service, "Bell")
     run(service.generate_character_bible("Bell"))
-    progress = [snap for snap in snapshots if snap and snap.get("panels")]
-    assert progress[0]["completed_panels"] == 1 and progress[0]["total_panels"] == 23
-    assert len(progress[0]["panels"]) == 1 and Path(progress[0]["panels"][0]).is_file()
-    assert snapshots[-1]["completed_panels"] == 22
+    snapshots.clear()
+    retry = run(service.retry_panel("Bell", "turn_front", count=3))
+    progress = [snap for snap in snapshots if snap and snap.get("candidates")]
+    assert progress[0]["candidates"] and Path(progress[0]["candidates"][0]["path"]).is_file()
+    assert len(retry["candidates"]) == 3
 
 
 @pytest.mark.parametrize("failure", ["copy", "stream"])

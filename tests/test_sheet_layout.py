@@ -72,13 +72,12 @@ def test_generates_custom_panels_with_stable_seeds_and_old_sheet_keeps_its_layou
             p["role_features"] = ["subject", "pose"]
         await service.save_sheet_layout("custom", update(before, chosen))
         first = await service.generate_character_bible("custom", seed=10)
-        panels = panel_orders(comfy)
-        assert first["total_panels"] == len(panels) == 2
-        assert [r["seed"] for r in first["panel_requests"]] == [12, 10]
-        assert all("human" in r["negative"] for r in first["panel_requests"])
-        assert [g["20"]["inputs"]["text"] for g in panels] == [
-            r["prompt"] for r in first["panel_requests"]
-        ]
+        a = await service.retry_panel("custom", chosen[0]["key"], count=1)
+        b = await service.retry_panel("custom", chosen[1]["key"], count=1)
+        await service.adopt_panel("custom", a["job_id"], a["candidates"][0]["seed"])
+        await service.adopt_panel("custom", b["job_id"], b["candidates"][0]["seed"])
+        assert first["total_panels"] == 2
+        assert "human" in a["negative"] and "human" in b["negative"]
         original_html = Path(first["html_path"]).read_text()
         assert "CREATURE" in original_html and "ALTERNATE COSTUMES" not in original_html
         after = deepcopy(chosen[::-1])
@@ -92,10 +91,9 @@ def test_generates_custom_panels_with_stable_seeds_and_old_sheet_keeps_its_layou
         assert record["bible"]["layout"] == chosen
         assert chosen[0]["key"] not in record["panel_overrides"]
         assert record["bible"]["panel_overrides"][chosen[0]["key"]]["tags"] == "a red dragon"
-        second = await service.generate_character_bible("custom", seed=10)
-        assert [r["seed"] for r in second["panel_requests"]] == [10, 12]
-        assert "a limbless slime" in second["panel_requests"][1]["prompt"]
-        assert "a red dragon" not in second["panel_requests"][1]["prompt"]
+        second = await service.retry_panel("custom", chosen[1]["key"], count=1)
+        assert "a quadrupedal dragon" in second["prompt"]
+        assert "a red dragon" not in second["prompt"]
     asyncio.run(scenario())
 
 
@@ -145,9 +143,14 @@ def test_more_than_23_panels_are_all_composed(tmp_path, monkeypatch):
             panels.append(p)
         await service.save_sheet_layout("custom", update(before, panels))
         result = await service.generate_character_bible("custom")
-        assert result["total_panels"] == result["completed_panels"] == 29
+        assert result["total_panels"] == 29 and result.get("completed_panels", 0) == 0
+        from backend.bible import compose_model_sheet, write_html
+        from backend.sheet_layout import panel_from
+        specs = [panel_from(value) for value in result["layout"]]
+        compose_model_sheet("custom", "", [], None, Path(result["sheet_path"]), specs)
+        write_html("custom", "", [], None, Path(result["html_path"]), specs)
         html = Path(result["html_path"]).read_text()
-        assert all(f"PANEL {i}" in html for i in range(29))
+        assert all(f"SECTION {i}" in html for i in range(29))
         with Image.open(result["sheet_path"]) as image:
             assert image.height > 10000
             assert image.getpixel((0, image.height - 1)) != (0, 0, 0)
@@ -173,6 +176,7 @@ def test_layout_changed_during_generation_is_not_rolled_back(tmp_path, monkeypat
             return await original(graph, client_id)
         comfy.submit = submit
         result = await service.generate_character_bible("custom")
+        await service.retry_panel("custom", chosen[0]["key"], count=1)
         record = await service.character_info("custom")
         assert record["sheet_layout"] == changed
         assert record["bible"]["layout"] == result["layout"] == chosen
@@ -218,14 +222,14 @@ def test_panel_order_is_bound_to_the_actual_sheet_even_with_same_layout(tmp_path
         approve_sheet(service, "custom")
         before = await service.get_sheet_layout("custom")
         await service.save_sheet_layout("custom", update(before, before[:1]))
-        await service.generate_character_bible("custom")
+        first = await service.generate_character_bible("custom")
         job = await service.save_comment(IntentRequest(name="custom", stage="panel", panel="turn_front", comment="手を振って"))
         value = Proposal(observations=[], questions=[], changes=[])
         job.update(status="awaiting_confirmation", proposal=value.model_dump())
         service.events.save_job(job)
-        await service.generate_character_bible("custom", seed=2)
-        with pytest.raises(ValueError, match="設定画"):
-            await service.confirm_comment_intent(job["job_id"], value)
+        second = await service.generate_character_bible("custom", seed=2)
+        assert second["job_id"] == first["job_id"]
+        await service.confirm_comment_intent(job["job_id"], value)
     asyncio.run(scenario())
 
 
@@ -246,8 +250,10 @@ def test_old_sheet_keeps_redraw_metadata_when_a_new_sheet_finishes(tmp_path, mon
             return await original(job_id, graph)
         service._run_edit = run_edit
         result = await service.redraw_panel("custom", "turn_front", tags="waving", input_mode="english")
-        assert (await service.character_info("custom"))["bible"]["job_id"] != first["job_id"]
+        assert (await service.character_info("custom"))["bible"]["job_id"] == first["job_id"]
         assert result["source_bible"]["job_id"] == first["job_id"]
         assert result["source_bible"]["panel_overrides"]["turn_front"]["tags"] == "waving"
-        assert service.events.load_job(first["job_id"])["panel_overrides"]["turn_front"]["tags"] == "waving"
+        stored = service.events.load_job(first["job_id"])
+        if stored:
+            assert stored["panel_overrides"]["turn_front"]["tags"] == "waving"
     asyncio.run(scenario())

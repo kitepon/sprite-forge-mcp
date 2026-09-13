@@ -69,14 +69,15 @@ def test_caption_saved_during_sheet_generation_survives_completion(tmp_path, mon
         await service.create_character("probe", "she/her", lora_name="fixture.safetensors")
         await service.add_samples("probe", str(picture), "old observation")
         approve_sheet(service, "probe")
-        job = await service.generate_character_bible("probe")
+        await service.generate_character_bible("probe")
+        job = await service.retry_panel("probe", "turn_front", count=2)
         return job, await service.character_info("probe")
 
     job, record = asyncio.run(scenario())
-    if job["status"] != "completed" or during != ["new observation"] or len(panel_orders(comfy)) != 23:
+    if job["status"] != "completed" or during != ["new observation"] or len(panel_orders(comfy)) != 2:
         pytest.fail(f"reproduction setup failed: status={job['status']}, during={during}, panels={len(panel_orders(comfy))}")
     assert record["samples"][0]["caption"] == "new observation", record["samples"]
-    assert record["bible"]["job_id"] == job["job_id"]
+    assert job["kind"] == "panel_retry" and record["bible"]
 
 
 @pytest.mark.parametrize("kind", ["character", "style"])

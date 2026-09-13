@@ -47,14 +47,13 @@ def test_strength_reaches_anima_generations_including_sheets(tmp_path, monkeypat
                 assert graph['40']['inputs']['strength_model'] == 0.6
         approve_sheet(service, 'probe')
         sheet_job = await service.generate_character_bible('probe')
-        panels = panel_orders(comfy)
+        retry = await service.retry_panel('probe', 'turn_front', count=1)
+        graph = panel_orders(comfy)[-1]
         assert sheet_job['loras'] == [('person.safetensors', 0.4), ('look.safetensors', 0.6)]
-        assert len(panels) == sheet_job['total_panels']
-        assert all(graph['4']['inputs']['strength_model'] == 0.4 for graph in panels)
-        assert all(graph['40']['inputs']['strength_model'] == 0.6 for graph in panels)
-        assert [graph['20']['inputs']['text'] for graph in panels] == [
-            request['prompt'] for request in sheet_job['panel_requests']
-        ]
+        assert graph['4']['inputs']['strength_model'] == 0.4
+        assert graph['40']['inputs']['strength_model'] == 0.6
+        assert graph['20']['inputs']['text'] == retry['prompt']
+        await service.adopt_panel('probe', retry['job_id'], retry['candidates'][0]['seed'])
         sheet = deepcopy(service._load_character('probe')['bible'])
         await service.set_character_strength('probe', 0.8)
         assert service._load_character('probe')['bible'] == sheet

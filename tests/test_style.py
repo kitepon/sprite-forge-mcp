@@ -66,14 +66,27 @@ def make(tmp_path, monkeypatch):
 
 
 def approve_sheet(service, name):
-    """設定画の起点になる合格シートを台帳へ置く。生成から合格までの経路は test_character_sheet が確かめる。"""
+    """設定画の台帳を用意する。一枚シートは廃止した。"""
+    from backend.bible import compose_model_sheet, write_html
+    from backend.sheet_layout import layout_for, panel_from
     record = service._load_character(name)
-    sheet = service._character_dir(name) / "approved_sheet.png"
-    sheet.parent.mkdir(parents=True, exist_ok=True)
-    sheet.write_bytes(png("#b0c4de"))
-    record["approved_sheet"] = str(sheet)
+    if record.get("bible") and Path(record["bible"].get("panels_dir", "")).is_dir():
+        return record
+    job_id = "opened-bible"
+    layout = layout_for(record)
+    specs = [panel_from(value) for value in layout]
+    panel_root = service._character_dir(name) / "bible" / job_id / "panels"
+    panel_root.mkdir(parents=True, exist_ok=True)
+    service.generated_root.mkdir(parents=True, exist_ok=True)
+    dest = service.generated_root / f"bible_{record['key']}_{job_id}.png"
+    html = dest.with_suffix(".html")
+    compose_model_sheet(name, record.get("attr", ""), [], None, dest, specs)
+    write_html(name, record.get("attr", ""), [], None, html, specs)
+    record["bible"] = {"job_id": job_id, "sheet_path": str(dest), "html_path": str(html),
+                       "panels_dir": str(panel_root), "layout": layout, "source": "", "seed": 1,
+                       "attr": record.get("attr", ""), "at": "now"}
     service._save_character(record)
-    return sheet
+    return record
 
 
 def panel_orders(comfy):
@@ -125,14 +138,14 @@ def test_character_in_a_style_stacks_both_loras(tmp_path, monkeypatch):
     assert "1girl" in preview["prompt"] and "solo" in preview["prompt"]
     record = run(service.set_character_style("Bell", "glow", 0.6))
     assert record["style"] == "glow" and record["style_strength"] == 0.6
-    approve_sheet(service, "Bell")
     job = run(service.generate_character_bible("Bell"))
+    retry = run(service.retry_panel("Bell", "item_shoes", count=1))
     panel = panel_orders(comfy)[-1]
     assert job["loras"][0][0] == "BellGrok.safetensors" and job["loras"][1][0].startswith("glow_")
     assert panel["4"]["inputs"]["lora_name"] == "BellGrok.safetensors"
     assert panel["40"]["inputs"]["lora_name"].startswith("glow_")
-    assert panel["20"]["inputs"]["text"] == job["panel_requests"][-1]["prompt"]
-    assert "only one character" in job["panel_requests"][0]["prompt"]
+    assert panel["20"]["inputs"]["text"] == retry["prompt"]
+    assert "only one character" not in retry["prompt"]
     assert "glow_style" not in panel["20"]["inputs"]["text"]
     picture = run(service.generate_from_bible("Bell", "on stage"))
     assert comfy.submitted[-1]["20"]["inputs"]["text"] == "bell_idol, glow_style, on stage"

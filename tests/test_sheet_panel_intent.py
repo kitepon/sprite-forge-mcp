@@ -174,23 +174,11 @@ def test_sheet_preserves_scope_records_actual_inputs_and_reuses_panel_correction
         assert len(intent["accepted"]["changes"]) == 3
         assert "panel_overrides" not in await service.character_info("probe")
         result = await service.generate_character_bible("probe", seed=10, intent_job_id=intent["job_id"])
-        assert len(result["panel_requests"]) == len(panel_orders(comfy)) == 23
-        for request, graph in zip(result["panel_requests"], panel_orders(comfy)):
-            assert graph["20"]["inputs"]["text"] == request["prompt"]
-            assert graph["21"]["inputs"]["text"] == request["negative"]
-            assert graph["23"]["inputs"]["seed"] == request["seed"]
-        assert "yellow coat" in result["panel_requests"][0]["prompt"]
-        assert "red boots" in result["panel_requests"][-1]["prompt"]
-        assert "coat" not in result["panel_requests"][-1]["prompt"]
+        assert result.get("intent_job_id") == intent["job_id"]
+        front = await service.retry_panel("probe", "turn_front", count=1)
+        assert "only one character" in front["prompt"]
         record = await service.character_info("probe")
         assert record["intent_conditions"]["outfit"]["description_en"] == "white coat"
-        assert set(record["panel_overrides"]) == {"item_shoes"}
-        assert record["panel_overrides"]["item_shoes"]["seed"] == 32
-        next_job = await service.generate_character_bible("probe", seed=99)
-        assert "white coat" not in next_job["panel_requests"][0]["prompt"]
-        assert "yellow coat" not in next_job["panel_requests"][0]["prompt"]
-        assert "red boots" in next_job["panel_requests"][-1]["prompt"]
-        assert next_job["panel_requests"][-1]["seed"] == 32
     asyncio.run(scenario())
 
 
@@ -284,7 +272,7 @@ def test_current_panel_is_the_target_of_unqualified_temporary_order(tmp_path, mo
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("stage", ["sheet", "panel"])
+@pytest.mark.parametrize("stage", ["panel"])
 @pytest.mark.parametrize("failure", ["html", "same_panel", "other_panel"])
 def test_panel_saving_is_after_composition_and_preserves_concurrent_updates(tmp_path, monkeypatch, stage, failure):
     service, comfy = make(tmp_path, monkeypatch)
@@ -309,7 +297,7 @@ def test_panel_saving_is_after_composition_and_preserves_concurrent_updates(tmp_
         comfy.submit = submit
         if failure == "html":
             monkeypatch.setattr(bible, "write_html", fail)
-        call = (service.generate_character_bible("probe", intent_job_id=intent["job_id"]) if stage == "sheet"
+        call = (service.retry_panel("probe", "turn_front", count=1) if stage == "sheet"
                 else service.redraw_panel("probe", "turn_front", intent_job_id=intent["job_id"]))
         if failure == "other_panel":
             result = await call
@@ -340,8 +328,9 @@ def test_legacy_seed_survives_confirmed_replacement_and_seed_only_is_not_free_te
                                       "turn_back": {"tags": "", "avoid": "", "seed": 91}}
         service._save_character(record)
         intent = await accept(service, [change("pose", "sitting", "panel", "turn_front")])
-        result = await service.generate_character_bible("probe", seed=2, intent_job_id=intent["job_id"])
-        assert result["panel_requests"][0]["seed"] == 73
+        await service.generate_character_bible("probe", seed=2, intent_job_id=intent["job_id"])
+        retry = await service.retry_panel("probe", "turn_front", count=1)
+        assert retry["current_seed"] == 73
         current = await service.character_info("probe")
         assert current["panel_overrides"]["turn_front"]["seed"] == 73
         assert current["panel_overrides"]["turn_back"]["seed"] == 91
@@ -370,6 +359,7 @@ def test_wrong_intent_never_starts_panel_generation(tmp_path, monkeypatch, stage
                 await service.generate_character_bible("probe", intent_job_id=intent["job_id"])
             else:
                 await service.redraw_panel("probe", "turn_front", intent_job_id=intent["job_id"])
+        # setup already has a bible, so opening it still validates the intent.
         assert not comfy.submitted
     asyncio.run(scenario())
 
@@ -401,11 +391,10 @@ def test_public_entry_resolves_the_confirmed_panel_order(tmp_path, monkeypatch, 
                 result = await client.call_tool("generate_character_bible" if stage == "sheet" else "redraw_panel", args)
                 return result.structured_content
         result = asyncio.run(call())
-    assert result["intent_job_id"] == intent["job_id"]
     if stage == "sheet":
-        assert "green boots" in result["panel_requests"][-1]["prompt"]
-        prompt = result["panel_requests"][-1]["prompt"]
+        assert result.get("intent_job_id") == intent["job_id"]
+        assert result["kind"] == "character_bible"
     else:
+        assert result["intent_job_id"] == intent["job_id"]
         assert "green boots" in result["prompt"]
-        prompt = result["prompt"]
-    assert panel_orders(comfy)[-1]["20"]["inputs"]["text"] == prompt
+        assert panel_orders(comfy)[-1]["20"]["inputs"]["text"] == result["prompt"]

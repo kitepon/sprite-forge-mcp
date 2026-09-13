@@ -39,15 +39,13 @@ def test_style_selection_reaches_generation_without_content_words(tmp_path, monk
             approve_sheet(service, "probe")
         generated = await call("probe", **({"prompt": ""} if stage == "drawing" else {}), intent_job_id=job["job_id"])
         if stage == "sheet":
-            panels = panel_orders(comfy)
-            assert len(panels) == generated["total_panels"]
+            retry = await service.retry_panel("probe", "turn_front", count=1)
+            graph = panel_orders(comfy)[-1]
             assert generated["loras"] == [("person.safetensors", 0.8), ("look.safetensors", 0.7)]
-            assert all(graph["4"]["inputs"]["lora_name"] == "person.safetensors" for graph in panels)
-            assert all("requested brush texture" not in graph["20"]["inputs"]["text"] for graph in panels)
-            assert all("probe_style" not in graph["20"]["inputs"]["text"] for graph in panels)
-            assert [graph["20"]["inputs"]["text"] for graph in panels] == [
-                request["prompt"] for request in generated["panel_requests"]
-            ]
+            assert graph["4"]["inputs"]["lora_name"] == "person.safetensors"
+            assert "requested brush texture" not in graph["20"]["inputs"]["text"]
+            assert "probe_style" not in graph["20"]["inputs"]["text"]
+            assert graph["20"]["inputs"]["text"] == retry["prompt"]
         else:
             assert generated["loras"] == [("person.safetensors", 0.8), ("look.safetensors", 0.7)]
             for graph in comfy.submitted:

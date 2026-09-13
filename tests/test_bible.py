@@ -81,10 +81,8 @@ def test_three_stages_each_stop_for_correction(tmp_path, monkeypatch):
     record = run(service.set_caption("Bell", 1, "white long coat, hood"))
     record = run(service.remove_sample("Bell", 0))
     assert [s["index"] for s in record["samples"]] == [1] and not (tmp_path / "characters" / "Bell" / "samples" / "000.png").exists()
-    with pytest.raises(ValueError, match="approve_character_sheet"):
-        run(service.generate_character_bible("Bell"))
     with pytest.raises(ValueError, match="train_character_lora"):
-        run(service.generate_character_sheet("Bell"))
+        run(service.generate_character_bible("Bell"))
 
     # stage 2: train (only when asked), then preview in seconds
     from tests.test_training_materials import accept_observations
@@ -99,33 +97,27 @@ def test_three_stages_each_stop_for_correction(tmp_path, monkeypatch):
     assert comfy.submitted[-1]["4"]["inputs"]["lora_name"] == training["lora_name"] and comfy.submitted[-1]["23"]["inputs"]["seed"] == 8
     comfy.submitted.clear()
 
-    # 第3段階: 合格シートを作成し、言葉で描き直す
-    character_sheet = run(service.generate_character_sheet("Bell", seed=1))
-    approved = service.approve_character_sheet("Bell", character_sheet["job_id"])
-    assert approved["approved_sheet_job_id"] == character_sheet["job_id"]
+    # 第3段階: 設定画を開き、パネルごとに候補から採用する
     job = run(service.generate_character_bible("Bell", seed=1))
-    panels = panel_orders(comfy)
-    assert job["status"] == "completed" and len(job["panels"]) == len(PANELS) == 23 and len(panels) == 23
-    first = panels[0]
-    assert "only one character" in job["panel_requests"][0]["prompt"]
-    assert first["20"]["inputs"]["text"] == job["panel_requests"][0]["prompt"]
-    assert first["21"]["inputs"]["text"] == job["panel_requests"][0]["negative"] and first["9"]["inputs"]["width"] == 832
+    assert job["status"] == "completed" and job["completed_panels"] == 0 and not panel_orders(comfy)
+    retry = run(service.retry_panel("Bell", "cos_dress", count=2))
+    assert "only one character" in retry["prompt"] and len(retry["candidates"]) == 2
+    first = panel_orders(comfy)[0]
+    assert first["20"]["inputs"]["text"] == retry["prompt"]
+    assert first["21"]["inputs"]["text"] == retry["negative"] and first["22"]["inputs"]["width"] == 832
     assert first["4"]["class_type"] == "LoraLoader" and "8" not in first
-    assert first["10"]["class_type"] == "LoadImage" and first["23"]["inputs"]["denoise"] < 1
     assert first["25"]["inputs"]["filename_prefix"] == "sprite-forge/bible"
     assert "multiple people" in first["21"]["inputs"]["text"]
-    assert Image.open(job["sheet_path"]).width == 2040 and "APPROVED REFERENCE SHEET" in open(job["html_path"], encoding="utf-8").read()
+    adopted = run(service.adopt_panel("Bell", retry["job_id"], retry["candidates"][0]["seed"]))
+    assert Path(adopted["adopted"]["path"]).is_file()
+    assert Image.open(job["sheet_path"]).width == 2040
+    assert "APPROVED REFERENCE SHEET" not in open(job["html_path"], encoding="utf-8").read()
     assert run(service.character_info("Bell"))["bible"]["sheet_path"] == job["sheet_path"]
     redraw = run(service.redraw_panel("Bell", "cos_dress", "ball gown, floor-length dress", seed=9, avoid="frills, boots"))
     assert "ball gown" in redraw["prompt"] and "only one character" in redraw["prompt"]
     assert comfy.submitted[-1]["21"]["inputs"]["text"] == bible.NEGATIVE + ", frills, boots" and redraw["previous"].endswith(".png")
     assert comfy.submitted[-1]["20"]["inputs"]["text"] == redraw["prompt"]
     assert run(service.character_info("Bell"))["panel_overrides"] == {"cos_dress": {"tags": "ball gown, floor-length dress", "avoid": "frills, boots", "seed": 9}}
-    comfy.submitted.clear()
-    dress_job = run(service.generate_character_bible("Bell", seed=1))  # the correction sticks for the next sheet
-    dress = panel_orders(comfy)[[p.key for p in PANELS].index("cos_dress")]
-    dress_req = next(r for r in dress_job["panel_requests"] if r["panel"] == "cos_dress")
-    assert dress["20"]["inputs"]["text"] == dress_req["prompt"] and dress["21"]["inputs"]["text"].endswith("frills, boots") and dress["23"]["inputs"]["seed"] == 9
     picture = run(service.generate_from_bible("Bell", "waving, stage", seed=5))
     assert comfy.submitted[-1]["20"]["inputs"]["text"] == "bell, waving, stage" and picture["lora_name"] == training["lora_name"]
     assert [c["name"] for c in run(service.list_characters())] == ["Bell"]
@@ -134,11 +126,11 @@ def test_three_stages_each_stop_for_correction(tmp_path, monkeypatch):
 def test_adopting_an_existing_lora_skips_training(tmp_path, monkeypatch):
     service, comfy = make(tmp_path, monkeypatch)
     asyncio.run(service.create_character("Bell", "she/her", lora_name="BellGrok.safetensors", trigger="bell_idol"))
-    approve_sheet(service, "Bell")
     job = asyncio.run(service.generate_character_bible("Bell"))
+    retry = asyncio.run(service.retry_panel("Bell", "turn_front", count=1))
     assert job["status"] == "completed"
-    assert job["panel_requests"][0]["prompt"].startswith("bell_idol, 1girl, ")
-    assert panel_orders(comfy)[0]["20"]["inputs"]["text"] == job["panel_requests"][0]["prompt"]
+    assert retry["prompt"].startswith("bell_idol, 1girl, ")
+    assert panel_orders(comfy)[0]["20"]["inputs"]["text"] == retry["prompt"]
 
 
 def test_panel_prompts_carry_content_only_and_the_subject_comes_from_the_description():
@@ -186,25 +178,18 @@ def test_sheet_keeps_left_full_body_even_when_a_side_view_is_taller():
     assert views["back"].getpixel((0, 0)) == (255, 255, 0)
 
 
-def test_bible_graphs_keep_face_pixels_and_drop_outfit_pixels(tmp_path, monkeypatch):
+def test_retry_panel_uses_anima_txt2img_with_lora(tmp_path, monkeypatch):
     service, comfy = make(tmp_path, monkeypatch)
     run = asyncio.run
     run(service.create_character("Bell", "she/her", lora_name="bell.safetensors"))
-    approve_sheet(service, "Bell")
-    job = run(service.generate_character_bible("Bell"))
-    graphs = {request["panel"]: graph for request, graph in zip(job["panel_requests"], panel_orders(comfy))}
-    assert job["panel_requests"][0]["draw_mode"] == "img2img"
-    smile, casual, run_p, item = graphs["ex_smile"], graphs["cos_casual"], graphs["act_run"], graphs["item_head"]
-    assert smile["10"]["class_type"] == "LoadImage" and smile["23"]["inputs"]["denoise"] == bible.FACE_DENOISE
-    assert "8" not in smile and smile["9"]["inputs"]["width"] == 1024
-    assert casual["8"]["class_type"] == "AnimaControlApply" and casual["23"]["inputs"]["denoise"] == 1.0
-    assert casual["23"]["inputs"]["latent_image"] == ["22", 0]
-    assert "8" not in run_p and "10" not in run_p and run_p["23"]["inputs"]["denoise"] == 1.0
-    assert "8" not in item and "10" not in item
-    refs = service._character_dir("Bell") / "sheet_refs"
-    assert (refs / "head.png").is_file() and (refs / "front.png").is_file()
+    run(service.generate_character_bible("Bell"))
+    retry = run(service.retry_panel("Bell", "ex_smile", count=1))
+    graph = panel_orders(comfy)[0]
+    assert retry["prompt"].startswith("bell, 1girl, portrait")
+    assert graph["20"]["inputs"]["text"] == retry["prompt"]
+    assert graph["23"]["inputs"]["denoise"] == 1.0 and "8" not in graph
     second = run(service.generate_character_bible("Bell", seed=2))
-    assert second["panel_requests"][0]["draw_mode"] == "img2img"
+    assert second["job_id"] == run(service.character_info("Bell"))["bible"]["job_id"]
 
 
 def test_japanese_names_get_an_ascii_key_and_still_work(tmp_path, monkeypatch):
@@ -215,60 +200,40 @@ def test_japanese_names_get_an_ascii_key_and_still_work(tmp_path, monkeypatch):
     assert bible.safe_name("ベル") == bible.safe_name("ベル") != bible.safe_name("ベル2")
 
 
-@pytest.mark.parametrize("failure", ["panel", "sheet", "html"])
-def test_failed_regeneration_preserves_previous_bible_and_history(tmp_path, monkeypatch, failure):
+def test_failed_panel_retry_preserves_previous_bible(tmp_path, monkeypatch):
     service, comfy = make(tmp_path, monkeypatch)
     run = asyncio.run
     run(service.create_character("Bell", "she/her", lora_name="bell.safetensors"))
-    approve_sheet(service, "Bell")
     first = run(service.generate_character_bible("Bell"))
-    redraw = run(service.redraw_panel("Bell", "turn_front", "waving"))
+    retry = run(service.retry_panel("Bell", "turn_front", count=1))
+    run(service.adopt_panel("Bell", retry["job_id"], retry["candidates"][0]["seed"]))
     before = run(service.character_info("Bell"))
-    paths = [Path(p) for p in first["panels"] + [first["sheet_path"], first["html_path"], redraw["previous"]]]
-    contents = {p: p.read_bytes() for p in paths}
+    sheet = Path(before["bible"]["sheet_path"]).read_bytes()
 
-    def fail(*args, **kwargs):
-        raise RuntimeError("regeneration failed")
-
-    if failure == "panel":
-        original = service._run_edit
-        calls = 0
-        async def fail_second(*args):
-            nonlocal calls
-            calls += 1
-            if calls == 2:
-                fail()
-            return await original(*args)
-        monkeypatch.setattr(service, "_run_edit", fail_second)
-    else:
-        monkeypatch.setattr(bible, "compose_model_sheet" if failure == "sheet" else "write_html", fail)
-    with pytest.raises(RuntimeError, match="regeneration failed"):
-        run(service.generate_character_bible("Bell", seed=7))
+    async def fail(*args, **kwargs):
+        raise RuntimeError("retry failed")
+    monkeypatch.setattr(service, "_run_edit", fail)
+    with pytest.raises(RuntimeError, match="retry failed"):
+        run(service.retry_panel("Bell", "turn_front", count=1))
     assert run(service.character_info("Bell")) == before
-    assert all(p.exists() and p.read_bytes() == data for p, data in contents.items())
+    assert Path(before["bible"]["sheet_path"]).read_bytes() == sheet
     failed = next(j for j in service.events.list_jobs() if j["status"] == "failed")
-    assert failed["error"] == "regeneration failed"
+    assert failed["error"] == "retry failed"
 
 
-def test_successful_regeneration_publishes_new_paths_and_redraw_uses_them(tmp_path, monkeypatch):
+def test_opening_bible_again_keeps_the_same_ledger(tmp_path, monkeypatch):
     service, _ = make(tmp_path, monkeypatch)
     run = asyncio.run
     run(service.create_character("Bell", "she/her", lora_name="bell.safetensors"))
-    approve_sheet(service, "Bell")
     first = run(service.generate_character_bible("Bell"))
-    old_paths = [Path(p) for p in first["panels"] + [first["sheet_path"], first["html_path"]]]
-    old_contents = {p: p.read_bytes() for p in old_paths}
+    retry = run(service.retry_panel("Bell", "turn_front", count=1))
+    run(service.adopt_panel("Bell", retry["job_id"], retry["candidates"][0]["seed"]))
     second = run(service.generate_character_bible("Bell", seed=7))
-    assert second["panels_dir"] != first["panels_dir"]
-    assert second["sheet_path"] != first["sheet_path"]
-    assert second["html_path"] != first["html_path"]
+    assert second["job_id"] == first["job_id"]
     current = run(service.character_info("Bell"))["bible"]
-    assert current["job_id"] == second["job_id"]
+    assert current["job_id"] == first["job_id"]
     fixed = run(service.redraw_panel("Bell", "turn_front", "waving"))
-    assert fixed["sheet_path"] == current["sheet_path"]
-    assert fixed["html_path"] == current["html_path"]
     assert Path(fixed["path"]).parent == Path(current["panels_dir"])
-    assert all(p.read_bytes() == data for p, data in old_contents.items())
 
 
 def test_retry_panel_offers_candidates_and_adopting_one_replaces_only_that_panel(tmp_path, monkeypatch):
@@ -281,7 +246,8 @@ def test_retry_panel_offers_candidates_and_adopting_one_replaces_only_that_panel
     run(service.generate_character_bible("Bell", seed=1))
     before = run(service.character_info("Bell"))
     panel_path = Path(before["bible"]["panels_dir"]) / "turn_front.png"
-    original = panel_path.read_bytes(); sheet_before = Path(before["bible"]["sheet_path"]).read_bytes()
+    assert not panel_path.exists()
+    sheet_before = Path(before["bible"]["sheet_path"]).read_bytes()
     service._view = distinct; comfy.submitted.clear()
 
     retry = run(service.retry_panel("Bell", "turn_front", count=4))
@@ -294,31 +260,25 @@ def test_retry_panel_offers_candidates_and_adopting_one_replaces_only_that_panel
     assert "only one character" in retry["prompt"]
     candidate_bytes = [Path(c["path"]).read_bytes() for c in retry["candidates"]]
     assert len({b for b in candidate_bytes}) == 4 and all(Path(c["path"]).parent.name == "candidates" for c in retry["candidates"])
-    # 候補を並べただけでは設定画も台帳も変わらない
-    assert panel_path.read_bytes() == original and run(service.character_info("Bell")) == before
+    assert not panel_path.exists() and run(service.character_info("Bell")) == before
 
     adopted = run(service.adopt_panel("Bell", retry["job_id"], seeds[1]))
     assert adopted["adopted"]["seed"] == seeds[1] and panel_path.read_bytes() == candidate_bytes[1]
     history = Path(before["bible"]["panels_dir"]) / "history"
-    first_backup = history / f"turn_front-{retry['job_id'][:8]}-{seeds[1]}.png"
-    assert first_backup.read_bytes() == original and adopted["adopted"]["previous"] == str(first_backup)
+    assert not adopted["adopted"]["previous"]
     after = run(service.character_info("Bell"))
     assert after["bible"]["panel_overrides"]["turn_front"] == {"seed": seeds[1]} and after["panel_overrides"]["turn_front"] == {"seed": seeds[1]}
     assert Path(after["bible"]["sheet_path"]).read_bytes() != sheet_before and after["bible"]["job_id"] == before["bible"]["job_id"]
 
-    # 同じ候補群から採用し直しても、直前の絵は別名で履歴に残る
     run(service.adopt_panel("Bell", retry["job_id"], seeds[2]))
     assert panel_path.read_bytes() == candidate_bytes[2]
-    assert (history / f"turn_front-{retry['job_id'][:8]}-{seeds[2]}.png").read_bytes() == candidate_bytes[1] and first_backup.read_bytes() == original
+    assert (history / f"turn_front-{retry['job_id'][:8]}-{seeds[2]}.png").read_bytes() == candidate_bytes[1]
     with pytest.raises(ValueError):
         run(service.adopt_panel("Bell", retry["job_id"], 12345))
 
-    # 採用した seed は次の設定画へ引き継がれ、設定画を作り直した後は古い候補を採用できない
     service._view = view_image; comfy.submitted.clear()
-    run(service.generate_character_bible("Bell", seed=1))
-    assert panel_orders(comfy)[[p.key for p in PANELS].index("turn_front")]["23"]["inputs"]["seed"] == seeds[2]
-    with pytest.raises(ValueError):
-        run(service.adopt_panel("Bell", retry["job_id"], seeds[0]))
+    again = run(service.retry_panel("Bell", "turn_front", count=1))
+    assert again["current_seed"] == seeds[2]
 
 
 def test_redraw_supports_bibles_saved_before_versioned_paths(tmp_path, monkeypatch):
@@ -327,6 +287,8 @@ def test_redraw_supports_bibles_saved_before_versioned_paths(tmp_path, monkeypat
     run(service.create_character("Bell", "she/her", lora_name="bell.safetensors"))
     approve_sheet(service, "Bell")
     run(service.generate_character_bible("Bell"))
+    first = run(service.retry_panel("Bell", "turn_front", count=1))
+    run(service.adopt_panel("Bell", first["job_id"], first["candidates"][0]["seed"]))
     record = run(service.character_info("Bell"))
     info = record["bible"]
     legacy_panels = tmp_path / "characters" / "Bell" / "bible" / "panels"

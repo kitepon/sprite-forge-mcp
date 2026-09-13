@@ -297,15 +297,15 @@ def sheet_rows(specs):
     return rows
 
 
-def compose_model_sheet(name: str, attr: str, panels: list[tuple[str, Path]], reference: Path,
+def compose_model_sheet(name: str, attr: str, panels: list[tuple[str, Path]], reference: Path | None,
                         destination: Path, specs: list[Panel] | None = None) -> Path:
-    """Compose the sectioned bible PNG: the approved reference sheet, then every section, then the palette."""
-    imgs = {key: Image.open(path).convert("RGB") for key, path in panels}
+    """Compose the sectioned bible PNG from adopted panels. Missing panels are left blank."""
+    imgs = {key: Image.open(path).convert("RGB") for key, path in panels if Path(path).is_file()}
     specs = list(PANELS) if specs is None else specs
     rows = sheet_rows(specs)
     labels = {panel.key: panel.label for panel in specs}
     W, BG, INK, MUT, LINE = 2040, (250, 250, 248), (38, 40, 46), (96, 100, 110), (210, 210, 212)
-    header_anchor_footer = 120 + 44 + 520 + 24 + 44 + 110
+    header_anchor_footer = 120 + (44 + 520 + 24 if reference and Path(reference).is_file() else 0) + 44 + 110
     sheet = Image.new("RGB", (W, header_anchor_footer + sum(44 + row[2] + 30 for row in rows)), BG)
     d = ImageDraw.Draw(sheet)
     fT, fSub, fSec, fLab = _font(46), _font(20), _font(26), _font(17)
@@ -338,21 +338,24 @@ def compose_model_sheet(name: str, attr: str, panels: list[tuple[str, Path]], re
     d.rectangle([0, 0, W, 96], fill=(28, 31, 38))
     d.text((40, 22), "CHARACTER BIBLE", font=fT, fill=(242, 242, 245))
     d.text((44, 72), f"{name}  ·  {attr}  ·  sprite-forge model sheet", font=fSub, fill=(165, 176, 192))
-    y = sec("APPROVED REFERENCE SHEET (source of these panels)", 120)
-    m = Image.open(reference).convert("RGB")
-    sc = min((W - 80) / m.width, 520 / m.height)
-    m = m.resize((int(m.width * sc), int(m.height * sc)), Image.LANCZOS)
-    sheet.paste(m, (40 + (W - 80 - m.width) // 2, y))
-    y += m.height + 24
+    y = 120
+    if reference and Path(reference).is_file():
+        y = sec("APPROVED REFERENCE SHEET (source of these panels)", y)
+        m = Image.open(reference).convert("RGB")
+        sc = min((W - 80) / m.width, 520 / m.height)
+        m = m.resize((int(m.width * sc), int(m.height * sc)), Image.LANCZOS)
+        sheet.paste(m, (40 + (W - 80 - m.width) // 2, y))
+        y += m.height + 24
     for title, keys, h, baseline, area in rows:
         y = sec(title, y)
         y = row(keys, y, h, baseline, area)
     y = sec("COLOR PALETTE", y)
-    base = imgs.get("turn_front") or next(iter(imgs.values()))
-    for i, col in enumerate(palette(base)):
-        x = 40 + i * 150
-        d.rectangle([x, y + 6, x + 130, y + 70], fill=col, outline=(120, 120, 120))
-        d.text((x, y + 74), "#%02X%02X%02X" % col, font=_font(14), fill=MUT)
+    if imgs:
+        base = imgs.get("turn_front") or next(iter(imgs.values()))
+        for i, col in enumerate(palette(base)):
+            x = 40 + i * 150
+            d.rectangle([x, y + 6, x + 130, y + 70], fill=col, outline=(120, 120, 120))
+            d.text((x, y + 74), "#%02X%02X%02X" % col, font=_font(14), fill=MUT)
     y += 110
     destination.parent.mkdir(parents=True, exist_ok=True)
     sheet.crop((0, 0, W, y)).save(destination, "PNG")
@@ -367,10 +370,10 @@ def _b64(image: Image.Image, maxpx: int = 560) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-def write_html(name: str, attr: str, panels: list[tuple[str, Path]], reference: Path, destination: Path,
+def write_html(name: str, attr: str, panels: list[tuple[str, Path]], reference: Path | None, destination: Path,
                specs: list[Panel] | None = None) -> Path:
     """Self-contained (base64) HTML bible with the same sections as the PNG."""
-    imgs = {key: Image.open(path) for key, path in panels}
+    imgs = {key: Image.open(path) for key, path in panels if Path(path).is_file()}
     specs = list(PANELS) if specs is None else specs
     labels = {panel.key: panel.label for panel in specs}
     css = ("body{margin:0;background:#15171c;color:#e7e9ee;font:15px/1.5 -apple-system,system-ui,sans-serif}"
@@ -383,8 +386,9 @@ def write_html(name: str, attr: str, panels: list[tuple[str, Path]], reference: 
            ".pal{display:flex;gap:10px;padding:0 16px;flex-wrap:wrap}.sw{width:88px}.sw div{height:48px;border-radius:6px;border:1px solid #555}"
            ".sw code{font-size:11px;color:#9aa3b2}")
     parts = [f"<!doctype html><meta charset=utf-8><title>{escape(name)} — character bible</title><style>{css}</style>",
-             f"<header><h1>{escape(name)}</h1><div style='color:#9aa3b2'>{escape(attr or 'character bible')} · sprite-forge</div></header><div class=wrap>",
-             f"<h2>APPROVED REFERENCE SHEET</h2><div class='row reference'><div class=cell><img src='{_b64(Image.open(reference), 1400)}'></div></div>"]
+             f"<header><h1>{escape(name)}</h1><div style='color:#9aa3b2'>{escape(attr or 'character bible')} · sprite-forge</div></header><div class=wrap>"]
+    if reference and Path(reference).is_file():
+        parts.append(f"<h2>APPROVED REFERENCE SHEET</h2><div class='row reference'><div class=cell><img src='{_b64(Image.open(reference), 1400)}'></div></div>")
     for title, keys, *_ in sheet_rows(specs):
         parts.append(f"<h2>{escape(title)}</h2><div class=row>")
         for key in keys:
@@ -392,10 +396,11 @@ def write_html(name: str, attr: str, panels: list[tuple[str, Path]], reference: 
                 parts.append(f"<div class=cell><img src='{_b64(imgs[key])}'><span>{escape(labels[key])}</span></div>")
         parts.append("</div>")
     parts.append("<h2>COLOR PALETTE</h2><div class=pal>")
-    base = imgs.get("turn_front") or next(iter(imgs.values()))
-    for col in palette(base.convert("RGB")):
-        hexc = "#%02X%02X%02X" % col
-        parts.append(f"<div class=sw><div style='background:{hexc}'></div><code>{hexc}</code></div>")
+    if imgs:
+        base = imgs.get("turn_front") or next(iter(imgs.values()))
+        for col in palette(base.convert("RGB")):
+            hexc = "#%02X%02X%02X" % col
+            parts.append(f"<div class=sw><div style='background:{hexc}'></div><code>{hexc}</code></div>")
     parts.append("</div></div>")
     destination.write_text("".join(parts), encoding="utf-8")
     return destination
