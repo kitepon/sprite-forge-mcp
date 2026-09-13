@@ -8,6 +8,26 @@ from backend.services import Services
 from tests.test_style import make, png, panel_orders
 
 
+def test_retry_all_panels_fills_every_panel_without_waiting(tmp_path, monkeypatch):
+    service, comfy = make(tmp_path, monkeypatch)
+
+    async def scenario():
+        await service.create_character("probe", "she/her", lora_name="fixture.safetensors")
+        opened = await service.generate_character_bible("probe")
+        started = await service.retry_all_panels("probe", count=1)
+        assert started["kind"] == "panel_retry_all" and started["status"] == "running"
+        await service._retry_all_tasks[started["job_id"]]
+        done = service.events.load_job(started["job_id"])
+        assert done["status"] == "completed"
+        assert done["completed_panels"] == done["total_panels"] == 23
+        assert len(done["panel_jobs"]) == 23
+        front = service.events.load_job(done["panel_jobs"]["turn_front"])
+        assert front["status"] == "completed" and len(front["candidates"]) == 1
+        assert front["source_bible"] == opened["job_id"]
+        assert len(panel_orders(comfy)) == 23
+    asyncio.run(scenario())
+
+
 def test_replace_opens_a_new_empty_bible(tmp_path, monkeypatch):
     service, _ = make(tmp_path, monkeypatch)
     run = asyncio.run
@@ -98,6 +118,8 @@ def test_ui_drops_one_sheet_and_picks_ten_per_panel():
     assert "一枚シート" not in flows
     assert "このパネルを10枚出す" in flows
     assert "設定画を全部作り直す" in flows
+    assert "retryAllPanels" in api
+    assert "全パネルの10枚を止めずに出します" in flows
     assert "採用したパネルでLoRAを更新する" in flows
     assert "pending_sheet" not in main
     assert "この学習結果を使って設定画へ" in preview

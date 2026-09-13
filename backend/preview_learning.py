@@ -15,6 +15,9 @@ from .intent import PREVIEW_TAGS, identity_from_preview_prompt, organize_tags, p
 from .preview_reviews import description_for_focus, review_has_input, review_needs_interpretation, review_of, require_interpreted_generation
 
 IN_FLIGHT = ('interpreting', 'training', 'previewing')
+# HTTP要求や起動タスクの途中でプロセスが落ちると、これらの状態が永続に残る。
+WORKER_STATUSES = frozenset({'queued', 'running', 'generating panels', *IN_FLIGHT})
+ORPHAN_INTERRUPTION = 'サービス再起動のため中断しました。同じ操作をもう一度始めてください。'
 SPATIAL_FOCUS = {'hair': 'hair', 'face': 'face', 'outfit': 'clothes', 'body': 'body'}
 FIX_REGION_MARKERS = (
     ('hair', ('髪', 'ヘア')),
@@ -272,8 +275,31 @@ class PreviewLearning:
         self._preview_learning_tasks[job_id] = task
         return task
 
+    def _job_is_resumable(self, job: dict) -> bool:
+        """起動後にバックグラウンドタスクとして続行できるジョブか。"""
+        kind, status = job.get('kind'), job.get('status')
+        if kind == 'preview_learning' and status in IN_FLIGHT:
+            return True
+        if kind == 'lora_grow' and status in ('running', 'training', 'previewing'):
+            return True
+        if kind == 'preview_pair' and status == 'running':
+            return True
+        return kind == 'panel_retry_all' and status == 'running'
+
+    def fail_orphaned_jobs(self) -> list[dict]:
+        """再開できない途中ジョブを失敗にする。確認待ちや下書きは残す。"""
+        failed = []
+        for job in self.events.list_jobs():
+            if job.get('status') not in WORKER_STATUSES or self._job_is_resumable(job):
+                continue
+            job.update(status='failed', error=ORPHAN_INTERRUPTION)
+            self.events.save_job(job)
+            self.events.append(job['job_id'], 'failed', {'error': ORPHAN_INTERRUPTION})
+            failed.append(job)
+        return failed
+
     async def resume_preview_learning(self) -> None:
-        """起動時に、解釈・学習・再プレビューの途中で止まっているジョブを再開する。"""
+        """起動時に再開できるジョブを起こし、それ以外の途中記録を失敗にする。"""
         for job in self.events.list_jobs():
             if job.get('kind') == 'preview_learning' and job.get('status') in IN_FLIGHT:
                 self._ensure_preview_learning(job['job_id'])
@@ -281,6 +307,9 @@ class PreviewLearning:
                 self._ensure_grow(job['job_id'])
             if job.get('kind') == 'preview_pair' and job.get('status') == 'running':
                 self._ensure_preview_pair(job['job_id'])
+            if job.get('kind') == 'panel_retry_all' and job.get('status') == 'running':
+                self._ensure_retry_all(job['job_id'])
+        self.fail_orphaned_jobs()
 
     async def _run_preview_learning(self, job_id: str) -> None:
         job = self.events.load_job(job_id)

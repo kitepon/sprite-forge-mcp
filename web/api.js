@@ -41,6 +41,7 @@ export const API = {
   discardLayout: jobId => api(`/api/layout/${encodeURIComponent(jobId)}/discard`, { method: 'POST' }),
   redraw: (name, panel, tags = "", seed = 1, avoid = "", intent_job_id = "", input_mode = "auto", style = "") => api(`/api/panel?${new URLSearchParams({ name, panel, tags, seed, avoid, intent_job_id, input_mode, style })}`, { method: "POST" }),
   retryPanel: (name, panel, count = 10, style = "") => api(`/api/panel/retry?${new URLSearchParams({ name, panel, count, style })}`, { method: "POST" }),
+  retryAllPanels: (name, count = 10, style = "", replace = false) => api(`/api/panel/retry-all?${new URLSearchParams({ name, count, style, ...(replace ? { replace: 'true' } : {}) })}`, { method: "POST" }),
   adoptPanel: (name, job_id, seed) => api(`/api/panel/adopt?${new URLSearchParams({ name, job_id, seed })}`, { method: "POST" }),
   growLoraFromPanels: (name, steps = 0) => api(`/api/bible/grow?${new URLSearchParams({ name, steps })}`, { method: "POST" }),
   fromBible: (name, prompt, seed = 1, style = "", intent_job_id = "") => api(`/api/from-bible?${new URLSearchParams({ name, prompt, seed, style, intent_job_id })}`, { method: "POST" }),

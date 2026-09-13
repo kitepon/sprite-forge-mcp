@@ -52,6 +52,7 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         self._learning_tasks: dict[str, asyncio.Task] = {}
         self._grow_tasks: dict[str, asyncio.Task] = {}
         self._preview_pair_tasks: dict[str, asyncio.Task] = {}
+        self._retry_all_tasks: dict[str, asyncio.Task] = {}
 
     async def _interpret_with_comfy(self, job, images, **kwargs):
         return await interpret(job, images, comfy=self.comfy, **kwargs)
@@ -779,6 +780,61 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
             job.update(status="completed", candidates=candidates)
             self.events.save_job(job); self.events.append(job_id, "image_completed", {"panel": panel, "pictures": [c["path"] for c in candidates]})
             return job
+
+    async def retry_all_panels(self, name: str, count: int = 0, style: str = "", turbo: bool = False,
+                               replace: bool = False) -> dict[str, Any]:
+        """全パネルの候補を止めずに出す。採用は待たない。"""
+        if replace:
+            await self.generate_character_bible(name, style=style, turbo=turbo, replace=True)
+        record = self._load_character(name)
+        self._require_character_lora(record)
+        if not record.get("bible"):
+            await self.generate_character_bible(name, style=style, turbo=turbo)
+            record = self._load_character(name)
+        if count < 1:
+            count = self.PANEL_CANDIDATES
+        keys = [value["key"] for value in layout_for(record, generated=True)]
+        job_id = str(uuid.uuid4())
+        job = {"job_id": job_id, "kind": "panel_retry_all", "status": "running", "name": name,
+               "count": count, "style": style, "turbo": turbo, "bible_id": record["bible"]["job_id"],
+               "layout_keys": keys, "panel_jobs": {}, "completed_panels": 0, "total_panels": len(keys),
+               "progress": {"step": 0, "total": len(keys)}}
+        self.events.save_job(job)
+        self._record_call("retry_all_panels", job_id, {"name": name, "count": count, "replace": replace})
+        self._ensure_retry_all(job_id)
+        return job
+
+    def _ensure_retry_all(self, job_id: str) -> asyncio.Task:
+        task = self._retry_all_tasks.get(job_id)
+        if task is None or task.done():
+            task = asyncio.create_task(self._run_retry_all(job_id))
+            self._retry_all_tasks[job_id] = task
+        return task
+
+    async def _run_retry_all(self, job_id: str) -> None:
+        job = self.events.load_job(job_id)
+        with self._job_errors(job):
+            for key in job["layout_keys"]:
+                sub_id = job["panel_jobs"].get(key)
+                existing = self.events.load_job(sub_id) if sub_id else None
+                if existing and existing.get("status") == "completed":
+                    job["completed_panels"] = sum(
+                        1 for panel in job["layout_keys"]
+                        if (self.events.load_job(job["panel_jobs"][panel]) or {}).get("status") == "completed"
+                        if panel in job["panel_jobs"])
+                    job["progress"] = {"step": job["completed_panels"], "total": job["total_panels"]}
+                    self.events.save_job(job)
+                    continue
+                job.update(status="running", panel=key)
+                self.events.save_job(job)
+                sub = await self.retry_panel(job["name"], key, job["count"], job.get("style") or "", job.get("turbo") or False)
+                job["panel_jobs"][key] = sub["job_id"]
+                job["completed_panels"] = len(job["panel_jobs"])
+                job["progress"] = {"step": job["completed_panels"], "total": job["total_panels"]}
+                self.events.save_job(job)
+            job.update(status="completed", panel="")
+            self.events.save_job(job)
+            self.events.append(job_id, "completed", {"panel_jobs": job["panel_jobs"]})
 
     async def adopt_panel(self, name: str, job_id: str, seed: int) -> dict[str, Any]:
         """``retry_panel`` の候補から一枚を選んで設定画へ入れる。旧画像は history/ に残し、
