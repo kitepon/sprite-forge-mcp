@@ -1,7 +1,8 @@
-FROM python:3.13-slim
+FROM python:3.13-slim-trixie
 
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y openssh-client fonts-noto-cjk \
+    && apt-get install --no-install-recommends -y ca-certificates=20250419+deb13u1 openssh-client fonts-noto-cjk \
+    && update-ca-certificates --fresh \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir uv
 
