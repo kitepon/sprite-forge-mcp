@@ -6,7 +6,7 @@ dependencies = [
     "fastapi>=0.115",
     "fastmcp>=4.0,<5",
     "httpx>=0.28",
-    "pillow>=12.3.0",
+    "pillow>=13.0.0",
     "python-multipart>=0.0.20",
     "uvicorn>=0.34",
 ]
