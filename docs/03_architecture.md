@@ -27,7 +27,14 @@ Claude Code ── /mcp/ ───────────┘                   
   を所有する。イベントには `event_id`, `job_id`, `seq`, `schema_version`, `at`,
   `kind`, `payload` があり、WebUI は選択した一つのジョブだけを SSE で購読する。
 
-## 実装済み API 面
+## 機能と保存・回収への接続
+
+現行の機能図・データフロー・所有・失敗時の保持回収は
+[保存と回収の公開契約](storage-lifecycle.md)を正本とする。
+以下の初期API列挙は現在の全APIではない。公開APIの登録は `backend/app.py`、
+共通のサービス契約は `backend/services.py` と各mixinを参照する。
+
+## 初期実装の API 面
 
 REST は `GET /api/gpu`, `POST /api/base`, `GET /api/jobs/{job_id}`、MCP は
 `gpu_status`, `generate_base`, `job_status` である。いずれも `Services` を呼び、

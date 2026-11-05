@@ -93,6 +93,7 @@ mcp_app = mcp.http_app(path="/")
 @asynccontextmanager
 async def app_lifespan(_app):
     await services.resume_preview_learning()
+    await services.recover_training_stages()
     yield
 
 

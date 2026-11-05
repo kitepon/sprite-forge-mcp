@@ -53,6 +53,8 @@ async def view_image(_image):
 
 
 def make(tmp_path, monkeypatch):
+    from tests.staging_fixture import stage_command
+    monkeypatch.setattr(box, "stage_command", stage_command)
     async def copied(local, remote, **kwargs): return 0, ""
     async def lines(*args, **kwargs):
         yield "steps: 100%|##########| 3/3 [00:03<00:00,  1.24it/s]"

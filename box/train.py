@@ -57,11 +57,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument('--preference-beta', type=float, default=1.)
     parser.add_argument("--mixed-precision", choices=("bf16",), default="bf16")
     parser.add_argument("--comfy-url", default="http://127.0.0.1:8188")
+    parser.add_argument("--stage-id", help="owned transfer stage; only its disposable copy is reclaimed")
     return parser
 
 
-def main() -> int:
-    args = _parser().parse_args()
+def training_command(args) -> tuple[list[str], Path]:
     if args.preference_config:
         _free_comfy(args.comfy_url)
         command = [str(VENV / 'Scripts' / 'python.exe'), str(ROOT / 'preference_train.py'),
@@ -69,7 +69,7 @@ def main() -> int:
                    '--output', str(args.output_dir / f'{args.output_name}.safetensors'),
                    '--steps', str(args.max_train_steps), '--learning-rate', args.learning_rate,
                    '--beta', str(args.preference_beta)]
-        return subprocess.run(command, cwd=ROOT, check=False).returncode
+        return command, ROOT
     accelerate = VENV / "Scripts" / "accelerate.exe"
     trainer = SDSCRIPTS / "anima_train_network.py"
     if not accelerate.is_file():
@@ -107,8 +107,27 @@ def main() -> int:
         "--max_data_loader_n_workers", "0", "--cache_latents",
     ]
     print("running:", subprocess.list2cmdline(command), flush=True)
-    completed = subprocess.run(command, cwd=SDSCRIPTS, check=False)
-    return completed.returncode
+    return command, SDSCRIPTS
+
+
+def main() -> int:
+    args = _parser().parse_args()
+    if args.stage_id:
+        import staging
+        staging.validate_config(args.stage_id, args.dataset_config or args.preference_config)
+        try:
+            command, cwd = training_command(args)
+        except BaseException:
+            # No worker was launched: validation failure is a known terminal state.
+            staging.transition(args.stage_id, "launching", "finished")
+            staging.clean(args.stage_id)
+            raise
+        code = staging.run(args.stage_id, command, cwd)
+        if code == 0 and not (args.output_dir / f"{args.output_name}.safetensors").is_file():
+            raise RuntimeError("training exited successfully without saving its LoRA")
+        return code
+    command, cwd = training_command(args)
+    return subprocess.run(command, cwd=cwd, check=False).returncode
 
 
 if __name__ == "__main__":

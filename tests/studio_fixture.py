@@ -14,7 +14,8 @@ from backend import app as module, bible, box
 from backend.events import EventStore
 from backend.services import Services
 
-root = Path(tempfile.mkdtemp(prefix="sprite-studio-fixture-"))
+temporary = tempfile.TemporaryDirectory(prefix="sprite-studio-fixture-")
+root = Path(temporary.name)
 art = sorted(Path(sys.argv[1]).glob("*.png")) if len(sys.argv) > 1 else [Path(".github/example-output.png").resolve()]
 
 
@@ -66,6 +67,8 @@ service._view = view
 box.copy_tree_to_box = copy
 box.copy_to_box = copy
 box.stream_training = training
+from tests.staging_fixture import stage_command
+box.stage_command = stage_command
 
 
 async def setup():
@@ -87,5 +90,8 @@ async def setup():
 
 
 if __name__ == "__main__":
-    asyncio.run(setup())
-    uvicorn.run(module.app, host="127.0.0.1", port=18766, log_level="warning")
+    try:
+        asyncio.run(setup())
+        uvicorn.run(module.app, host="127.0.0.1", port=18766, log_level="warning")
+    finally:
+        temporary.cleanup()
