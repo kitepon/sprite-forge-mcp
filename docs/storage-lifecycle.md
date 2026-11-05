@@ -8,7 +8,7 @@
 | 取込・台帳・`backend/services.py` | upload/URL/data/既存path → PNG/キャラクター/画風 | 主機uploads・台帳sample・説明・adopted素材 | 唯一データを時刻だけで削除しない。明示削除だけを既契約で処理 |
 | 制作・`services.py`/`bible.py`/`workflows.py` | 台帳/注文 → fox ComfyUI → 画像/パネル/HTML | 主機generated・台帳・jobが結果の正本、foxは実行 | 成否/一部結果をjob/eventへ保存。利用者作品・採用結果を一括回収しない |
 | 教材凍結・`services.py`/`preview_learning.py` | 確認済sample/判定 → dataset/説明/履歴 | 主機generated/trainingとpreferenceは過去の確認教材 | snapshotは元sampleの変更/削除から独立。履歴を表示するため保持 |
-| 転送・`backend/box.py` | UUID別教材とTOML/JSON → fox一時stage | 学習ごとにUUID専用stage、主機正本とLoRA出力は対象外 | 転送失敗/学習失敗/正常終了の全てでstageを回収。起動要求前にlaunchingへ確定し、通信断を未起動と誤認しない |
+| 転送・`backend/box.py` | UUID別教材とTOML/JSON → fox一時stage | 学習ごとにUUID専用stage、主機正本とLoRA出力は対象外。jobは転送writerの実寿命が未確定であることを最初のawait前から保存 | SCPの作成/communicateが戻るまではwriter終端を仮定しない。取消ではjobのretained_unknownを保持し、remote preparedを未使用と解釈しない。起動要求前にlaunchingへ確定 |
 | 学習・`box/train.py`/`box/staging.py` | stage内configとモデル → LoRA/metrics/進捗 | foxのLoRA出力とモデルは永続。stageのみ転送コピー | OS lockでprepare/launch/run/clean状態変更を直列化。runningの教材は削除禁止。実subprocess終端後だけfinishedへ確定し回収。親trainerの強制終了/通信断はlaunching/runningのままunknown保持し、SSH終了をworker終端に読み替えない |
 | 履歴・`backend/events.py` | 操作/進捗/結果 → jobs JSON/events NDJSON/SSE | 主機永続、WebUI/MCP共通 | 複製バックアップではなく操作履歴。既データの自動時限削除はしない |
 | build/配備・担当integrations | lock済source/現image → 候補/Compose/受入 | 製品担当、主機Docker | .dockerignoreでcache/evidence/tests/.git/.venvを除外。候補受入成功後だけ現用・直前戻しを残し、自製未参照imageを通常rm。全container参照と混在所有は保護、force/prune禁止 |
@@ -18,9 +18,9 @@
 ## データフロー図
 
 1. 利用者 → WebUI REST またはMCP → 共通Services → uploads/キャラクター/画風台帳 → frozen教材。
-2. frozen教材＋job UUID → `Services._training_stage`/`box.stage_command` → fox `C:/sf/staging/<UUID>/`（所有marker） → SCP → launching確定 → trainer（running確定） → sd-scripts/ComfyUIモデル → 永続LoRA/metrics。
+2. frozen教材＋job UUID → `Services._training_stage`がwriter実寿命未確定をjob.remote_stage_cleanup=retained_unknownとして最初のawait前に永続化 → fox `C:/sf/staging/<UUID>/`（所有marker） → SCP writer開始 → communicate返却で転送の実終端を確認 → launching確定 → trainer（running確定） → sd-scripts/ComfyUIモデル → 永続LoRA/metrics。
 3. trainer進捗 → SSH stdout → 主機log/job/event → WebUI SSE/MCP。metrics → 主機履歴。実subprocess終端 → finished確定 → marker・path・OS lock検証 → stageだけ回収。成功時には専用LoRA出力の実在も確認してからSSH成功を返す。転送側finallyはprepared/finishedだけを回収し、起動/稼働/結果不明は保持結果をjob/eventに保存。
-4. backend再起動 → 既存job再開/非再開jobをfailed確定 → terminal jobのremote stage回収。launching/running/unknownは保護し、通常終了したremote trainer自身の回収を優先。強制終了で実worker寿命を証明できないstageはunknownと記録し、無条件TTL削除しない。
+4. backend再起動 → 既存job再開/非再開jobをfailed確定 → job.remote_stage_cleanupを確認。retained_unknownなら回復のcleanも同jobの新しいprepareも送らず保持し、preparedへも読み替えない。remote launching/running/unknownも従来通り保護し、通常終了したremote trainer自身の回収を優先。取消/終了不明のwriterは再起動や無条件TTLでは回収可能にならない。
 5. source/uv.lock → .dockerignore付きbuild → 候補 → idle確認 → 正式NASのimmutable基点+delta/削除一覧＋全manifest検証 → Compose → health/変更経路/データ保持受入 → 現用・直前戻し・全container参照を保護した自製image整理 → NAS current/previous索引更新と非参照の所有完了退避回収 → 配備結果記録。
 
 ## 削除境界

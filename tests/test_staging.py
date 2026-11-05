@@ -162,6 +162,42 @@ def test_startup_retries_terminal_stage_but_does_not_touch_active_job(stage, tmp
     assert events.load_job("active")["status"] == "running"
 
 
+def test_cancelled_transfer_remains_unknown_after_startup_recovery(stage, tmp_path, monkeypatch):
+    identity, path = stage
+    staging.clean(identity)
+    events = EventStore(tmp_path / "events.ndjson", tmp_path / "jobs")
+    service = Services(events=events)
+    job = {"job_id": identity, "kind": "lora_train", "status": "running"}
+    calls = []
+
+    async def command(action, stage_id, **kwargs):
+        calls.append(action)
+        return staging.prepare(stage_id) if action == "prepare" else staging.clean(stage_id)
+
+    monkeypatch.setattr(box, "stage_command", command)
+
+    async def exercise():
+        with pytest.raises(asyncio.CancelledError):
+            async with service._training_stage(job):
+                assert events.load_job(identity)["remote_stage_cleanup"]["status"] == "retained_unknown"
+                (path / "partial.png").write_bytes(b"writer lifetime unknown")
+                raise asyncio.CancelledError
+        assert events.load_job(identity)["remote_stage_cleanup"]["status"] == "retained_unknown"
+        # Startup can mark the orphan failed without proving its SCP writer ended.
+        job["status"] = "failed"
+        events.save_job(job)
+        await Services(events=events).recover_training_stages()
+        with pytest.raises(ValueError, match="lifetime is still unknown"):
+            async with Services(events=events)._training_stage(events.load_job(identity)):
+                pytest.fail("an unknown writer must not be replaced")
+
+    asyncio.run(exercise())
+    assert calls == ["prepare"]
+    assert staging.state(identity)["status"] == "prepared"
+    assert (path / "partial.png").read_bytes() == b"writer lifetime unknown"
+    assert events.load_job(identity)["remote_stage_cleanup"]["status"] == "retained_unknown"
+
+
 def test_box_launch_fences_before_starting_ssh(monkeypatch):
     calls = []
     async def stage_command(action, identity, **kwargs):
