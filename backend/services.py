@@ -1098,7 +1098,11 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
 
     @asynccontextmanager
     async def _training_stage(self, job: dict[str, Any]):
+        if job.get("remote_stage_cleanup", {}).get("status") == "retained_unknown":
+            raise ValueError("the previous transfer or worker lifetime is still unknown")
         job["remote_stage_id"] = job["job_id"]
+        # Persist uncertainty before a transfer can outlive this request.
+        job["remote_stage_cleanup"] = {"status": "retained_unknown", "reason": "transfer or worker lifetime not yet confirmed"}
         self.events.save_job(job)
         failure = None
         try:
@@ -1128,7 +1132,7 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
     async def recover_training_stages(self) -> None:
         for job in self.events.list_jobs():
             if (not job.get("remote_stage_id") or job.get("status") not in {"completed", "failed", "cancelled", "canceled"}
-                    or job.get("remote_stage_cleanup", {}).get("status") in {"removed", "absent"}):
+                    or job.get("remote_stage_cleanup", {}).get("status") in {"removed", "absent", "retained_unknown"}):
                 continue
             try:
                 result = await box.stage_command("clean", job["remote_stage_id"])
