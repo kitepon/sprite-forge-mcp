@@ -10,7 +10,7 @@ import uuid
 from PIL import Image, ImageChops
 
 from . import bible, box, workflows
-from .config import BOX_LORAS, BOX_TRAIN
+from .config import BOX_LORAS
 from .intent import PREVIEW_TAGS, identity_from_preview_prompt, organize_tags, preview_content, unique_tags
 from .preview_reviews import description_for_focus, review_has_input, review_needs_interpretation, review_of, require_interpreted_generation
 
@@ -407,65 +407,65 @@ class PreviewLearning:
         directory = Path(job['dataset'])
         directory.mkdir(parents=True, exist_ok=True)
         source = job['source']
-        remote_root = PureWindowsPath(BOX_TRAIN).parent.as_posix()
-        remote_directory = f'{remote_root}/{directory.name}'
-        models = PureWindowsPath(BOX_LORAS).parent.as_posix()
-        generation = source['generation']
-        by_id = {picture['id']: picture['review'] for picture in job['reviews']}
-        pair_regions = []
-        pair_masks: list[list[str] | None] = []
-        cache: dict[tuple[str, str], bytes] = {}
-        for ok_id, ng_id in job['pairs']:
-            regions = pair_spatial_regions(by_id.get(ng_id) or {})
-            pair_regions.append(list(regions))
-            if not regions:
-                pair_masks.append(None)
-                continue
-            ok_name, ng_name = f'{ok_id}.mask.png', f'{ng_id}.mask.png'
-            await self._pair_region_mask(ok_id, (directory / f'{ok_id}.png').read_bytes(), regions, directory, ok_name, cache, job['job_id'])
-            await self._pair_region_mask(ng_id, (directory / f'{ng_id}.png').read_bytes(), regions, directory, ng_name, cache, job['job_id'])
-            pair_masks.append([f'{remote_directory}/{ok_name}', f'{remote_directory}/{ng_name}'])
-        ratings = {'ok': ('ok',), 'ng': ('ng',), 'preference': ('ok', 'ng')}[mode]
-        extra = job.get('generation_prompt')
-        if extra is None:
-            extra = desired_generation_prompt(source['prompt'], job['reviews'], ratings)
-        config = {'model': f"{models}/diffusion_models/{generation['model']}",
-                  'qwen3': f"{models}/text_encoders/{generation['text_encoder']}",
-                  'vae': f"{models}/vae/{generation['vae']}",
-                  'lora': f"{PureWindowsPath(BOX_LORAS).as_posix()}/{source['loras'][0][0]}",
-                  'strength': source['loras'][0][1],
-                  'prompt': self._training_appearance_prompt(job['name'], extra or ''),
-                  'negative': source['negative'],
-                  'seed': source['seed'], 'size': [generation['width'], generation['height']],
-                  'mode': mode,
-                  'pairs': [[f'{remote_directory}/{image_id}.png' for image_id in pair] for pair in job['pairs']],
-                  'images': [f'{remote_directory}/{image_id}.png' for image_id in job.get('images') or []],
-                  'masks': pair_masks, 'pair_regions': pair_regions,
-                  'fixed_loras': [{'path': f'{PureWindowsPath(BOX_LORAS).as_posix()}/{filename}', 'strength': strength}
-                                  for filename, strength in source['loras'][1:]]}
-        (directory / 'input.json').write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding='utf-8')
-        job['training_config'] = config
-        self.events.save_job(job)
-        code, output = await box.copy_tree_to_box(directory, remote_root)
-        if code:
-            raise RuntimeError(output)
-        log_path = directory / 'training.log'
-        with log_path.open('w', encoding='utf-8') as log:
-            async for line in box.stream_preference_training(f'{remote_directory}/input.json', Path(job['lora_name']).stem,
-                                                             job['steps'], BOX_LORAS, job['learning_rate'], job['beta']):
-                log.write(line + '\n'); log.flush()
-                if line.startswith('{'):
-                    result = json.loads(line)
-                    if 'step' in result:
-                        job['progress'] = result
-                        self.events.save_job(job)
-        metrics = directory / 'result.json'
-        code, output = await box.copy_from_box(f"{PureWindowsPath(BOX_LORAS).as_posix()}/{Path(job['lora_name']).stem}.json", metrics)
-        if code:
-            raise RuntimeError(output)
-        job['training_result'] = json.loads(metrics.read_text(encoding='utf-8'))
-        job['status'] = 'previewing'
-        self.events.save_job(job)
+        async with self._training_stage(job) as remote_root:
+            remote_directory = f'{remote_root}/{directory.name}'
+            models = PureWindowsPath(BOX_LORAS).parent.as_posix()
+            generation = source['generation']
+            by_id = {picture['id']: picture['review'] for picture in job['reviews']}
+            pair_regions = []
+            pair_masks: list[list[str] | None] = []
+            cache: dict[tuple[str, str], bytes] = {}
+            for ok_id, ng_id in job['pairs']:
+                regions = pair_spatial_regions(by_id.get(ng_id) or {})
+                pair_regions.append(list(regions))
+                if not regions:
+                    pair_masks.append(None)
+                    continue
+                ok_name, ng_name = f'{ok_id}.mask.png', f'{ng_id}.mask.png'
+                await self._pair_region_mask(ok_id, (directory / f'{ok_id}.png').read_bytes(), regions, directory, ok_name, cache, job['job_id'])
+                await self._pair_region_mask(ng_id, (directory / f'{ng_id}.png').read_bytes(), regions, directory, ng_name, cache, job['job_id'])
+                pair_masks.append([f'{remote_directory}/{ok_name}', f'{remote_directory}/{ng_name}'])
+            ratings = {'ok': ('ok',), 'ng': ('ng',), 'preference': ('ok', 'ng')}[mode]
+            extra = job.get('generation_prompt')
+            if extra is None:
+                extra = desired_generation_prompt(source['prompt'], job['reviews'], ratings)
+            config = {'model': f"{models}/diffusion_models/{generation['model']}",
+                      'qwen3': f"{models}/text_encoders/{generation['text_encoder']}",
+                      'vae': f"{models}/vae/{generation['vae']}",
+                      'lora': f"{PureWindowsPath(BOX_LORAS).as_posix()}/{source['loras'][0][0]}",
+                      'strength': source['loras'][0][1],
+                      'prompt': self._training_appearance_prompt(job['name'], extra or ''),
+                      'negative': source['negative'],
+                      'seed': source['seed'], 'size': [generation['width'], generation['height']],
+                      'mode': mode,
+                      'pairs': [[f'{remote_directory}/{image_id}.png' for image_id in pair] for pair in job['pairs']],
+                      'images': [f'{remote_directory}/{image_id}.png' for image_id in job.get('images') or []],
+                      'masks': pair_masks, 'pair_regions': pair_regions,
+                      'fixed_loras': [{'path': f'{PureWindowsPath(BOX_LORAS).as_posix()}/{filename}', 'strength': strength}
+                                      for filename, strength in source['loras'][1:]]}
+            (directory / 'input.json').write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding='utf-8')
+            job['training_config'] = config
+            self.events.save_job(job)
+            code, output = await box.copy_tree_to_box(directory, remote_root)
+            if code:
+                raise RuntimeError(output)
+            log_path = directory / 'training.log'
+            with log_path.open('w', encoding='utf-8') as log:
+                async for line in box.stream_preference_training(f'{remote_directory}/input.json', Path(job['lora_name']).stem,
+                                                                 job['steps'], BOX_LORAS, job['learning_rate'], job['beta'], stage_id=job['job_id']):
+                    log.write(line + '\n'); log.flush()
+                    if line.startswith('{'):
+                        result = json.loads(line)
+                        if 'step' in result:
+                            job['progress'] = result
+                            self.events.save_job(job)
+            metrics = directory / 'result.json'
+            code, output = await box.copy_from_box(f"{PureWindowsPath(BOX_LORAS).as_posix()}/{Path(job['lora_name']).stem}.json", metrics)
+            if code:
+                raise RuntimeError(output)
+            job['training_result'] = json.loads(metrics.read_text(encoding='utf-8'))
+            job['status'] = 'previewing'
+            self.events.save_job(job)
 
     async def _region_mask_png(self, content: bytes, prompt: str, name: str, job_id: str) -> bytes:
         uploaded = await self.comfy.upload(content, name)

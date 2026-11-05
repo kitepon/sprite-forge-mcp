@@ -13,7 +13,7 @@ import time
 import zlib
 import re
 from copy import deepcopy
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
@@ -1096,35 +1096,78 @@ class Services(IntentServices, LayoutServices, PreviewReviews, PreviewLearning):
         with self._job_errors(job):
             return await self._execute_training(job, Path(job["dataset"]), Path(job["lora_name"]).stem, r"C:\sf", job["steps"])
 
+    @asynccontextmanager
+    async def _training_stage(self, job: dict[str, Any]):
+        job["remote_stage_id"] = job["job_id"]
+        self.events.save_job(job)
+        failure = None
+        try:
+            prepared = await box.stage_command("prepare", job["remote_stage_id"])
+            yield prepared["path"]
+        except BaseException as error:
+            failure = error
+            raise
+        finally:
+            cleanup_error = None
+            if isinstance(failure, asyncio.CancelledError):
+                result = {"status": "retained_unknown", "reason": "transfer or worker interrupted"}
+            else:
+                try:
+                    result = await box.stage_command("clean", job["remote_stage_id"])
+                except Exception as error:
+                    result = {"status": "error", "error": str(error)}
+                    cleanup_error = error
+            job["remote_stage_cleanup"] = result
+            self.events.save_job(job)
+            self.events.append(job["job_id"], "stage_cleanup", result)
+            if cleanup_error:
+                if failure is None:
+                    raise cleanup_error
+                failure.add_note(f"Stage cleanup failed: {cleanup_error}")
+
+    async def recover_training_stages(self) -> None:
+        for job in self.events.list_jobs():
+            if (not job.get("remote_stage_id") or job.get("status") not in {"completed", "failed", "cancelled", "canceled"}
+                    or job.get("remote_stage_cleanup", {}).get("status") in {"removed", "absent"}):
+                continue
+            try:
+                result = await box.stage_command("clean", job["remote_stage_id"])
+            except Exception as error:
+                result = {"status": "error", "error": str(error)}
+            job["remote_stage_cleanup"] = result
+            self.events.save_job(job)
+            self.events.append(job["job_id"], "stage_cleanup", result)
+
     async def _execute_training(self, job: dict[str, Any], panels: Path,
                                 stem: str, remote_root: str, steps: int) -> dict[str, Any]:
-        job_id = job["job_id"]
-        code, output = await box.copy_tree_to_box(panels, remote_root, ssh=BOX_SSH)
-        if code: raise RuntimeError(output)
-        self.generated_root.mkdir(parents=True, exist_ok=True)
-        toml = self.generated_root / f"{job_id}-dataset.toml"
-        toml_path = f"{remote_root.replace(chr(92), '/')}/{panels.name}"
-        from .training_dataset import dataset_config
-        toml.write_text(dataset_config(job, toml_path), encoding="utf-8")
-        code, output = await box.copy_to_box(toml, rf"{remote_root}\{job_id}-dataset.toml", ssh=BOX_SSH)
-        if code: raise RuntimeError(output)
-        await self.comfy.client.post(f"{self.comfy.base_url}/free", json={})
-        log_path = self.generated_root / f"{job_id}-train.log"
-        job.update(status="running", log_path=str(log_path)); self.events.save_job(job); self.events.append(job_id, "running", {})
-        with log_path.open("a", encoding="utf-8") as log:
-            async for line in box.stream_training(rf"{remote_root}\{job_id}-dataset.toml", stem,
-                                              r"C:\Users\kite_\ComfyUI\ComfyUI\models\diffusion_models\anima-base-v1.0.safetensors",
-                                              r"C:\Users\kite_\ComfyUI\ComfyUI\models\text_encoders\qwen_3_06b_base.safetensors",
-                                              r"C:\Users\kite_\ComfyUI\ComfyUI\models\vae\qwen_image_vae.safetensors", steps, BOX_LORAS, ssh=BOX_SSH):
-                log.write(line.rstrip() + "\n"); log.flush()
-                # sd-scripts prints tqdm: "steps:  12%|█▏  | 144/1200 [02:01<14:50,  1.19it/s, ...]"
-                match = re.search(r"\b(\d+)/(\d+) \[", line) or re.search(r"(?:step|Step)\s*(\d+)\s*/\s*(\d+)", line)
-                if match and int(match.group(1)) != job["progress"]["step"]:
-                    job["progress"] = {"step": int(match.group(1)), "total": int(match.group(2))}
-                    self.events.save_job(job); self.events.append(job_id, "progress", job["progress"])
-        job.update(status="completed", progress={"step": steps, "total": steps})
-        self.events.save_job(job); self.events.append(job_id, "completed", {"lora_name": job["lora_name"]})
-        return job
+        async with self._training_stage(job) as remote_root:
+            job_id = job["job_id"]
+            code, output = await box.copy_tree_to_box(panels, remote_root, ssh=BOX_SSH)
+            if code: raise RuntimeError(output)
+            self.generated_root.mkdir(parents=True, exist_ok=True)
+            toml = self.generated_root / f"{job_id}-dataset.toml"
+            toml_path = f"{remote_root.replace(chr(92), '/')}/{panels.name}"
+            from .training_dataset import dataset_config
+            toml.write_text(dataset_config(job, toml_path), encoding="utf-8")
+            code, output = await box.copy_to_box(toml, rf"{remote_root}\{job_id}-dataset.toml", ssh=BOX_SSH)
+            if code: raise RuntimeError(output)
+            await self.comfy.client.post(f"{self.comfy.base_url}/free", json={})
+            log_path = self.generated_root / f"{job_id}-train.log"
+            job.update(status="running", log_path=str(log_path)); self.events.save_job(job); self.events.append(job_id, "running", {})
+            with log_path.open("a", encoding="utf-8") as log:
+                async for line in box.stream_training(rf"{remote_root}\{job_id}-dataset.toml", stem,
+                                                  r"C:\Users\kite_\ComfyUI\ComfyUI\models\diffusion_models\anima-base-v1.0.safetensors",
+                                                  r"C:\Users\kite_\ComfyUI\ComfyUI\models\text_encoders\qwen_3_06b_base.safetensors",
+                                                  r"C:\Users\kite_\ComfyUI\ComfyUI\models\vae\qwen_image_vae.safetensors", steps, BOX_LORAS, ssh=BOX_SSH, stage_id=job_id):
+                    log.write(line.rstrip() + "\n"); log.flush()
+                    # sd-scripts prints tqdm: "steps:  12%|█▏  | 144/1200 [02:01<14:50,  1.19it/s, ...]"
+                    match = re.search(r"\b(\d+)/(\d+) \[", line) or re.search(r"(?:step|Step)\s*(\d+)\s*/\s*(\d+)", line)
+                    if match and int(match.group(1)) != job["progress"]["step"]:
+                        job["progress"] = {"step": int(match.group(1)), "total": int(match.group(2))}
+                        self.events.save_job(job); self.events.append(job_id, "progress", job["progress"])
+            job.update(status="completed", progress={"step": steps, "total": steps})
+            self.events.save_job(job); self.events.append(job_id, "completed", {"lora_name": job["lora_name"]})
+            return job
 
     async def refine_image(self, image: str, prompt: str, lora_name: str, denoise: float = 0.45,
                            lora_strength: float = 0.8, seed: int = 1) -> dict[str, Any]:

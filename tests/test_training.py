@@ -20,13 +20,15 @@ class _Comfy:
 
 
 def test_training_copies_samples_streams_progress_and_persists_job(tmp_path, monkeypatch):
+    from tests.staging_fixture import stage_command
+    monkeypatch.setattr(box, "stage_command", stage_command)
     async def copied(local, remote, **kwargs):
-        assert local.name.startswith("dataset_ember_") and remote == r"C:\sf"
+        assert local.name.startswith("dataset_ember_") and remote.startswith("C:/sf/staging/")
         return 0, ""
 
     async def copied_file(local, remote, **kwargs):
         text = local.read_text(encoding="utf-8")
-        assert 'image_dir = "C:/sf/dataset_ember_' in text and "num_repeats = 200" in text
+        assert 'image_dir = "C:/sf/staging/' in text and "/dataset_ember_" in text and "num_repeats = 200" in text
         return 0, ""
 
     async def lines(*args, **kwargs):
