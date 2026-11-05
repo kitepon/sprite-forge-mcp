@@ -12,7 +12,7 @@
 | 学習・`box/train.py`/`box/staging.py` | stage内configとモデル → LoRA/metrics/進捗 | foxのLoRA出力とモデルは永続。stageのみ転送コピー | OS lockでprepare/launch/run/clean状態変更を直列化。runningの教材は削除禁止。実subprocess終端後だけfinishedへ確定し回収。親trainerの強制終了/通信断はlaunching/runningのままunknown保持し、SSH終了をworker終端に読み替えない |
 | 履歴・`backend/events.py` | 操作/進捗/結果 → jobs JSON/events NDJSON/SSE | 主機永続、WebUI/MCP共通 | 複製バックアップではなく操作履歴。既データの自動時限削除はしない |
 | build/配備・担当integrations | lock済source/現image → 候補/Compose/受入 | 製品担当、主機Docker | .dockerignoreでcache/evidence/tests/.git/.venvを除外。候補受入成功後だけ現用・直前戻しを残し、自製未参照imageを通常rm。全container参照と混在所有は保護、force/prune禁止 |
-| 退避・担当配備器 | 停止中正本/manifest → NAS archive/復旧索引 | 正式NFS1000:1000、既5世代は復旧参照あり | 正式mount不成立で書込前停止。検証済NAS正本への索引だけlocalに残し同内容tarのlocalコピーを回収。既世代を無断退役しない |
+| 退避・担当配備器 | 停止中正本/manifest → NAS差分archive/復旧索引 | 正式NFS1000:1000、既5世代は復旧参照あり | 正式mount不成立で書込前停止。検証済immutable全量基点+file差分+削除一覧+source bundleで復旧可能にする。新管理世代は成功後current/previousの2参照を保持し、非参照の所有完了世代だけ回収。既legacy基点/unknownを無断退役しない |
 | 開発・受入 | tracked source/fixture → 試験結果/差分 | 本人席、公開repository | 一時生成物はTemporaryDirectory等で回収。完了candidateの展開コピーはsource commit/manifestで代替し、必要な差分と小証拠だけ保持 |
 
 ## データフロー図
@@ -21,7 +21,7 @@
 2. frozen教材＋job UUID → `Services._training_stage`/`box.stage_command` → fox `C:/sf/staging/<UUID>/`（所有marker） → SCP → launching確定 → trainer（running確定） → sd-scripts/ComfyUIモデル → 永続LoRA/metrics。
 3. trainer進捗 → SSH stdout → 主機log/job/event → WebUI SSE/MCP。metrics → 主機履歴。実subprocess終端 → finished確定 → marker・path・OS lock検証 → stageだけ回収。成功時には専用LoRA出力の実在も確認してからSSH成功を返す。転送側finallyはprepared/finishedだけを回収し、起動/稼働/結果不明は保持結果をjob/eventに保存。
 4. backend再起動 → 既存job再開/非再開jobをfailed確定 → terminal jobのremote stage回収。launching/running/unknownは保護し、通常終了したremote trainer自身の回収を優先。強制終了で実worker寿命を証明できないstageはunknownと記録し、無条件TTL削除しない。
-5. source/uv.lock → .dockerignore付きbuild → 候補 → idle確認 → 正式NAS退避＋manifest検証 → Compose → health/変更経路/データ保持受入 → 現用・直前戻し・全container参照を保護した自製image整理 → 配備結果記録。
+5. source/uv.lock → .dockerignore付きbuild → 候補 → idle確認 → 正式NASのimmutable基点+delta/削除一覧＋全manifest検証 → Compose → health/変更経路/データ保持受入 → 現用・直前戻し・全container参照を保護した自製image整理 → NAS current/previous索引更新と非参照の所有完了退避回収 → 配備結果記録。
 
 ## 削除境界
 
